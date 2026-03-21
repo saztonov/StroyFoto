@@ -183,7 +183,10 @@ export function NewReportPage() {
         updatedAt: now,
       });
 
-      // Save photos
+      // Enqueue report sync FIRST (must be synced before photos)
+      await enqueueSyncOp("UPSERT_REPORT", clientId);
+
+      // Save photos and enqueue uploads
       for (const photo of photos) {
         await db.photos.add({
           clientId: photo.clientId,
@@ -200,8 +203,6 @@ export function NewReportPage() {
         });
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
       }
-
-      await enqueueSyncOp("UPSERT_REPORT", clientId);
 
       showToast("Сохранено на устройстве");
       setTimeout(() => navigate("/reports"), 800);

@@ -252,26 +252,27 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           if (error) {
             request.log.warn({ error: error.message, code: error.code, clientId: data.clientId }, "sync/batch: upsert returned error, fetching existing");
 
-            // If ignoreDuplicates returns no row, fetch the existing one
+            // Try to fetch existing record (upsert may fail due to ignoreDuplicates returning no row)
             const { data: existing, error: fetchErr } = await fastify.supabase
               .from("reports")
               .select("id")
               .eq("client_id", data.clientId)
-              .single();
+              .maybeSingle();
 
-            if (fetchErr || !existing) {
-              request.log.error({ error: fetchErr?.message, clientId: data.clientId }, "sync/batch: failed to fetch existing report after upsert error");
-              results.push({
-                entityClientId: item.entityClientId,
-                status: "error",
-                message: error.message ?? "Upsert failed and existing record not found",
-              });
-            } else {
+            if (existing?.id) {
               request.log.info({ clientId: data.clientId, serverId: existing.id }, "sync/batch: found existing report");
               results.push({
                 entityClientId: item.entityClientId,
                 status: "ok",
                 serverId: existing.id,
+              });
+            } else {
+              // Real error (e.g. FK violation) — no existing record either
+              request.log.error({ error: error.message, code: error.code, fetchErr: fetchErr?.message, clientId: data.clientId }, "sync/batch: upsert failed and no existing record found");
+              results.push({
+                entityClientId: item.entityClientId,
+                status: "error",
+                message: error.message ?? "Failed to create report",
               });
             }
           } else {

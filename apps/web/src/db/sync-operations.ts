@@ -106,8 +106,17 @@ export async function executeUpsertReport(
     console.error("[sync:upsert] Result not ok:", result);
     return {
       success: false,
-      retryable: result?.status === "error",
+      retryable: true,
       error: result?.message ?? "Sync error",
+    };
+  }
+
+  if (!result.serverId) {
+    console.error("[sync:upsert] Server returned ok but no serverId! result:", result);
+    return {
+      success: false,
+      retryable: true,
+      error: "Сервер не вернул serverId",
     };
   }
 
@@ -136,8 +145,19 @@ export async function executeUploadPhoto(
   console.log("[sync:photo] Photo:", photo.clientId, "reportClientId:", photo.reportClientId, "report.serverId:", report?.serverId, "report.syncStatus:", report?.syncStatus);
 
   if (!report?.serverId) {
-    console.warn("[sync:photo] Parent report not synced yet. reportClientId:", photo.reportClientId);
-    return { success: false, retryable: true, error: "Отчёт ещё не синхронизирован" };
+    console.warn("[sync:photo] Parent report has no serverId. reportClientId:", photo.reportClientId, "syncStatus:", report?.syncStatus);
+
+    // Auto-repair: if report claims to be synced but has no serverId, re-queue it
+    if (report && (report.syncStatus === "synced" || report.syncStatus === "local-only" || report.syncStatus === "queued" || report.syncStatus === "error")) {
+      console.log("[sync:photo] Auto-repair: re-queuing UPSERT_REPORT for", photo.reportClientId);
+      await db.reports.update(photo.reportClientId, { syncStatus: "local-only" });
+
+      // Import dynamically to avoid circular dependency
+      const { enqueueSyncOp } = await import("./sync-queue");
+      await enqueueSyncOp("UPSERT_REPORT", photo.reportClientId);
+    }
+
+    return { success: false, retryable: true, error: "Отчёт ещё не синхронизирован — поставлен в очередь повторно" };
   }
 
   if (!photo.blob || photo.blob.size === 0) {
