@@ -244,7 +244,7 @@ export function NewReportPage() {
             >
               <option value="">Выберите проект</option>
               {projects.map((p) => (
-                <option key={p.id} value={p.code}>
+                <option key={p.id} value={p.id}>
                   {p.name} ({p.code})
                 </option>
               ))}

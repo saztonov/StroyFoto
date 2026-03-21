@@ -203,6 +203,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
     const parsed = syncBatchRequestSchema.safeParse(request.body);
     if (!parsed.success) {
+      request.log.warn({ details: parsed.error.flatten() }, "sync/batch: invalid request body");
       return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
@@ -214,6 +215,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         if (item.entityType === "report" && item.action === "create") {
           const reportParsed = createReportSchema.safeParse(item.payload);
           if (!reportParsed.success) {
+            request.log.warn({ entityClientId: item.entityClientId, errors: reportParsed.error.flatten() }, "sync/batch: invalid report payload");
             results.push({
               entityClientId: item.entityClientId,
               status: "error",
@@ -223,6 +225,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           const data = reportParsed.data;
+
+          request.log.info({ clientId: data.clientId, projectId: data.projectId, userId: user.sub }, "sync/batch: upserting report");
 
           // Idempotent upsert
           const { data: report, error } = await fastify.supabase
@@ -246,19 +250,32 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             .single();
 
           if (error) {
+            request.log.warn({ error: error.message, code: error.code, clientId: data.clientId }, "sync/batch: upsert returned error, fetching existing");
+
             // If ignoreDuplicates returns no row, fetch the existing one
-            const { data: existing } = await fastify.supabase
+            const { data: existing, error: fetchErr } = await fastify.supabase
               .from("reports")
               .select("id")
               .eq("client_id", data.clientId)
               .single();
 
-            results.push({
-              entityClientId: item.entityClientId,
-              status: "ok",
-              serverId: existing?.id ?? "",
-            });
+            if (fetchErr || !existing) {
+              request.log.error({ error: fetchErr?.message, clientId: data.clientId }, "sync/batch: failed to fetch existing report after upsert error");
+              results.push({
+                entityClientId: item.entityClientId,
+                status: "error",
+                message: error.message ?? "Upsert failed and existing record not found",
+              });
+            } else {
+              request.log.info({ clientId: data.clientId, serverId: existing.id }, "sync/batch: found existing report");
+              results.push({
+                entityClientId: item.entityClientId,
+                status: "ok",
+                serverId: existing.id,
+              });
+            }
           } else {
+            request.log.info({ clientId: data.clientId, serverId: report.id }, "sync/batch: report created");
             results.push({
               entityClientId: item.entityClientId,
               status: "ok",
@@ -274,6 +291,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
+        request.log.error({ entityClientId: item.entityClientId, error: message }, "sync/batch: uncaught error");
         results.push({
           entityClientId: item.entityClientId,
           status: "error",
@@ -282,6 +300,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    request.log.info({ results }, "sync/batch: completed");
     return { results };
   });
 };

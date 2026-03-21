@@ -39,6 +39,8 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
     const reportClientId = reportClientIdField.value as string;
     const clientId = clientIdField.value as string;
 
+    request.log.info({ clientId, reportClientId, filename: originalFilename, mimeType, sizeBytes, bucket: config.SUPABASE_STORAGE_BUCKET }, "photos/upload: starting");
+
     const objectKey = `${user.sub}/${reportClientId}/${clientId}-${originalFilename}`;
 
     // Upload to Supabase Storage
@@ -46,7 +48,12 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       .from(config.SUPABASE_STORAGE_BUCKET)
       .upload(objectKey, buffer, { contentType: mimeType, upsert: true });
 
-    if (uploadErr) throw uploadErr;
+    if (uploadErr) {
+      request.log.error({ error: uploadErr.message, objectKey, bucket: config.SUPABASE_STORAGE_BUCKET }, "photos/upload: Supabase Storage upload failed");
+      throw uploadErr;
+    }
+
+    request.log.info({ objectKey }, "photos/upload: file uploaded to storage");
 
     // Find report by clientId
     const { data: report, error: reportErr } = await fastify.supabase
@@ -56,6 +63,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       .single();
 
     if (reportErr || !report) {
+      request.log.error({ reportClientId, error: reportErr?.message }, "photos/upload: report not found");
       return reply.status(404).send({ error: "Report not found for the given reportClientId" });
     }
 

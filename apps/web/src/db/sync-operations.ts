@@ -16,8 +16,11 @@ export async function executeUpsertReport(
 ): Promise<OpResult> {
   const report = await db.reports.get(entry.entityClientId);
   if (!report) {
+    console.error("[sync:upsert] Report not found in Dexie:", entry.entityClientId);
     return { success: false, retryable: false, error: "Отчёт не найден локально" };
   }
+
+  console.log("[sync:upsert] Starting for report:", report.clientId, "projectId:", report.projectId);
 
   const batchReq: SyncBatchRequest = {
     items: [
@@ -49,10 +52,12 @@ export async function executeUpsertReport(
     body: JSON.stringify(batchReq),
   });
 
+  console.log("[sync:upsert] Response status:", res.status);
+
   if (res.status === 401) {
+    console.warn("[sync:upsert] 401 — refreshing token");
     const newToken = await handleAuthError();
     if (newToken) {
-      // Retry with refreshed token
       const retry = await fetch(`${apiUrl}/api/sync/batch`, {
         method: "POST",
         headers: {
@@ -62,32 +67,43 @@ export async function executeUpsertReport(
         },
         body: JSON.stringify(batchReq),
       });
+      console.log("[sync:upsert] Retry response status:", retry.status);
       if (!retry.ok) {
+        const errBody = await retry.text();
+        console.error("[sync:upsert] Retry failed:", retry.status, errBody);
         return { success: false, retryable: retry.status >= 500, error: `HTTP ${retry.status}` };
       }
       const retryData: SyncBatchResponse = await retry.json();
+      console.log("[sync:upsert] Retry response data:", JSON.stringify(retryData));
       const retryResult = retryData.results[0];
       if (!retryResult || retryResult.status !== "ok") {
+        console.error("[sync:upsert] Retry result not ok:", retryResult);
         return { success: false, retryable: retryResult?.status === "error", error: retryResult?.message ?? "Sync error" };
       }
       await db.reports.update(entry.entityClientId, { serverId: retryResult.serverId, syncStatus: "synced", updatedAt: new Date() });
+      console.log("[sync:upsert] Success (retry). serverId:", retryResult.serverId);
       return { success: true, retryable: false, serverId: retryResult.serverId };
     }
     return { success: false, retryable: false, error: "Сессия истекла. Войдите заново." };
   }
 
   if (!res.ok) {
+    const errBody = await res.text();
+    console.error("[sync:upsert] HTTP error:", res.status, errBody);
     return {
       success: false,
       retryable: res.status >= 500,
-      error: `HTTP ${res.status}`,
+      error: `HTTP ${res.status}: ${errBody}`,
     };
   }
 
   const data: SyncBatchResponse = await res.json();
   const result = data.results[0];
 
+  console.log("[sync:upsert] Response data:", JSON.stringify(data));
+
   if (!result || result.status !== "ok") {
+    console.error("[sync:upsert] Result not ok:", result);
     return {
       success: false,
       retryable: result?.status === "error",
@@ -101,6 +117,7 @@ export async function executeUpsertReport(
     updatedAt: new Date(),
   });
 
+  console.log("[sync:upsert] Success. serverId:", result.serverId);
   return { success: true, retryable: false, serverId: result.serverId };
 }
 
@@ -111,14 +128,24 @@ export async function executeUploadPhoto(
 ): Promise<OpResult> {
   const photo = await db.photos.get(entry.entityClientId);
   if (!photo) {
+    console.error("[sync:photo] Photo not found in Dexie:", entry.entityClientId);
     return { success: false, retryable: false, error: "Фото не найдено локально" };
   }
 
   const report = await db.reports.get(photo.reportClientId);
+  console.log("[sync:photo] Photo:", photo.clientId, "reportClientId:", photo.reportClientId, "report.serverId:", report?.serverId, "report.syncStatus:", report?.syncStatus);
+
   if (!report?.serverId) {
-    // Parent report not synced yet — skip, will be picked up on next run
+    console.warn("[sync:photo] Parent report not synced yet. reportClientId:", photo.reportClientId);
     return { success: false, retryable: true, error: "Отчёт ещё не синхронизирован" };
   }
+
+  if (!photo.blob || photo.blob.size === 0) {
+    console.error("[sync:photo] Photo blob is empty:", photo.clientId);
+    return { success: false, retryable: false, error: "Файл фото пуст" };
+  }
+
+  console.log("[sync:photo] Uploading photo:", photo.clientId, "size:", photo.blob.size, "fileName:", photo.fileName);
 
   const formData = new FormData();
   formData.append("clientId", photo.clientId);
@@ -156,16 +183,21 @@ export async function executeUploadPhoto(
     }
   }
 
+  console.log("[sync:photo] Upload response status:", res.status);
+
   if (!res.ok) {
+    const errBody = await res.text();
+    console.error("[sync:photo] Upload failed:", res.status, errBody);
     await db.photos.update(photo.clientId, { localStatus: "error" });
     return {
       success: false,
       retryable: res.status >= 500,
-      error: `HTTP ${res.status}`,
+      error: `HTTP ${res.status}: ${errBody}`,
     };
   }
 
   const data = await res.json();
+  console.log("[sync:photo] Upload success:", photo.clientId, "serverId:", data.id ?? data.serverId);
   await db.photos.update(photo.clientId, {
     serverId: data.id ?? data.serverId,
     syncStatus: "synced",

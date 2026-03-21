@@ -102,6 +102,7 @@ export async function processQueue(
   );
 
   if (entries.length === 0) {
+    console.log("[sync:queue] No actionable entries");
     return { synced: 0, failed: 0 };
   }
 
@@ -112,6 +113,8 @@ export async function processQueue(
     if (oa !== ob) return oa - ob;
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
+
+  console.log("[sync:queue] Processing", entries.length, "entries:", entries.map((e) => `${e.operationType}:${e.entityClientId.slice(0, 8)}(${e.status})`).join(", "));
 
   const total = entries.length;
   let completed = 0;
@@ -143,6 +146,8 @@ export async function processQueue(
             : executeFinalizeReport;
 
       const result = await executor(entry, freshToken, apiUrl);
+
+      console.log(`[sync:queue] ${entry.operationType}:${entry.entityClientId.slice(0, 8)} =>`, result.success ? "OK" : `FAIL(retryable=${result.retryable}): ${result.error}`);
 
       if (result.success) {
         await db.syncQueue.update(entry.id!, {
