@@ -1,0 +1,119 @@
+{
+  "cron.job.cron_job_cache_invalidate": {
+    "schema": "cron",
+    "name": "cron_job_cache_invalidate",
+    "table_name": "job",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER cron_job_cache_invalidate AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON cron.job FOR EACH STATEMENT EXECUTE FUNCTION cron.job_cache_invalidate()"
+  },
+  "public.areas.set_updated_at_areas": {
+    "schema": "public",
+    "name": "set_updated_at_areas",
+    "table_name": "areas",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_areas BEFORE UPDATE ON public.areas FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.contractors.set_updated_at_contractors": {
+    "schema": "public",
+    "name": "set_updated_at_contractors",
+    "table_name": "contractors",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_contractors BEFORE UPDATE ON public.contractors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.photos.set_updated_at_photos": {
+    "schema": "public",
+    "name": "set_updated_at_photos",
+    "table_name": "photos",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_photos BEFORE UPDATE ON public.photos FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.projects.set_updated_at_projects": {
+    "schema": "public",
+    "name": "set_updated_at_projects",
+    "table_name": "projects",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_projects BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.reports.set_updated_at_reports": {
+    "schema": "public",
+    "name": "set_updated_at_reports",
+    "table_name": "reports",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_reports BEFORE UPDATE ON public.reports FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.users.set_updated_at_users": {
+    "schema": "public",
+    "name": "set_updated_at_users",
+    "table_name": "users",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_users BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.work_types.set_updated_at_work_types": {
+    "schema": "public",
+    "name": "set_updated_at_work_types",
+    "table_name": "work_types",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_work_types BEFORE UPDATE ON public.work_types FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "realtime.subscription.tr_check_filters": {
+    "schema": "realtime",
+    "name": "tr_check_filters",
+    "table_name": "subscription",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER tr_check_filters BEFORE INSERT OR UPDATE ON realtime.subscription FOR EACH ROW EXECUTE FUNCTION realtime.subscription_check_filters()"
+  },
+  "storage.buckets.enforce_bucket_name_length_trigger": {
+    "schema": "storage",
+    "name": "enforce_bucket_name_length_trigger",
+    "table_name": "buckets",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER enforce_bucket_name_length_trigger BEFORE INSERT OR UPDATE OF name ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.enforce_bucket_name_length()"
+  },
+  "storage.buckets.protect_buckets_delete": {
+    "schema": "storage",
+    "name": "protect_buckets_delete",
+    "table_name": "buckets",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER protect_buckets_delete BEFORE DELETE ON storage.buckets FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete()"
+  },
+  "storage.objects.protect_objects_delete": {
+    "schema": "storage",
+    "name": "protect_objects_delete",
+    "table_name": "objects",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete()"
+  },
+  "storage.objects.update_objects_updated_at": {
+    "schema": "storage",
+    "name": "update_objects_updated_at",
+    "table_name": "objects",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.update_updated_at_column()"
+  }
+}

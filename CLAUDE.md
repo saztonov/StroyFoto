@@ -12,6 +12,7 @@ apps/api        — Fastify 5 + Supabase (PostgreSQL + Storage) (порт 3001)
 apps/web        — React 19 + Vite 6 + Dexie 4 + Tailwind CSS 4 (порт 5173)
 packages/shared — Zod-схемы, типы, константы (общие для api и web)
 e2e/            — Playwright E2E тесты
+supabase/migrations/ — Структура БД (prod.sql)
 ```
 
 ## Команды
