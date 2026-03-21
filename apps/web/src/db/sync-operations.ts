@@ -121,9 +121,9 @@ export async function executeUploadPhoto(
   }
 
   const formData = new FormData();
-  formData.append("file", photo.blob, photo.fileName);
   formData.append("clientId", photo.clientId);
   formData.append("reportClientId", photo.reportClientId);
+  formData.append("file", photo.blob, photo.fileName);
 
   let res = await fetch(`${apiUrl}/api/photos/upload`, {
     method: "POST",
@@ -139,9 +139,9 @@ export async function executeUploadPhoto(
     const newToken = await handleAuthError();
     if (newToken) {
       const retryForm = new FormData();
-      retryForm.append("file", photo.blob, photo.fileName);
       retryForm.append("clientId", photo.clientId);
       retryForm.append("reportClientId", photo.reportClientId);
+      retryForm.append("file", photo.blob, photo.fileName);
       res = await fetch(`${apiUrl}/api/photos/upload`, {
         method: "POST",
         headers: {

@@ -1,6 +1,14 @@
 import { FastifyPluginAsync } from "fastify";
 import type { TokenPayload } from "@stroyfoto/shared";
-import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
+import {
+  createProjectSchema,
+  updateProjectSchema,
+  createDictionaryItemSchema,
+  updateDictionaryItemSchema,
+  createAreaSchema,
+  updateAreaSchema,
+} from "@stroyfoto/shared";
+import { snakeToCamel, snakeToCamelArray, camelToSnake } from "../utils/case-transform.js";
 
 const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -137,6 +145,123 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       page,
       limit,
     };
+  });
+  // --- Dictionary CRUD ---
+
+  const tableMap: Record<string, string> = {
+    projects: "projects",
+    workTypes: "work_types",
+    contractors: "contractors",
+    areas: "areas",
+  };
+
+  // GET /api/admin/dictionaries/:type — all records including inactive
+  fastify.get<{ Params: { type: string } }>("/api/admin/dictionaries/:type", async (request, reply) => {
+    const tableName = tableMap[request.params.type];
+    if (!tableName) {
+      return reply.status(400).send({ error: "Invalid dictionary type" });
+    }
+
+    const { data, error } = await fastify.supabase
+      .from(tableName)
+      .select("*")
+      .order("name");
+
+    if (error) throw error;
+    return snakeToCamelArray(data ?? []);
+  });
+
+  // POST /api/admin/dictionaries/:type — create record
+  fastify.post<{ Params: { type: string } }>("/api/admin/dictionaries/:type", async (request, reply) => {
+    const type = request.params.type;
+    const tableName = tableMap[type];
+    if (!tableName) {
+      return reply.status(400).send({ error: "Invalid dictionary type" });
+    }
+
+    // Validate with appropriate schema
+    const schema =
+      type === "projects" ? createProjectSchema :
+      type === "areas" ? createAreaSchema :
+      createDictionaryItemSchema;
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const insertData = camelToSnake(parsed.data as Record<string, unknown>);
+
+    const { data, error } = await fastify.supabase
+      .from(tableName)
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return reply.status(409).send({ error: "Запись с таким именем или кодом уже существует" });
+      }
+      throw error;
+    }
+
+    return reply.status(201).send(snakeToCamel(data as Record<string, unknown>));
+  });
+
+  // PUT /api/admin/dictionaries/:type/:id — update record
+  fastify.put<{ Params: { type: string; id: string } }>("/api/admin/dictionaries/:type/:id", async (request, reply) => {
+    const type = request.params.type;
+    const tableName = tableMap[type];
+    if (!tableName) {
+      return reply.status(400).send({ error: "Invalid dictionary type" });
+    }
+
+    const schema =
+      type === "projects" ? updateProjectSchema :
+      type === "areas" ? updateAreaSchema :
+      updateDictionaryItemSchema;
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const updateData = camelToSnake(parsed.data as Record<string, unknown>);
+
+    const { data, error } = await fastify.supabase
+      .from(tableName)
+      .update({ ...updateData, updated_at: new Date().toISOString() })
+      .eq("id", request.params.id)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return reply.status(409).send({ error: "Запись с таким именем или кодом уже существует" });
+      }
+      if (error.code === "PGRST116") {
+        return reply.status(404).send({ error: "Запись не найдена" });
+      }
+      throw error;
+    }
+
+    return snakeToCamel(data as Record<string, unknown>);
+  });
+
+  // DELETE /api/admin/dictionaries/:type/:id — soft delete (is_active = false)
+  fastify.delete<{ Params: { type: string; id: string } }>("/api/admin/dictionaries/:type/:id", async (request, reply) => {
+    const tableName = tableMap[request.params.type];
+    if (!tableName) {
+      return reply.status(400).send({ error: "Invalid dictionary type" });
+    }
+
+    const { error } = await fastify.supabase
+      .from(tableName)
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("id", request.params.id);
+
+    if (error) throw error;
+    return { success: true };
   });
 };
 

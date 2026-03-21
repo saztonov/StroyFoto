@@ -15,6 +15,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string, fullName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -71,6 +72,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(session);
   }, []);
 
+  const register = useCallback(async (username: string, password: string, fullName: string) => {
+    const apiUrl = import.meta.env.VITE_API_URL ?? "";
+    const res = await fetch(`${apiUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, fullName }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? "Ошибка регистрации");
+    }
+
+    const data: LoginResponse = await res.json();
+
+    const now = Date.now();
+    const session: AuthSession = {
+      id: AUTH_SESSION_KEY,
+      token: data.accessToken ?? data.token,
+      refreshToken: data.refreshToken ?? "",
+      userId: data.user.id,
+      username: data.user.username,
+      role: data.user.role,
+      fullName: data.user.fullName,
+      expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+      tokenIssuedAt: now,
+    };
+
+    await db.authSession.put(session);
+    setUser(session);
+  }, []);
+
   const logout = useCallback(async () => {
     await db.authSession.delete(AUTH_SESSION_KEY);
     setUser(null);
@@ -84,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: user !== null,
         loading,
         login,
+        register,
         logout,
       }}
     >

@@ -206,9 +206,10 @@ export function ReportsPage() {
       ) : (
         <div className="space-y-3">
           {reports.map((report) => (
-            <div
+            <Link
+              to={`/reports/${report.clientId}`}
               key={report.clientId}
-              className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+              className="block rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md"
             >
               <div className="mb-2 flex items-start justify-between">
                 <div>
@@ -219,7 +220,7 @@ export function ReportsPage() {
                   <SyncStatusBadge status={report.syncStatus} />
                   {report.syncStatus === "error" && (
                     <button
-                      onClick={() => handleRetry(report.clientId)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRetry(report.clientId); }}
                       className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100"
                       title="Повторить"
                     >
@@ -258,7 +259,7 @@ export function ReportsPage() {
                   <span>{photoCounts![report.clientId]} фото</span>
                 </div>
               )}
-            </div>
+            </Link>
           ))}
         </div>
       )}

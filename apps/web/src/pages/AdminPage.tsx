@@ -3,20 +3,44 @@ import { useAuth } from "../auth/auth-context";
 import { useOnline } from "../hooks/use-online";
 import { apiFetch } from "../api/client";
 import type { User } from "@stroyfoto/shared";
+import { DictionaryManager } from "../components/admin/DictionaryManager";
+import type { FormField } from "../components/admin/DictionaryFormModal";
 
 interface AdminStats {
   totalReports: number;
   totalPhotos: number;
-  reportsByProject: { projectId: string; count: number }[];
+  reportsByProject: { projectId: string; projectName?: string; projectCode?: string; count: number }[];
 }
+
+type TabKey = "overview" | "projects" | "workTypes" | "areas" | "contractors";
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "overview", label: "Обзор" },
+  { key: "projects", label: "Проекты" },
+  { key: "workTypes", label: "Виды работ" },
+  { key: "areas", label: "Участки" },
+  { key: "contractors", label: "Подрядчики" },
+];
+
+const projectFormFields: FormField[] = [
+  { key: "name", label: "Название", type: "text" },
+  { key: "code", label: "Код", type: "text" },
+  { key: "address", label: "Адрес", type: "text", required: false },
+];
+
+const simpleFormFields: FormField[] = [
+  { key: "name", label: "Название", type: "text" },
+];
 
 export function AdminPage() {
   const { user } = useAuth();
   const isOnline = useOnline();
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     if (user?.role !== "ADMIN" || !isOnline) return;
@@ -27,10 +51,12 @@ export function AdminPage() {
     Promise.all([
       apiFetch<User[]>("/api/admin/users"),
       apiFetch<AdminStats>("/api/admin/stats"),
+      apiFetch<{ id: string; name: string }[]>("/api/admin/dictionaries/projects"),
     ])
-      .then(([usersData, statsData]) => {
+      .then(([usersData, statsData, projectsData]) => {
         setUsers(usersData);
         setStats(statsData);
+        setProjects(projectsData);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
@@ -80,91 +106,177 @@ export function AdminPage() {
     );
   }
 
+  const areaFormFields: FormField[] = [
+    { key: "name", label: "Название", type: "text" },
+    {
+      key: "projectId",
+      label: "Проект",
+      type: "select",
+      nullable: true,
+      required: false,
+      options: projects.map((p) => ({ value: p.id, label: p.name })),
+    },
+  ];
+
   return (
     <div className="px-4 py-4">
       <h2 className="mb-4 text-xl font-bold text-gray-900">Администрирование</h2>
 
-      {/* Stats cards */}
-      {stats && (
-        <div className="mb-6 grid grid-cols-2 gap-3">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Всего отчётов</p>
-            <p className="mt-1 text-2xl font-bold text-blue-600">{stats.totalReports}</p>
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">Всего фото</p>
-            <p className="mt-1 text-2xl font-bold text-purple-600">{stats.totalPhotos}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Reports by project */}
-      {stats && stats.reportsByProject.length > 0 && (
-        <div className="mb-6">
-          <h3 className="mb-3 text-sm font-semibold text-gray-700">Отчёты по проектам</h3>
-          <div className="space-y-2">
-            {stats.reportsByProject.map((item) => (
-              <div
-                key={item.projectId}
-                className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3"
-              >
-                <span className="text-sm font-medium text-gray-700">{item.projectId}</span>
-                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700">
-                  {item.count}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Users table */}
-      <div>
-        <h3 className="mb-3 text-sm font-semibold text-gray-700">
-          Пользователи ({users.length})
-        </h3>
-
-        {users.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-gray-200 bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Логин</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {users.map((u) => (
-                    <tr key={u.id}>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
-                        {u.fullName}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">
-                        {u.username}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                            u.role === "ADMIN"
-                              ? "bg-orange-100 text-orange-700"
-                              : "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {u.role === "ADMIN" ? "Админ" : "Работник"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <p className="text-center text-sm text-gray-400">Нет данных</p>
-        )}
+      {/* Tabs */}
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
+              activeTab === tab.key
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      {/* Tab Content */}
+      {activeTab === "overview" && (
+        <>
+          {/* Stats cards */}
+          {stats && (
+            <div className="mb-6 grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-sm text-gray-500">Всего отчётов</p>
+                <p className="mt-1 text-2xl font-bold text-blue-600">{stats.totalReports}</p>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-sm text-gray-500">Всего фото</p>
+                <p className="mt-1 text-2xl font-bold text-purple-600">{stats.totalPhotos}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Reports by project */}
+          {stats && stats.reportsByProject.length > 0 && (
+            <div className="mb-6">
+              <h3 className="mb-3 text-sm font-semibold text-gray-700">Отчёты по проектам</h3>
+              <div className="space-y-2">
+                {stats.reportsByProject.map((item) => (
+                  <div
+                    key={item.projectId}
+                    className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-gray-700">
+                      {item.projectName ?? item.projectId}
+                    </span>
+                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700">
+                      {item.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Users table */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+              Пользователи ({users.length})
+            </h3>
+
+            {users.length > 0 ? (
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-gray-200 bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
+                        <th className="px-4 py-3 font-medium text-gray-500">Логин</th>
+                        <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {users.map((u) => (
+                        <tr key={u.id}>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
+                            {u.fullName}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                            {u.username}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                                u.role === "ADMIN"
+                                  ? "bg-orange-100 text-orange-700"
+                                  : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {u.role === "ADMIN" ? "Админ" : "Работник"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="text-center text-sm text-gray-400">Нет данных</p>
+            )}
+          </div>
+        </>
+      )}
+
+      {activeTab === "projects" && (
+        <DictionaryManager
+          type="projects"
+          title="Проекты"
+          columns={[
+            { key: "name", label: "Название" },
+            { key: "code", label: "Код" },
+            { key: "address", label: "Адрес" },
+          ]}
+          formFields={projectFormFields}
+        />
+      )}
+
+      {activeTab === "workTypes" && (
+        <DictionaryManager
+          type="workTypes"
+          title="Виды работ"
+          columns={[{ key: "name", label: "Название" }]}
+          formFields={simpleFormFields}
+        />
+      )}
+
+      {activeTab === "areas" && (
+        <DictionaryManager
+          type="areas"
+          title="Участки"
+          columns={[
+            { key: "name", label: "Название" },
+            {
+              key: "projectId",
+              label: "Проект",
+              render: (value) => {
+                const project = projects.find((p) => p.id === value);
+                return project?.name ?? (value ? String(value) : "—");
+              },
+            },
+          ]}
+          formFields={areaFormFields}
+        />
+      )}
+
+      {activeTab === "contractors" && (
+        <DictionaryManager
+          type="contractors"
+          title="Подрядчики"
+          columns={[{ key: "name", label: "Название" }]}
+          formFields={simpleFormFields}
+        />
+      )}
     </div>
   );
 }

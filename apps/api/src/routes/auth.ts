@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
-import { loginRequestSchema, refreshRequestSchema } from "@stroyfoto/shared";
+import { loginRequestSchema, refreshRequestSchema, registerRequestSchema } from "@stroyfoto/shared";
 import { config } from "../config.js";
 import { snakeToCamel } from "../utils/case-transform.js";
 
@@ -57,6 +57,74 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         fullName: user.full_name,
       },
     };
+  });
+
+  // POST /api/auth/register
+  fastify.post("/api/auth/register", async (request, reply) => {
+    const parsed = registerRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { username, password, fullName } = parsed.data;
+
+    // Check username uniqueness
+    const { data: existing } = await fastify.supabase
+      .from("users")
+      .select("id")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (existing) {
+      return reply.status(409).send({ error: "Имя пользователя уже занято" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const { data: user, error } = await fastify.supabase
+      .from("users")
+      .insert({
+        username,
+        password: hashedPassword,
+        role: "WORKER",
+        full_name: fullName,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return reply.status(409).send({ error: "Имя пользователя уже занято" });
+      }
+      throw error;
+    }
+
+    const accessToken = fastify.jwt.sign({
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+    });
+
+    const refreshTokenValue = crypto.randomUUID();
+    const refreshExpiresMs = parseExpiry(config.JWT_REFRESH_EXPIRES_IN);
+
+    await fastify.supabase.from("refresh_tokens").insert({
+      token: refreshTokenValue,
+      user_id: user.id,
+      expires_at: new Date(Date.now() + refreshExpiresMs).toISOString(),
+    });
+
+    return reply.status(201).send({
+      accessToken,
+      refreshToken: refreshTokenValue,
+      token: accessToken,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        fullName: user.full_name,
+      },
+    });
   });
 
   // POST /api/auth/refresh

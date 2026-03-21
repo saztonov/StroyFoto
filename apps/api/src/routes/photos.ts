@@ -15,6 +15,13 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "No file uploaded" });
     }
 
+    const originalFilename = data.filename;
+    const mimeType = data.mimetype;
+
+    // Read file buffer first to ensure all multipart fields are parsed
+    const buffer = await data.toBuffer();
+    const sizeBytes = buffer.length;
+
     const fields = data.fields;
 
     const reportClientIdField = fields["reportClientId"];
@@ -31,14 +38,8 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
 
     const reportClientId = reportClientIdField.value as string;
     const clientId = clientIdField.value as string;
-    const originalFilename = data.filename;
-    const mimeType = data.mimetype;
 
     const objectKey = `${user.sub}/${reportClientId}/${clientId}-${originalFilename}`;
-
-    // Read file buffer
-    const buffer = await data.toBuffer();
-    const sizeBytes = buffer.length;
 
     // Upload to Supabase Storage
     const { error: uploadErr } = await fastify.supabase.storage

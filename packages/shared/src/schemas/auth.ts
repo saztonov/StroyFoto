@@ -34,8 +34,15 @@ export const refreshResponseSchema = z.object({
   refreshToken: z.string(),
 });
 
+export const registerRequestSchema = z.object({
+  username: z.string().min(3).max(50),
+  password: z.string().min(6),
+  fullName: z.string().min(1).max(100),
+});
+
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type TokenPayload = z.infer<typeof tokenPayloadSchema>;
 export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
 export type RefreshResponse = z.infer<typeof refreshResponseSchema>;
+export type RegisterRequest = z.infer<typeof registerRequestSchema>;

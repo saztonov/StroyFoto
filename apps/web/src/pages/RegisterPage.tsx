@@ -2,11 +2,13 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, Navigate, Link } from "react-router";
 import { useAuth } from "../auth/auth-context";
 
-export function LoginPage() {
+export function RegisterPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
+  const { register, isAuthenticated } = useAuth();
   const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,13 +19,19 @@ export function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (password !== confirmPassword) {
+      setError("Пароли не совпадают");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      await login(username, password);
+      await register(username, password, fullName);
       navigate("/reports", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка авторизации");
+      setError(err instanceof Error ? err.message : "Ошибка регистрации");
     } finally {
       setSubmitting(false);
     }
@@ -34,10 +42,27 @@ export function LoginPage() {
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-blue-600">СтройФото</h1>
-          <p className="mt-2 text-sm text-gray-500">Вход в систему</p>
+          <p className="mt-2 text-sm text-gray-500">Регистрация</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-gray-700">
+              Полное имя
+            </label>
+            <input
+              id="fullName"
+              type="text"
+              required
+              autoComplete="name"
+              autoFocus
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              placeholder="Иванов Иван Иванович"
+            />
+          </div>
+
           <div>
             <label htmlFor="username" className="mb-1 block text-sm font-medium text-gray-700">
               Имя пользователя
@@ -46,12 +71,12 @@ export function LoginPage() {
               id="username"
               type="text"
               required
+              minLength={3}
               autoComplete="username"
-              autoFocus
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Логин"
+              placeholder="Логин (мин. 3 символа)"
             />
           </div>
 
@@ -63,11 +88,29 @@ export function LoginPage() {
               id="password"
               type="password"
               required
-              autoComplete="current-password"
+              minLength={6}
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Пароль"
+              placeholder="Пароль (мин. 6 символов)"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-gray-700">
+              Подтверждение пароля
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              placeholder="Повторите пароль"
             />
           </div>
 
@@ -82,14 +125,14 @@ export function LoginPage() {
             disabled={submitting}
             className="w-full rounded-xl bg-blue-600 py-3.5 text-base font-semibold text-white transition hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Вход..." : "Войти"}
+            {submitting ? "Регистрация..." : "Зарегистрироваться"}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-500">
-          Нет аккаунта?{" "}
-          <Link to="/register" className="font-medium text-blue-600 hover:text-blue-700">
-            Зарегистрироваться
+          Уже есть аккаунт?{" "}
+          <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">
+            Войти
           </Link>
         </p>
       </div>
