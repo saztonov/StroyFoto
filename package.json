@@ -1,0 +1,30 @@
+{
+  "name": "stroyfoto",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "dev:api": "pnpm --filter @stroyfoto/api dev",
+    "dev:web": "pnpm --filter @stroyfoto/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r run test:run",
+    "test:api": "pnpm --filter @stroyfoto/api test",
+    "test:web": "pnpm --filter @stroyfoto/web test:run",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "db:migrate": "pnpm --filter @stroyfoto/api prisma migrate dev",
+    "db:seed": "pnpm --filter @stroyfoto/api prisma db seed",
+    "db:reset": "pnpm --filter @stroyfoto/api prisma migrate reset --force",
+    "db:studio": "pnpm --filter @stroyfoto/api prisma studio",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "setup": "pnpm install && pnpm docker:up && pnpm db:migrate && pnpm db:seed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}
