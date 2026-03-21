@@ -1,20 +1,13 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  DATABASE_URL: z.string().min(1),
+  SUPABASE_URL: z.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  SUPABASE_STORAGE_BUCKET: z.string().default("stroyfoto"),
   API_PORT: z.coerce.number().default(3001),
   JWT_SECRET: z.string().min(1),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
-  MINIO_ENDPOINT: z.string().default("localhost"),
-  MINIO_PORT: z.coerce.number().default(9000),
-  MINIO_ROOT_USER: z.string().min(1),
-  MINIO_ROOT_PASSWORD: z.string().min(1),
-  MINIO_BUCKET: z.string().default("stroyfoto"),
-  MINIO_USE_SSL: z
-    .string()
-    .default("false")
-    .transform((v) => v === "true"),
   PRESIGNED_URL_EXPIRY: z.coerce.number().default(3600),
 });
 

@@ -95,9 +95,10 @@ describe("POST /api/sync/push — idempotent push", () => {
   });
 
   it("should have only one report in DB for duplicate clientId", async () => {
-    const count = await app.prisma.report.count({
-      where: { clientId: reportClientId },
-    });
+    const { count } = await app.supabase
+      .from("reports")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", reportClientId);
     expect(count).toBe(1);
   });
 });
@@ -150,11 +151,12 @@ describe("POST /api/sync/push — with photos", () => {
   });
 
   it("should have photos with PENDING_UPLOAD status", async () => {
-    const photos = await app.prisma.photo.findMany({
-      where: { clientId: { in: [photoClientId1, photoClientId2] } },
-    });
+    const { data: photos } = await app.supabase
+      .from("photos")
+      .select("*")
+      .in("client_id", [photoClientId1, photoClientId2]);
     expect(photos).toHaveLength(2);
-    expect(photos.every((p) => p.uploadStatus === "PENDING_UPLOAD")).toBe(true);
+    expect(photos!.every((p) => p.upload_status === "PENDING_UPLOAD")).toBe(true);
   });
 
   it("should re-issue presigned URLs on duplicate push", async () => {

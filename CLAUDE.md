@@ -8,7 +8,7 @@
 ## Структура монорепо
 
 ```
-apps/api        — Fastify 5 + Prisma 6 + PostgreSQL + MinIO (порт 3001)
+apps/api        — Fastify 5 + Supabase (PostgreSQL + Storage) (порт 3001)
 apps/web        — React 19 + Vite 6 + Dexie 4 + Tailwind CSS 4 (порт 5173)
 packages/shared — Zod-схемы, типы, константы (общие для api и web)
 e2e/            — Playwright E2E тесты
@@ -21,10 +21,8 @@ pnpm dev              # Все сервисы
 pnpm build            # Сборка
 pnpm typecheck        # Проверка типов
 pnpm test             # Unit-тесты (Vitest)
-pnpm e2e              # E2E тесты (Playwright, требует Docker)
-pnpm db:migrate       # Миграции Prisma
-pnpm db:seed          # Демо-данные
-pnpm docker:up        # PostgreSQL + MinIO
+pnpm e2e              # E2E тесты (Playwright)
+pnpm db:seed          # Демо-данные (через Supabase)
 ```
 
 ## Технологические соглашения
@@ -32,8 +30,9 @@ pnpm docker:up        # PostgreSQL + MinIO
 - TypeScript strict во всех пакетах
 - Zod для валидации на границах (API входы, формы) — схемы в `packages/shared`
 - Dexie 4 для IndexedDB (офлайн-хранилище на клиенте)
-- Prisma 6 для PostgreSQL (бэкенд)
+- Supabase (`@supabase/supabase-js`) для PostgreSQL и Storage (бэкенд, service_role key)
 - Tailwind CSS 4 для стилей (utility-first, без отдельных CSS-файлов)
+- snake_case в БД, camelCase в API — маппинг через `utils/case-transform.ts`
 
 ## Критические паттерны — не ломать
 

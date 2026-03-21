@@ -2,8 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { config } from "./config.js";
-import prismaPlugin from "./plugins/prisma.js";
-import minioPlugin from "./plugins/minio.js";
+import supabasePlugin from "./plugins/supabase.js";
 import authPlugin from "./plugins/auth.js";
 import authRoutes from "./routes/auth.js";
 import reportsRoutes from "./routes/reports.js";
@@ -12,14 +11,12 @@ import syncRoutes from "./routes/sync.js";
 import adminRoutes from "./routes/admin.js";
 import dictionariesRoutes from "./routes/dictionaries.js";
 import uploadsRoutes from "./routes/uploads.js";
-import type { PrismaClient } from "@prisma/client";
-import type { Client as MinioClient } from "minio";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Augment Fastify types
 declare module "fastify" {
   interface FastifyInstance {
-    prisma: PrismaClient;
-    minio: MinioClient;
+    supabase: SupabaseClient;
     authenticate: (request: FastifyRequest) => Promise<void>;
   }
 }
@@ -43,8 +40,7 @@ async function start() {
   await fastify.register(multipart);
 
   // Register plugins
-  await fastify.register(prismaPlugin);
-  await fastify.register(minioPlugin);
+  await fastify.register(supabasePlugin);
   await fastify.register(authPlugin);
 
   // Register routes

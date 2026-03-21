@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from "fastify";
+import { snakeToCamelArray } from "../utils/case-transform.js";
 
 const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -8,11 +9,19 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/reference/projects",
     async (request) => {
       const { updatedSince } = request.query;
-      const where: Record<string, unknown> = { isActive: true };
+      let query = fastify.supabase
+        .from("projects")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
       if (updatedSince) {
-        where.updatedAt = { gt: new Date(updatedSince) };
+        query = query.gt("updated_at", updatedSince);
       }
-      return fastify.prisma.project.findMany({ where, orderBy: { name: "asc" } });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return snakeToCamelArray(data ?? []);
     },
   );
 
@@ -21,11 +30,19 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/reference/workTypes",
     async (request) => {
       const { updatedSince } = request.query;
-      const where: Record<string, unknown> = { isActive: true };
+      let query = fastify.supabase
+        .from("work_types")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
       if (updatedSince) {
-        where.updatedAt = { gt: new Date(updatedSince) };
+        query = query.gt("updated_at", updatedSince);
       }
-      return fastify.prisma.workType.findMany({ where, orderBy: { name: "asc" } });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return snakeToCamelArray(data ?? []);
     },
   );
 
@@ -34,11 +51,19 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/reference/contractors",
     async (request) => {
       const { updatedSince } = request.query;
-      const where: Record<string, unknown> = { isActive: true };
+      let query = fastify.supabase
+        .from("contractors")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
       if (updatedSince) {
-        where.updatedAt = { gt: new Date(updatedSince) };
+        query = query.gt("updated_at", updatedSince);
       }
-      return fastify.prisma.contractor.findMany({ where, orderBy: { name: "asc" } });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return snakeToCamelArray(data ?? []);
     },
   );
 
@@ -47,32 +72,43 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/reference/areas",
     async (request) => {
       const { updatedSince, projectId } = request.query;
-      const where: Record<string, unknown> = { isActive: true };
+      let query = fastify.supabase
+        .from("areas")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
       if (updatedSince) {
-        where.updatedAt = { gt: new Date(updatedSince) };
+        query = query.gt("updated_at", updatedSince);
       }
       if (projectId) {
-        where.projectId = projectId;
+        query = query.eq("project_id", projectId);
       }
-      return fastify.prisma.area.findMany({ where, orderBy: { name: "asc" } });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return snakeToCamelArray(data ?? []);
     },
   );
 
   // GET /api/dictionaries — combined endpoint with version hashes
   fastify.get("/api/dictionaries", async () => {
-    const [projects, workTypes, contractors, areas] = await Promise.all([
-      fastify.prisma.project.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      fastify.prisma.workType.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      fastify.prisma.contractor.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      fastify.prisma.area.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    const [projectsRes, workTypesRes, contractorsRes, areasRes] = await Promise.all([
+      fastify.supabase.from("projects").select("*").eq("is_active", true).order("name"),
+      fastify.supabase.from("work_types").select("*").eq("is_active", true).order("name"),
+      fastify.supabase.from("contractors").select("*").eq("is_active", true).order("name"),
+      fastify.supabase.from("areas").select("*").eq("is_active", true).order("name"),
     ]);
 
-    const versionOf = (items: { updatedAt: Date }[]): string => {
+    const projects = snakeToCamelArray(projectsRes.data ?? []);
+    const workTypes = snakeToCamelArray(workTypesRes.data ?? []);
+    const contractors = snakeToCamelArray(contractorsRes.data ?? []);
+    const areas = snakeToCamelArray(areasRes.data ?? []);
+
+    const versionOf = (items: Record<string, unknown>[]): string => {
       if (items.length === 0) return "0";
-      const latest = items.reduce((max, item) =>
-        item.updatedAt > max ? item.updatedAt : max,
-        items[0].updatedAt,
-      );
+      const updatedAts = items.map((item) => new Date(item.updatedAt as string));
+      const latest = updatedAts.reduce((max, d) => (d > max ? d : max), updatedAts[0]);
       return latest.toISOString();
     };
 

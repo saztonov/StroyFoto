@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import { config } from "../config.js";
 import type { TokenPayload } from "@stroyfoto/shared";
+import { snakeToCamel } from "../utils/case-transform.js";
 
 const photosRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -39,71 +40,88 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
     const buffer = await data.toBuffer();
     const sizeBytes = buffer.length;
 
-    // Upload to MinIO
-    await fastify.minio.putObject(config.MINIO_BUCKET, objectKey, buffer, sizeBytes, {
-      "Content-Type": mimeType,
-    });
+    // Upload to Supabase Storage
+    const { error: uploadErr } = await fastify.supabase.storage
+      .from(config.SUPABASE_STORAGE_BUCKET)
+      .upload(objectKey, buffer, { contentType: mimeType, upsert: true });
+
+    if (uploadErr) throw uploadErr;
 
     // Find report by clientId
-    const report = await fastify.prisma.report.findUnique({
-      where: { clientId: reportClientId },
-    });
+    const { data: report, error: reportErr } = await fastify.supabase
+      .from("reports")
+      .select("id")
+      .eq("client_id", reportClientId)
+      .single();
 
-    if (!report) {
+    if (reportErr || !report) {
       return reply.status(404).send({ error: "Report not found for the given reportClientId" });
     }
 
-    // Idempotent: upsert photo record
-    const existingPhoto = await fastify.prisma.photo.findUnique({
-      where: { clientId },
-    });
+    // Idempotent: check if photo exists
+    const { data: existingPhoto } = await fastify.supabase
+      .from("photos")
+      .select("*")
+      .eq("client_id", clientId)
+      .maybeSingle();
 
     if (existingPhoto) {
-      const updated = await fastify.prisma.photo.update({
-        where: { clientId },
-        data: { uploadStatus: "UPLOADED", sizeBytes },
-      });
-      return reply.status(200).send(updated);
+      const { data: updated, error: updateErr } = await fastify.supabase
+        .from("photos")
+        .update({ upload_status: "UPLOADED" as const, size_bytes: sizeBytes })
+        .eq("client_id", clientId)
+        .select()
+        .single();
+
+      if (updateErr) throw updateErr;
+      return reply.status(200).send(snakeToCamel(updated as Record<string, unknown>));
     }
 
-    const photo = await fastify.prisma.photo.create({
-      data: {
-        clientId,
-        reportId: report.id,
-        bucket: config.MINIO_BUCKET,
-        objectKey,
-        mimeType,
-        sizeBytes,
-        uploadStatus: "UPLOADED",
-      },
-    });
+    const { data: photo, error: createErr } = await fastify.supabase
+      .from("photos")
+      .insert({
+        client_id: clientId,
+        report_id: report.id,
+        bucket: config.SUPABASE_STORAGE_BUCKET,
+        object_key: objectKey,
+        mime_type: mimeType,
+        size_bytes: sizeBytes,
+        upload_status: "UPLOADED",
+      })
+      .select()
+      .single();
 
-    return reply.status(201).send(photo);
+    if (createErr) throw createErr;
+    return reply.status(201).send(snakeToCamel(photo as Record<string, unknown>));
   });
 
   // GET /api/photos/:id — redirect to presigned GET URL
   fastify.get<{ Params: { id: string } }>("/api/photos/:id", async (request, reply) => {
     const { id } = request.params;
 
-    const photo = await fastify.prisma.photo.findUnique({
-      where: { id },
-    });
+    const { data: photo, error } = await fastify.supabase
+      .from("photos")
+      .select("*")
+      .eq("id", id)
+      .single();
 
-    if (!photo) {
+    if (error || !photo) {
       return reply.status(404).send({ error: "Photo not found" });
     }
 
-    if (photo.uploadStatus === "PENDING_UPLOAD") {
+    if (photo.upload_status === "PENDING_UPLOAD") {
       return reply.status(404).send({ error: "Photo upload not yet completed" });
     }
 
-    const presignedUrl = await fastify.minio.presignedGetObject(
-      photo.bucket,
-      photo.objectKey,
-      3600,
-    );
+    const { data: signedData, error: signErr } = await fastify.supabase.storage
+      .from(photo.bucket)
+      .createSignedUrl(photo.object_key, config.PRESIGNED_URL_EXPIRY);
 
-    return reply.redirect(presignedUrl);
+    if (signErr || !signedData) {
+      return reply.status(500).send({ error: "Failed to generate download URL" });
+    }
+
+    return reply.redirect(signedData.signedUrl);
   });
 };
 

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import { createReportSchema } from "@stroyfoto/shared";
 import type { TokenPayload } from "@stroyfoto/shared";
+import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
 
 const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -12,39 +13,37 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload;
     const { projectId, from, to } = request.query;
 
-    const where: Record<string, unknown> = {};
+    let query = fastify.supabase
+      .from("reports")
+      .select("*, photos(id)");
 
     // Admin sees all, Worker sees own
     if (user.role !== "ADMIN") {
-      where.userId = user.sub;
+      query = query.eq("user_id", user.sub);
     }
 
     if (projectId) {
-      where.projectId = projectId;
+      query = query.eq("project_id", projectId);
     }
 
-    if (from || to) {
-      const dateFilter: Record<string, Date> = {};
-      if (from) dateFilter.gte = new Date(from);
-      if (to) dateFilter.lte = new Date(to);
-      where.dateTime = dateFilter;
+    if (from) {
+      query = query.gte("date_time", from);
+    }
+    if (to) {
+      query = query.lte("date_time", to);
     }
 
-    const reports = await fastify.prisma.report.findMany({
-      where,
-      include: {
-        _count: {
-          select: { photos: true },
-        },
-      },
-      orderBy: { dateTime: "desc" },
+    const { data: reports, error } = await query.order("date_time", { ascending: false });
+    if (error) throw error;
+
+    return (reports ?? []).map((r) => {
+      const photoCount = (r.photos as Array<unknown>).length;
+      const { photos: _, ...fields } = r;
+      return {
+        ...snakeToCamel(fields as Record<string, unknown>),
+        photoCount,
+      };
     });
-
-    return reports.map((r: Record<string, unknown> & { _count: { photos: number } }) => ({
-      ...r,
-      photoCount: r._count.photos,
-      _count: undefined,
-    }));
   });
 
   // GET /api/reports/:id
@@ -52,20 +51,31 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload;
     const { id } = request.params;
 
-    const report = await fastify.prisma.report.findUnique({
-      where: { id },
-      include: { photos: { where: { uploadStatus: "UPLOADED" } } },
-    });
+    const { data: report, error } = await fastify.supabase
+      .from("reports")
+      .select("*, photos(*)")
+      .eq("id", id)
+      .single();
 
-    if (!report) {
+    if (error || !report) {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.userId !== user.sub) {
+    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
       return reply.status(403).send({ error: "Access denied" });
     }
 
-    return report;
+    // Filter uploaded photos only
+    const photos = (report.photos as Array<Record<string, unknown>>)
+      .filter((p) => p.upload_status === "UPLOADED");
+
+    const reportObj = { ...report } as Record<string, unknown>;
+    delete reportObj.photos;
+    const camelReport = snakeToCamel<Record<string, unknown>>(reportObj);
+    return {
+      ...camelReport,
+      photos: snakeToCamelArray(photos),
+    };
   });
 
   // POST /api/reports
@@ -77,14 +87,27 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const report = await fastify.prisma.report.create({
-      data: {
-        ...parsed.data,
-        userId: user.sub,
-      },
-    });
+    const data = parsed.data;
 
-    return reply.status(201).send(report);
+    const { data: report, error } = await fastify.supabase
+      .from("reports")
+      .insert({
+        client_id: data.clientId,
+        project_id: data.projectId,
+        date_time: data.dateTime,
+        mark: data.mark,
+        work_type: data.workType,
+        area: data.area,
+        contractor: data.contractor,
+        description: data.description ?? "",
+        user_id: user.sub,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return reply.status(201).send(snakeToCamel(report as Record<string, unknown>));
   });
 
   // POST /api/reports/:id/finalize
@@ -92,24 +115,26 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload;
     const { id } = request.params;
 
-    const report = await fastify.prisma.report.findUnique({
-      where: { id },
-      include: { photos: true },
-    });
+    const { data: report, error } = await fastify.supabase
+      .from("reports")
+      .select("*, photos(*)")
+      .eq("id", id)
+      .single();
 
-    if (!report) {
+    if (error || !report) {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.userId !== user.sub) {
+    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
       return reply.status(403).send({ error: "Access denied" });
     }
 
-    const pendingPhotos = report.photos.filter((p) => p.uploadStatus === "PENDING_UPLOAD");
+    const photos = report.photos as Array<Record<string, unknown>>;
+    const pendingPhotos = photos.filter((p) => p.upload_status === "PENDING_UPLOAD");
     if (pendingPhotos.length > 0) {
       return reply.status(409).send({
         error: "Some photos are not yet uploaded",
-        pendingPhotoClientIds: pendingPhotos.map((p) => p.clientId),
+        pendingPhotoClientIds: pendingPhotos.map((p) => p.client_id),
       });
     }
 

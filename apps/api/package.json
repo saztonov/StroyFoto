@@ -9,29 +9,25 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
-    "@stroyfoto/shared": "workspace:*",
-    "fastify": "^5.2.0",
-    "@fastify/jwt": "^9.0.0",
     "@fastify/cors": "^11.0.0",
+    "@fastify/jwt": "^9.0.0",
     "@fastify/multipart": "^9.0.0",
-    "@prisma/client": "^6.2.0",
-    "minio": "^8.0.0",
+    "@stroyfoto/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.99.3",
     "bcrypt": "^5.1.0",
+    "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "prisma": "^6.2.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
     "@types/bcrypt": "^5.0.0",
     "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
     "vitest": "^3.0.0"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }

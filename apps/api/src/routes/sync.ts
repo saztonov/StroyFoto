@@ -11,6 +11,7 @@ import type {
   SyncPushResult,
 } from "@stroyfoto/shared";
 import { config } from "../config.js";
+import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -34,10 +35,12 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const { photos, ...reportFields } = reportData;
 
-        // Idempotent upsert: update:{} means existing reports are untouched (append-only)
-        const existing = await fastify.prisma.report.findUnique({
-          where: { clientId: reportFields.clientId },
-        });
+        // Idempotent: check if report exists
+        const { data: existing } = await fastify.supabase
+          .from("reports")
+          .select("*")
+          .eq("client_id", reportFields.clientId)
+          .maybeSingle();
 
         let report;
         if (existing) {
@@ -48,17 +51,32 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             serverId: existing.id,
           });
         } else {
-          report = await fastify.prisma.report.create({
-            data: {
-              ...reportFields,
-              userId: user.sub,
-              syncStatus: "SYNCED",
-            },
-          });
+          const { data: created, error: createErr } = await fastify.supabase
+            .from("reports")
+            .insert({
+              client_id: reportFields.clientId,
+              project_id: reportFields.projectId,
+              date_time: reportFields.dateTime,
+              mark: reportFields.mark,
+              work_type: reportFields.workType,
+              area: reportFields.area,
+              contractor: reportFields.contractor,
+              description: reportFields.description ?? "",
+              user_id: user.sub,
+              sync_status: "SYNCED",
+            })
+            .select()
+            .single();
+
+          if (createErr || !created) {
+            throw createErr ?? new Error("Failed to create report");
+          }
+
+          report = created;
           results.push({
             clientId: reportFields.clientId,
             status: "created",
-            serverId: report.id,
+            serverId: created.id,
           });
         }
 
@@ -66,42 +84,44 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         for (const photoMeta of photos) {
           const objectKey = `${user.sub}/${reportFields.clientId}/${photoMeta.clientId}-${photoMeta.fileName}`;
 
-          const existingPhoto = await fastify.prisma.photo.findUnique({
-            where: { clientId: photoMeta.clientId },
-          });
+          const { data: existingPhoto } = await fastify.supabase
+            .from("photos")
+            .select("*")
+            .eq("client_id", photoMeta.clientId)
+            .maybeSingle();
 
           if (existingPhoto) {
             // Photo record already exists — if still pending, re-issue presigned URL
-            if (existingPhoto.uploadStatus === "PENDING_UPLOAD") {
-              const url = await fastify.minio.presignedPutObject(
-                config.MINIO_BUCKET,
-                existingPhoto.objectKey,
-                config.PRESIGNED_URL_EXPIRY,
-              );
-              presignedUrls[photoMeta.clientId] = url;
+            if (existingPhoto.upload_status === "PENDING_UPLOAD") {
+              const { data: signedData } = await fastify.supabase.storage
+                .from(config.SUPABASE_STORAGE_BUCKET)
+                .createSignedUploadUrl(existingPhoto.object_key);
+
+              if (signedData) {
+                presignedUrls[photoMeta.clientId] = signedData.signedUrl;
+              }
             }
             // If UPLOADED, skip — idempotent
             continue;
           }
 
-          await fastify.prisma.photo.create({
-            data: {
-              clientId: photoMeta.clientId,
-              reportId: report.id,
-              bucket: config.MINIO_BUCKET,
-              objectKey,
-              mimeType: photoMeta.mimeType,
-              sizeBytes: photoMeta.sizeBytes,
-              uploadStatus: "PENDING_UPLOAD",
-            },
+          await fastify.supabase.from("photos").insert({
+            client_id: photoMeta.clientId,
+            report_id: report.id,
+            bucket: config.SUPABASE_STORAGE_BUCKET,
+            object_key: objectKey,
+            mime_type: photoMeta.mimeType,
+            size_bytes: photoMeta.sizeBytes,
+            upload_status: "PENDING_UPLOAD",
           });
 
-          const url = await fastify.minio.presignedPutObject(
-            config.MINIO_BUCKET,
-            objectKey,
-            config.PRESIGNED_URL_EXPIRY,
-          );
-          presignedUrls[photoMeta.clientId] = url;
+          const { data: signedData } = await fastify.supabase.storage
+            .from(config.SUPABASE_STORAGE_BUCKET)
+            .createSignedUploadUrl(objectKey);
+
+          if (signedData) {
+            presignedUrls[photoMeta.clientId] = signedData.signedUrl;
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -127,38 +147,48 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       const cursor = request.query.cursor;
       const limit = Math.min(Math.max(parseInt(request.query.limit ?? "50", 10) || 50, 1), 200);
 
-      const where: Record<string, unknown> = {
-        syncStatus: "SYNCED",
-      };
+      let query = fastify.supabase
+        .from("reports")
+        .select("*, photos(*)")
+        .eq("sync_status", "SYNCED");
 
       // Worker sees own reports, admin sees all
       if (user.role !== "ADMIN") {
-        where.userId = user.sub;
+        query = query.eq("user_id", user.sub);
       }
 
       if (cursor) {
-        where.updatedAt = { gt: new Date(cursor) };
+        query = query.gt("updated_at", cursor);
       }
 
-      const reports = await fastify.prisma.report.findMany({
-        where,
-        include: {
-          photos: {
-            where: { uploadStatus: "UPLOADED" },
-          },
-        },
-        orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
-        take: limit + 1,
+      const { data: rawReports, error } = await query
+        .order("updated_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(limit + 1);
+
+      if (error) throw error;
+
+      const allReports = rawReports ?? [];
+      const hasMore = allReports.length > limit;
+      const slice = hasMore ? allReports.slice(0, limit) : allReports;
+
+      // Filter photos to only UPLOADED and transform to camelCase
+      const reports = slice.map((r) => {
+        const photos = (r.photos as Array<Record<string, unknown>>)
+          .filter((p) => p.upload_status === "UPLOADED");
+        const { photos: _, ...reportFields } = r;
+        return {
+          ...snakeToCamel(reportFields as Record<string, unknown>),
+          photos: snakeToCamelArray(photos),
+        };
       });
 
-      const hasMore = reports.length > limit;
-      const slice = hasMore ? reports.slice(0, limit) : reports;
       const nextCursor = slice.length > 0
-        ? slice[slice.length - 1].updatedAt.toISOString()
+        ? slice[slice.length - 1].updated_at
         : null;
 
       return {
-        reports: slice,
+        reports,
         nextCursor,
         hasMore,
       };
@@ -192,21 +222,49 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             continue;
           }
 
-          const report = await fastify.prisma.report.upsert({
-            where: { clientId: reportParsed.data.clientId },
-            update: {},
-            create: {
-              ...reportParsed.data,
-              userId: user.sub,
-              syncStatus: "SYNCED",
-            },
-          });
+          const data = reportParsed.data;
 
-          results.push({
-            entityClientId: item.entityClientId,
-            status: "ok",
-            serverId: report.id,
-          });
+          // Idempotent upsert
+          const { data: report, error } = await fastify.supabase
+            .from("reports")
+            .upsert(
+              {
+                client_id: data.clientId,
+                project_id: data.projectId,
+                date_time: data.dateTime,
+                mark: data.mark,
+                work_type: data.workType,
+                area: data.area,
+                contractor: data.contractor,
+                description: data.description ?? "",
+                user_id: user.sub,
+                sync_status: "SYNCED",
+              },
+              { onConflict: "client_id", ignoreDuplicates: true },
+            )
+            .select()
+            .single();
+
+          if (error) {
+            // If ignoreDuplicates returns no row, fetch the existing one
+            const { data: existing } = await fastify.supabase
+              .from("reports")
+              .select("id")
+              .eq("client_id", data.clientId)
+              .single();
+
+            results.push({
+              entityClientId: item.entityClientId,
+              status: "ok",
+              serverId: existing?.id ?? "",
+            });
+          } else {
+            results.push({
+              entityClientId: item.entityClientId,
+              status: "ok",
+              serverId: report.id,
+            });
+          }
         } else {
           results.push({
             entityClientId: item.entityClientId,

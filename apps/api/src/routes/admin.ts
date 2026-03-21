@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import type { TokenPayload } from "@stroyfoto/shared";
+import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
 
 const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -14,44 +15,44 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/admin/users
   fastify.get("/api/admin/users", async () => {
-    const users = await fastify.prisma.user.findMany({
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        fullName: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const { data: users, error } = await fastify.supabase
+      .from("users")
+      .select("id, username, role, full_name, created_at, updated_at");
 
-    return users;
+    if (error) throw error;
+    return snakeToCamelArray(users ?? []);
   });
 
   // GET /api/admin/stats
   fastify.get("/api/admin/stats", async () => {
-    const [totalReports, totalPhotos, reportsByProjectRaw] = await Promise.all([
-      fastify.prisma.report.count(),
-      fastify.prisma.photo.count({ where: { uploadStatus: "UPLOADED" } }),
-      fastify.prisma.report.groupBy({
-        by: ["projectId"],
-        _count: { id: true },
-      }),
+    const [reportsRes, photosRes, byProjectRes] = await Promise.all([
+      fastify.supabase.from("reports").select("id", { count: "exact", head: true }),
+      fastify.supabase.from("photos").select("id", { count: "exact", head: true }).eq("upload_status", "UPLOADED"),
+      fastify.supabase.rpc("reports_count_by_project"),
     ]);
 
+    const totalReports = reportsRes.count ?? 0;
+    const totalPhotos = photosRes.count ?? 0;
+    const reportsByProjectRaw = (byProjectRes.data ?? []) as Array<{ project_id: string; count: number }>;
+
     // Resolve project names
-    const projectIds = reportsByProjectRaw.map((r) => r.projectId);
-    const projects = await fastify.prisma.project.findMany({
-      where: { id: { in: projectIds } },
-      select: { id: true, name: true, code: true },
-    });
-    const projectMap = new Map(projects.map((p) => [p.id, p]));
+    const projectIds = reportsByProjectRaw.map((r) => r.project_id);
+    let projectMap = new Map<string, { name: string; code: string }>();
+
+    if (projectIds.length > 0) {
+      const { data: projects } = await fastify.supabase
+        .from("projects")
+        .select("id, name, code")
+        .in("id", projectIds);
+
+      projectMap = new Map((projects ?? []).map((p) => [p.id, { name: p.name, code: p.code }]));
+    }
 
     const reportsByProject = reportsByProjectRaw.map((r) => ({
-      projectId: r.projectId,
-      projectName: projectMap.get(r.projectId)?.name ?? r.projectId,
-      projectCode: projectMap.get(r.projectId)?.code ?? "",
-      count: r._count.id,
+      projectId: r.project_id,
+      projectName: projectMap.get(r.project_id)?.name ?? r.project_id,
+      projectCode: projectMap.get(r.project_id)?.code ?? "",
+      count: r.count,
     }));
 
     return {
@@ -76,48 +77,63 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId, contractor, workType, from, to } = request.query;
     const page = Math.max(parseInt(request.query.page ?? "1", 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(request.query.limit ?? "50", 10) || 50, 1), 200);
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
-    const where: Record<string, unknown> = {};
+    // Build query for reports with related data
+    let query = fastify.supabase
+      .from("reports")
+      .select("*, users!inner(full_name, username), projects!inner(name, code), photos(id)");
 
     if (projectId) {
-      where.projectId = projectId;
+      query = query.eq("project_id", projectId);
     }
     if (contractor) {
-      where.contractor = { contains: contractor, mode: "insensitive" };
+      query = query.ilike("contractor", `%${contractor}%`);
     }
     if (workType) {
-      where.workType = workType;
+      query = query.eq("work_type", workType);
     }
-    if (from || to) {
-      const dateFilter: Record<string, Date> = {};
-      if (from) dateFilter.gte = new Date(from);
-      if (to) dateFilter.lte = new Date(to);
-      where.dateTime = dateFilter;
+    if (from) {
+      query = query.gte("date_time", from);
+    }
+    if (to) {
+      query = query.lte("date_time", to);
     }
 
-    const [reports, total] = await Promise.all([
-      fastify.prisma.report.findMany({
-        where,
-        include: {
-          user: { select: { fullName: true, username: true } },
-          project: { select: { name: true, code: true } },
-          _count: { select: { photos: true } },
-        },
-        orderBy: { dateTime: "desc" },
-        skip,
-        take: limit,
-      }),
-      fastify.prisma.report.count({ where }),
+    // Count query
+    let countQuery = fastify.supabase
+      .from("reports")
+      .select("id", { count: "exact", head: true });
+
+    if (projectId) countQuery = countQuery.eq("project_id", projectId);
+    if (contractor) countQuery = countQuery.ilike("contractor", `%${contractor}%`);
+    if (workType) countQuery = countQuery.eq("work_type", workType);
+    if (from) countQuery = countQuery.gte("date_time", from);
+    if (to) countQuery = countQuery.lte("date_time", to);
+
+    const [{ data: reports, error }, { count: total }] = await Promise.all([
+      query
+        .order("date_time", { ascending: false })
+        .range(offset, offset + limit - 1),
+      countQuery,
     ]);
 
+    if (error) throw error;
+
     return {
-      reports: reports.map((r) => ({
-        ...r,
-        photoCount: r._count.photos,
-        _count: undefined,
-      })),
-      total,
+      reports: (reports ?? []).map((r) => {
+        const photoCount = (r.photos as Array<unknown>).length;
+        const user = r.users as { full_name: string; username: string };
+        const project = r.projects as { name: string; code: string };
+        const { photos: _, users: _u, projects: _p, ...fields } = r;
+        return {
+          ...snakeToCamel(fields as Record<string, unknown>),
+          user: { fullName: user.full_name, username: user.username },
+          project: { name: project.name, code: project.code },
+          photoCount,
+        };
+      }),
+      total: total ?? 0,
       page,
       limit,
     };

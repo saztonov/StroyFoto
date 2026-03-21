@@ -12,13 +12,8 @@
     "test:web": "pnpm --filter @stroyfoto/web test:run",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "db:migrate": "pnpm --filter @stroyfoto/api prisma migrate dev",
-    "db:seed": "pnpm --filter @stroyfoto/api prisma db seed",
-    "db:reset": "pnpm --filter @stroyfoto/api prisma migrate reset --force",
-    "db:studio": "pnpm --filter @stroyfoto/api prisma studio",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "setup": "pnpm install && pnpm docker:up && pnpm db:migrate && pnpm db:seed"
+    "db:seed": "pnpm --filter @stroyfoto/api db:seed",
+    "setup": "pnpm install && pnpm db:seed"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0"

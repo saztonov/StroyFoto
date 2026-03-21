@@ -6,13 +6,13 @@
 
 ```
 ┌──────────────────┐       ┌──────────────────┐       ┌──────────────┐
-│    apps/web      │       │    apps/api      │       │  PostgreSQL  │
-│                  │       │                  │──────▶│    16        │
-│  React 19 SPA    │──────▶│  Fastify 5       │       └──────────────┘
-│  Dexie (IDB)     │  HTTP │  Prisma 6        │       ┌──────────────┐
-│  Workbox SW      │       │  JWT Auth        │──────▶│    MinIO     │
-│  Tailwind CSS 4  │       │                  │       │ (S3-совмест.)│
-└──────────────────┘       └──────────────────┘       └──────────────┘
+│    apps/web      │       │    apps/api      │       │   Supabase   │
+│                  │       │                  │──────▶│  PostgreSQL  │
+│  React 19 SPA    │──────▶│  Fastify 5       │       │  + Storage   │
+│  Dexie (IDB)     │  HTTP │  JWT Auth        │       └──────────────┘
+│  Workbox SW      │       │                  │
+│  Tailwind CSS 4  │       │                  │
+└──────────────────┘       └──────────────────┘
          │                          ▲
          │        packages/shared   │
          └────────────────────────────┘
@@ -23,7 +23,7 @@
 
 ```
 Создание отчёта (офлайн):
-  Форма → Dexie reports + photos → SyncQueue → [при появлении сети] → API → PostgreSQL + MinIO
+  Форма → Dexie reports + photos → SyncQueue → [при появлении сети] → API → Supabase (PostgreSQL + Storage)
 
 Синхронизация:
   SyncQueue обрабатывает операции в порядке: Отчёты → Фото → Финализация
@@ -49,8 +49,8 @@
 | Слой | Технологии |
 |------|-----------|
 | Frontend | React 19, TypeScript, Vite 6, React Router 7, Tailwind CSS 4, Dexie 4 |
-| Backend | Fastify 5, TypeScript, Prisma 6, PostgreSQL 16 |
-| Хранилище фото | MinIO (S3-совместимое) |
+| Backend | Fastify 5, TypeScript, @supabase/supabase-js |
+| БД + Хранилище | Supabase (PostgreSQL + Storage) |
 | PWA | Workbox 7 (injectManifest), Web App Manifest |
 | Тесты | Vitest (unit), Playwright (E2E) |
 | Монорепо | pnpm workspaces |
@@ -59,7 +59,7 @@
 
 - Node.js >= 20
 - pnpm >= 9
-- Docker и Docker Compose
+- Supabase проект (https://supabase.com)
 
 ## Быстрый старт
 
@@ -69,28 +69,21 @@ cd stroyfoto
 
 # 2. Скопировать переменные окружения
 cp .env.example .env
+# Заполнить SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY из Supabase Dashboard
 
-# 3. Полная настройка (install + docker + migrations + seed)
+# 3. Выполнить SQL-скрипт в Supabase SQL Editor (см. план миграции или supabase-schema.sql)
+
+# 4. Установить зависимости и заполнить демо-данные
 pnpm setup
 
-# 4. Запустить все сервисы в dev-режиме
+# 5. Запустить все сервисы в dev-режиме
 pnpm dev
 ```
 
 После запуска:
 - **Web-приложение**: http://localhost:5173
 - **API**: http://localhost:3001
-- **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)
-
-### Пошаговая настройка (если `pnpm setup` не подходит)
-
-```bash
-pnpm install              # Установить зависимости
-pnpm docker:up            # Запустить PostgreSQL + MinIO
-pnpm db:migrate           # Применить миграции
-pnpm db:seed              # Заполнить демо-данными
-pnpm dev                  # Запуск dev-серверов
-```
+- **Supabase Dashboard**: https://supabase.com/dashboard
 
 ## Демо-пользователи
 
@@ -136,20 +129,13 @@ pnpm typecheck        # Проверка типов
 
 # Тесты
 pnpm test             # Все unit-тесты (Vitest)
-pnpm test:api         # Только API тесты (требует Docker)
+pnpm test:api         # Только API тесты (требует Supabase)
 pnpm test:web         # Только Web тесты (standalone)
-pnpm e2e              # Playwright E2E тесты (требует Docker + dev-серверы)
+pnpm e2e              # Playwright E2E тесты
 pnpm e2e:ui           # Playwright в UI-режиме
 
 # База данных
-pnpm db:migrate       # Применить миграции Prisma
 pnpm db:seed          # Заполнить БД демо-данными
-pnpm db:reset         # Сброс БД: drop + migrate + seed
-pnpm db:studio        # Открыть Prisma Studio
-
-# Docker
-pnpm docker:up        # Запустить PostgreSQL + MinIO
-pnpm docker:down      # Остановить контейнеры
 ```
 
 ## Guardrails и Edge Cases
@@ -188,24 +174,18 @@ pnpm docker:down      # Остановить контейнеры
 ### HTTPS обязателен
 - Service Worker регистрируется только на HTTPS (кроме localhost)
 - PWA установка и Web App Manifest требуют HTTPS
-- Presigned URL для MinIO должны использовать HTTPS
-
-### Объектное хранилище
-- В production MinIO следует заменить на или проксировать через AWS S3, Google Cloud Storage или аналогичное хранилище с TLS
-- Настройте CORS на хранилище для presigned PUT/GET
-- Используйте CDN для раздачи фото
+- Presigned URL для Supabase Storage работают через HTTPS по умолчанию
 
 ### Безопасность
 - `JWT_SECRET` — обязательно заменить на длинную случайную строку (>= 64 символов)
-- `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` — сменить
+- `SUPABASE_SERVICE_ROLE_KEY` — хранить в секрете, не коммитить в репозиторий
 - Рассмотрите `navigator.storage.persist()` для предотвращения автоочистки IndexedDB браузером
 - В production рекомендуется ограничить CORS (`origin: true` → конкретные домены)
 
 ### Рекомендации по деплою
 - API: Docker контейнер или Node.js process manager (PM2)
 - Web: статический хостинг (Nginx, Cloudflare Pages, Vercel)
-- БД: managed PostgreSQL (RDS, Cloud SQL)
-- Хранилище: S3-совместимое с CDN
+- БД + Storage: Supabase (уже managed)
 
 ## Чеклист: что работает (v1)
 
@@ -225,7 +205,7 @@ pnpm docker:down      # Остановить контейнеры
 
 ## Запланировано на v2
 
-- [ ] Прямая загрузка фото в MinIO через presigned URL (backend готов)
+- [ ] Прямая загрузка фото в Supabase Storage через presigned URL (backend готов)
 - [ ] Background Sync API через Service Worker
 - [ ] UI для разрешения конфликтов
 - [ ] Редактирование отчёта после создания
@@ -245,3 +225,4 @@ pnpm docker:down      # Остановить контейнеры
 5. **JWT 15m + refresh 30d**: баланс между безопасностью и удобством офлайн-работы
 6. **Last-write-wins**: в v1 конфликты не разрешаются — записи append-only по своей природе
 7. **Dexie v4 schema**: 11 таблиц с compound indexes для sync queue dedup
+8. **Supabase**: hosted PostgreSQL + Storage заменяют Docker-контейнеры PostgreSQL + MinIO

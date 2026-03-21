@@ -1,30 +1,9 @@
+# Docker services are no longer needed for local development.
+# Supabase provides hosted PostgreSQL and Storage.
+# For local development, use either:
+#   - Supabase Cloud (https://supabase.com)
+#   - Supabase CLI: npx supabase start
+#
+# This file is kept for potential future services (Redis, etc.)
 version: "3.8"
-services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-stroyfoto}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stroyfoto_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-stroyfoto}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - miniodata:/data
-
-volumes:
-  pgdata:
-  miniodata:
+services: {}

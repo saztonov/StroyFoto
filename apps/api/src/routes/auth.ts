@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { loginRequestSchema, refreshRequestSchema } from "@stroyfoto/shared";
 import { config } from "../config.js";
+import { snakeToCamel } from "../utils/case-transform.js";
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/auth/login
@@ -14,11 +15,13 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { username, password } = parsed.data;
 
-    const user = await fastify.prisma.user.findUnique({
-      where: { username },
-    });
+    const { data: user, error } = await fastify.supabase
+      .from("users")
+      .select("*")
+      .eq("username", username)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return reply.status(401).send({ error: "Invalid username or password" });
     }
 
@@ -37,12 +40,10 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     const refreshTokenValue = crypto.randomUUID();
     const refreshExpiresMs = parseExpiry(config.JWT_REFRESH_EXPIRES_IN);
 
-    await fastify.prisma.refreshToken.create({
-      data: {
-        token: refreshTokenValue,
-        userId: user.id,
-        expiresAt: new Date(Date.now() + refreshExpiresMs),
-      },
+    await fastify.supabase.from("refresh_tokens").insert({
+      token: refreshTokenValue,
+      user_id: user.id,
+      expires_at: new Date(Date.now() + refreshExpiresMs).toISOString(),
     });
 
     return {
@@ -53,7 +54,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         id: user.id,
         username: user.username,
         role: user.role,
-        fullName: user.fullName,
+        fullName: user.full_name,
       },
     };
   });
@@ -67,36 +68,37 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { refreshToken } = parsed.data;
 
-    const stored = await fastify.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
-      include: { user: true },
-    });
+    const { data: stored, error } = await fastify.supabase
+      .from("refresh_tokens")
+      .select("*, users(*)")
+      .eq("token", refreshToken)
+      .single();
 
-    if (!stored || stored.expiresAt < new Date()) {
+    if (error || !stored || new Date(stored.expires_at) < new Date()) {
       if (stored) {
-        await fastify.prisma.refreshToken.delete({ where: { id: stored.id } });
+        await fastify.supabase.from("refresh_tokens").delete().eq("id", stored.id);
       }
       return reply.status(401).send({ error: "Invalid or expired refresh token" });
     }
 
     // Rotate: delete old, create new
-    await fastify.prisma.refreshToken.delete({ where: { id: stored.id } });
+    await fastify.supabase.from("refresh_tokens").delete().eq("id", stored.id);
 
     const newRefreshTokenValue = crypto.randomUUID();
     const refreshExpiresMs = parseExpiry(config.JWT_REFRESH_EXPIRES_IN);
 
-    await fastify.prisma.refreshToken.create({
-      data: {
-        token: newRefreshTokenValue,
-        userId: stored.userId,
-        expiresAt: new Date(Date.now() + refreshExpiresMs),
-      },
+    await fastify.supabase.from("refresh_tokens").insert({
+      token: newRefreshTokenValue,
+      user_id: stored.user_id,
+      expires_at: new Date(Date.now() + refreshExpiresMs).toISOString(),
     });
 
+    const user = stored.users as { id: string; username: string; role: string };
+
     const accessToken = fastify.jwt.sign({
-      sub: stored.user.id,
-      username: stored.user.username,
-      role: stored.user.role,
+      sub: user.id,
+      username: user.username,
+      role: user.role,
     });
 
     return {
