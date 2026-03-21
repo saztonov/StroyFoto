@@ -11,6 +11,24 @@ import {
   countCleanablePhotos,
 } from "../db/storage-cleanup";
 
+async function deleteLocalReport(reportClientId: string) {
+  // Delete all sync queue entries for this report and its photos
+  const photos = await db.photos.where("reportClientId").equals(reportClientId).toArray();
+  const photoClientIds = photos.map((p) => p.clientId);
+
+  // Delete queue entries for the report
+  await db.syncQueue.where("entityClientId").equals(reportClientId).delete();
+
+  // Delete queue entries for each photo
+  for (const photoClientId of photoClientIds) {
+    await db.syncQueue.where("entityClientId").equals(photoClientId).delete();
+  }
+
+  // Delete photos and report from Dexie
+  await db.photos.where("reportClientId").equals(reportClientId).delete();
+  await db.reports.delete(reportClientId);
+}
+
 function formatRelativeTime(date: Date): string {
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
@@ -227,13 +245,35 @@ export function SyncPage() {
             <h3 className="text-sm font-semibold text-gray-700">
               Ошибки ({failedItems.length})
             </h3>
-            <button
-              onClick={() => retryFailed()}
-              disabled={!isOnline || isSyncing}
-              className="rounded-lg bg-red-50 px-3 py-1 text-sm font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50"
-            >
-              Повторить все
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  if (!confirm("Удалить все проблемные отчёты и связанные данные?")) return;
+                  const reportIds = new Set<string>();
+                  for (const item of failedItems) {
+                    if (item.operationType === "UPSERT_REPORT") {
+                      reportIds.add(item.entityClientId);
+                    } else if (item.operationType === "UPLOAD_PHOTO") {
+                      const photo = await db.photos.get(item.entityClientId);
+                      if (photo) reportIds.add(photo.reportClientId);
+                    }
+                  }
+                  for (const id of reportIds) {
+                    await deleteLocalReport(id);
+                  }
+                }}
+                className="rounded-lg bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
+              >
+                Удалить все
+              </button>
+              <button
+                onClick={() => retryFailed()}
+                disabled={!isOnline || isSyncing}
+                className="rounded-lg bg-red-50 px-3 py-1 text-sm font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+              >
+                Повторить все
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -268,14 +308,33 @@ export function SyncPage() {
                         {item.lastError}
                       </p>
                     )}
+                    <p className="mt-0.5 text-[10px] text-gray-400 font-mono truncate">
+                      {item.entityClientId}
+                    </p>
                   </div>
-                  <button
-                    onClick={() => retryItem(item.id!)}
-                    disabled={!isOnline || isSyncing}
-                    className="shrink-0 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50"
-                  >
-                    Повторить
-                  </button>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Удалить этот отчёт и все связанные данные?")) return;
+                        let reportId = item.entityClientId;
+                        if (item.operationType === "UPLOAD_PHOTO") {
+                          const photo = await db.photos.get(item.entityClientId);
+                          if (photo) reportId = photo.reportClientId;
+                        }
+                        await deleteLocalReport(reportId);
+                      }}
+                      className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-200"
+                    >
+                      Удалить
+                    </button>
+                    <button
+                      onClick={() => retryItem(item.id!)}
+                      disabled={!isOnline || isSyncing}
+                      className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+                    >
+                      Повторить
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

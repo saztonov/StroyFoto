@@ -104,9 +104,11 @@ export async function executeUpsertReport(
 
   if (!result || result.status !== "ok") {
     console.error("[sync:upsert] Result not ok:", result);
+    // Data format errors (e.g. invalid UUID) are not retryable
+    const isDataError = result?.message?.includes("invalid input syntax") || result?.message?.includes("violates foreign key");
     return {
       success: false,
-      retryable: true,
+      retryable: !isDataError,
       error: result?.message ?? "Sync error",
     };
   }
