@@ -123,7 +123,7 @@ export async function executeUploadPhoto(
   const formData = new FormData();
   formData.append("file", photo.blob, photo.fileName);
   formData.append("clientId", photo.clientId);
-  formData.append("reportId", report.serverId);
+  formData.append("reportClientId", photo.reportClientId);
 
   let res = await fetch(`${apiUrl}/api/photos/upload`, {
     method: "POST",
@@ -141,7 +141,7 @@ export async function executeUploadPhoto(
       const retryForm = new FormData();
       retryForm.append("file", photo.blob, photo.fileName);
       retryForm.append("clientId", photo.clientId);
-      retryForm.append("reportId", report.serverId);
+      retryForm.append("reportClientId", photo.reportClientId);
       res = await fetch(`${apiUrl}/api/photos/upload`, {
         method: "POST",
         headers: {

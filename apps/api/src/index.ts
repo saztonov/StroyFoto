@@ -36,8 +36,8 @@ async function start() {
   // Register CORS
   await fastify.register(cors, { origin: true });
 
-  // Register multipart support
-  await fastify.register(multipart);
+  // Register multipart support (15 MB file limit to match MAX_FILE_SIZE_BYTES)
+  await fastify.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
   // Register plugins
   await fastify.register(supabasePlugin);

@@ -218,4 +218,20 @@ db.version(4)
       });
   });
 
+// v5: add compound index for dedup queries in sync-queue
+db.version(5).stores({
+  reports: "clientId, serverId, projectId, userId, syncStatus, dateTime",
+  photos: "clientId, serverId, reportClientId, syncStatus, localStatus",
+  syncQueue:
+    "++id, operationType, entityClientId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
+  authSession: "id",
+  projects: "id, code, name",
+  workTypes: "id, name",
+  contractors: "id, name",
+  areas: "id, name, projectId",
+  syncState: "entityType",
+  appSettings: "key",
+  syncMeta: "key",
+});
+
 export { db };
