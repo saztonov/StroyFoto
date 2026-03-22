@@ -344,7 +344,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       query = query.ilike("contractor", `%${contractor}%`);
     }
     if (workType) {
-      query = query.eq("work_type", workType);
+      query = query.contains("work_types", [workType]);
     }
     if (from) {
       query = query.gte("date_time", from);
@@ -360,7 +360,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (projectId) countQuery = countQuery.eq("project_id", projectId);
     if (contractor) countQuery = countQuery.ilike("contractor", `%${contractor}%`);
-    if (workType) countQuery = countQuery.eq("work_type", workType);
+    if (workType) countQuery = countQuery.contains("work_types", [workType]);
     if (from) countQuery = countQuery.gte("date_time", from);
     if (to) countQuery = countQuery.lte("date_time", to);
 

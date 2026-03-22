@@ -1,5 +1,5 @@
 // Supabase Database types
-// These types document the schema; the Supabase client is used without
+// These types document the public schema; the Supabase client is used without
 // generic typing to avoid version-specific type format mismatches.
 // Runtime validation is handled by Zod schemas in @stroyfoto/shared.
 
@@ -7,22 +7,15 @@ export type UserRole = "ADMIN" | "WORKER";
 export type SyncStatus = "PENDING" | "SYNCED" | "CONFLICT";
 export type UploadStatus = "PENDING_UPLOAD" | "UPLOADED";
 
-export interface DbUser {
+export interface DbProfile {
   id: string;
-  username: string;
-  password: string;
+  auth_id: string | null;
+  email: string;
   role: UserRole;
   full_name: string;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
-}
-
-export interface DbRefreshToken {
-  id: string;
-  token: string;
-  user_id: string;
-  expires_at: string;
-  created_at: string;
 }
 
 export interface DbProject {
@@ -33,6 +26,12 @@ export interface DbProject {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface DbUserProject {
+  user_id: string;
+  project_id: string;
+  created_at: string;
 }
 
 export interface DbWorkType {
@@ -51,13 +50,20 @@ export interface DbContractor {
   updated_at: string;
 }
 
-export interface DbArea {
+export interface DbOwnForce {
   id: string;
   name: string;
-  project_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface DbDictionaryAlias {
+  id: string;
+  dictionary_type: string;
+  item_id: string;
+  alias_name: string;
+  created_at: string;
 }
 
 export interface DbReport {
@@ -65,12 +71,11 @@ export interface DbReport {
   client_id: string;
   project_id: string;
   date_time: string;
-  mark: string;
-  work_type: string;
-  area: string;
+  work_types: string[];
   contractor: string;
+  own_forces: string;
   description: string;
-  user_id: string;
+  user_id: string | null;
   sync_status: SyncStatus;
   created_at: string;
   updated_at: string;
