@@ -17,15 +17,6 @@
     "comment": null,
     "sql": "CREATE TRIGGER on_auth_user_deleted AFTER DELETE ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_user_deleted()"
   },
-  "public.areas.set_updated_at_areas": {
-    "schema": "public",
-    "name": "set_updated_at_areas",
-    "table_name": "areas",
-    "event": null,
-    "timing": null,
-    "comment": null,
-    "sql": "CREATE TRIGGER set_updated_at_areas BEFORE UPDATE ON public.areas FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
-  },
   "public.contractors.set_updated_at_contractors": {
     "schema": "public",
     "name": "set_updated_at_contractors",

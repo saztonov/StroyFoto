@@ -2719,73 +2719,6 @@
       }
     ]
   },
-  "public.areas": {
-    "schema": "public",
-    "name": "areas",
-    "comment": null,
-    "columns": [
-      {
-        "name": "id",
-        "comment": null,
-        "default": "uuid_generate_v4()",
-        "data_type": "uuid",
-        "is_nullable": false
-      },
-      {
-        "name": "name",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "project_id",
-        "comment": null,
-        "default": null,
-        "data_type": "uuid",
-        "is_nullable": true
-      },
-      {
-        "name": "is_active",
-        "comment": null,
-        "default": "true",
-        "data_type": "boolean",
-        "is_nullable": false
-      },
-      {
-        "name": "created_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp with time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp with time zone",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "areas_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "areas_project_id_fkey",
-        "type": "FOREIGN KEY",
-        "column": "project_id",
-        "foreign_table": "projects",
-        "foreign_column": "id",
-        "foreign_table_schema": "public"
-      }
-    ]
-  },
   "public.contractors": {
     "schema": "public",
     "name": "contractors",
@@ -2794,7 +2727,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -2829,8 +2762,8 @@
     ],
     "constraints": [
       {
-        "name": "contractors_name_key",
-        "type": "UNIQUE",
+        "name": "contractors_name_check",
+        "type": "CHECK",
         "column": "name",
         "foreign_table": null,
         "foreign_column": null,
@@ -2854,7 +2787,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -2922,7 +2855,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -2957,8 +2890,8 @@
     ],
     "constraints": [
       {
-        "name": "own_forces_name_key",
-        "type": "UNIQUE",
+        "name": "own_forces_name_check",
+        "type": "CHECK",
         "column": "name",
         "foreign_table": null,
         "foreign_column": null,
@@ -2982,7 +2915,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -2990,7 +2923,7 @@
         "name": "client_id",
         "comment": null,
         "default": null,
-        "data_type": "text",
+        "data_type": "uuid",
         "is_nullable": false
       },
       {
@@ -3031,7 +2964,7 @@
       {
         "name": "upload_status",
         "comment": null,
-        "default": "'UPLOADED'::upload_status",
+        "default": "'PENDING_UPLOAD'::upload_status",
         "data_type": "upload_status",
         "is_nullable": false
       },
@@ -3085,9 +3018,16 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
+      },
+      {
+        "name": "auth_id",
+        "comment": null,
+        "default": null,
+        "data_type": "uuid",
+        "is_nullable": true
       },
       {
         "name": "email",
@@ -3111,6 +3051,13 @@
         "is_nullable": false
       },
       {
+        "name": "is_active",
+        "comment": null,
+        "default": "true",
+        "data_type": "boolean",
+        "is_nullable": false
+      },
+      {
         "name": "created_at",
         "comment": null,
         "default": "now()",
@@ -3123,23 +3070,17 @@
         "default": "now()",
         "data_type": "timestamp with time zone",
         "is_nullable": false
-      },
-      {
-        "name": "auth_id",
-        "comment": null,
-        "default": null,
-        "data_type": "uuid",
-        "is_nullable": true
-      },
-      {
-        "name": "is_active",
-        "comment": null,
-        "default": "true",
-        "data_type": "boolean",
-        "is_nullable": false
       }
     ],
     "constraints": [
+      {
+        "name": "profiles_auth_id_fkey",
+        "type": "FOREIGN KEY",
+        "column": "auth_id",
+        "foreign_table": "users",
+        "foreign_column": "id",
+        "foreign_table_schema": "auth"
+      },
       {
         "name": "profiles_auth_id_key",
         "type": "UNIQUE",
@@ -3174,7 +3115,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -3223,9 +3164,25 @@
     ],
     "constraints": [
       {
+        "name": "projects_code_check",
+        "type": "CHECK",
+        "column": "code",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
         "name": "projects_code_key",
         "type": "UNIQUE",
         "column": "code",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "projects_name_check",
+        "type": "CHECK",
+        "column": "name",
         "foreign_table": null,
         "foreign_column": null,
         "foreign_table_schema": null
@@ -3248,7 +3205,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -3256,7 +3213,7 @@
         "name": "client_id",
         "comment": null,
         "default": null,
-        "data_type": "text",
+        "data_type": "uuid",
         "is_nullable": false
       },
       {
@@ -3274,32 +3231,11 @@
         "is_nullable": false
       },
       {
-        "name": "mark",
-        "comment": "DEPRECATED: kept for backward compatibility, will be removed",
-        "default": "''::text",
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "work_type",
-        "comment": "DEPRECATED: use work_types[] array instead",
-        "default": "''::text",
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
         "name": "work_types",
         "comment": null,
         "default": "'{}'::text[]",
         "data_type": "text[]",
         "is_nullable": false
-      },
-      {
-        "name": "area",
-        "comment": "DEPRECATED: kept for backward compatibility, will be removed",
-        "default": "''::text",
-        "data_type": "text",
-        "is_nullable": true
       },
       {
         "name": "contractor",
@@ -3327,7 +3263,7 @@
         "comment": null,
         "default": null,
         "data_type": "uuid",
-        "is_nullable": false
+        "is_nullable": true
       },
       {
         "name": "sync_status",
@@ -3383,6 +3319,22 @@
         "foreign_table": "profiles",
         "foreign_column": "id",
         "foreign_table_schema": "public"
+      },
+      {
+        "name": "reports_work_types_no_blanks",
+        "type": "CHECK",
+        "column": "work_types",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "reports_work_types_not_empty",
+        "type": "CHECK",
+        "column": "work_types",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
       }
     ]
   },
@@ -3391,13 +3343,6 @@
     "name": "user_projects",
     "comment": null,
     "columns": [
-      {
-        "name": "id",
-        "comment": null,
-        "default": "uuid_generate_v4()",
-        "data_type": "uuid",
-        "is_nullable": false
-      },
       {
         "name": "user_id",
         "comment": null,
@@ -3424,13 +3369,21 @@
       {
         "name": "user_projects_pkey",
         "type": "PRIMARY KEY",
-        "column": "id",
+        "column": "project_id",
         "foreign_table": null,
         "foreign_column": null,
         "foreign_table_schema": null
       },
       {
-        "name": "user_projects_project_fkey",
+        "name": "user_projects_pkey",
+        "type": "PRIMARY KEY",
+        "column": "user_id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "user_projects_project_id_fkey",
         "type": "FOREIGN KEY",
         "column": "project_id",
         "foreign_table": "projects",
@@ -3438,23 +3391,7 @@
         "foreign_table_schema": "public"
       },
       {
-        "name": "user_projects_unique",
-        "type": "UNIQUE",
-        "column": "project_id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "user_projects_unique",
-        "type": "UNIQUE",
-        "column": "user_id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "user_projects_user_fkey",
+        "name": "user_projects_user_id_fkey",
         "type": "FOREIGN KEY",
         "column": "user_id",
         "foreign_table": "profiles",
@@ -3471,7 +3408,7 @@
       {
         "name": "id",
         "comment": null,
-        "default": "uuid_generate_v4()",
+        "default": "gen_random_uuid()",
         "data_type": "uuid",
         "is_nullable": false
       },
@@ -3506,8 +3443,8 @@
     ],
     "constraints": [
       {
-        "name": "work_types_name_key",
-        "type": "UNIQUE",
+        "name": "work_types_name_check",
+        "type": "CHECK",
         "column": "name",
         "foreign_table": null,
         "foreign_column": null,

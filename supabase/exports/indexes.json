@@ -511,21 +511,13 @@
     "is_primary": false,
     "sql": "CREATE INDEX webauthn_credentials_user_id_idx ON auth.webauthn_credentials USING btree (user_id)"
   },
-  "public.areas.idx_areas_project_id": {
+  "public.contractors.uq_contractors_name_ci": {
     "schema": "public",
-    "name": "idx_areas_project_id",
-    "table_name": "areas",
-    "is_unique": false,
-    "is_primary": false,
-    "sql": "CREATE INDEX idx_areas_project_id ON public.areas USING btree (project_id)"
-  },
-  "public.contractors.contractors_name_key": {
-    "schema": "public",
-    "name": "contractors_name_key",
+    "name": "uq_contractors_name_ci",
     "table_name": "contractors",
     "is_unique": true,
     "is_primary": false,
-    "sql": "CREATE UNIQUE INDEX contractors_name_key ON public.contractors USING btree (name)"
+    "sql": "CREATE UNIQUE INDEX uq_contractors_name_ci ON public.contractors USING btree (lower(name))"
   },
   "public.dictionary_aliases.idx_dict_aliases_item_id": {
     "schema": "public",
@@ -551,13 +543,13 @@
     "is_primary": false,
     "sql": "CREATE UNIQUE INDEX uq_alias_type_name ON public.dictionary_aliases USING btree (dictionary_type, alias_name)"
   },
-  "public.own_forces.own_forces_name_key": {
+  "public.own_forces.uq_own_forces_name_ci": {
     "schema": "public",
-    "name": "own_forces_name_key",
+    "name": "uq_own_forces_name_ci",
     "table_name": "own_forces",
     "is_unique": true,
     "is_primary": false,
-    "sql": "CREATE UNIQUE INDEX own_forces_name_key ON public.own_forces USING btree (name)"
+    "sql": "CREATE UNIQUE INDEX uq_own_forces_name_ci ON public.own_forces USING btree (lower(name))"
   },
   "public.photos.idx_photos_report_id": {
     "schema": "public",
@@ -687,29 +679,13 @@
     "is_primary": false,
     "sql": "CREATE INDEX idx_user_projects_project_id ON public.user_projects USING btree (project_id)"
   },
-  "public.user_projects.idx_user_projects_user_id": {
+  "public.work_types.uq_work_types_name_ci": {
     "schema": "public",
-    "name": "idx_user_projects_user_id",
-    "table_name": "user_projects",
-    "is_unique": false,
-    "is_primary": false,
-    "sql": "CREATE INDEX idx_user_projects_user_id ON public.user_projects USING btree (user_id)"
-  },
-  "public.user_projects.user_projects_unique": {
-    "schema": "public",
-    "name": "user_projects_unique",
-    "table_name": "user_projects",
-    "is_unique": true,
-    "is_primary": false,
-    "sql": "CREATE UNIQUE INDEX user_projects_unique ON public.user_projects USING btree (user_id, project_id)"
-  },
-  "public.work_types.work_types_name_key": {
-    "schema": "public",
-    "name": "work_types_name_key",
+    "name": "uq_work_types_name_ci",
     "table_name": "work_types",
     "is_unique": true,
     "is_primary": false,
-    "sql": "CREATE UNIQUE INDEX work_types_name_key ON public.work_types USING btree (name)"
+    "sql": "CREATE UNIQUE INDEX uq_work_types_name_ci ON public.work_types USING btree (lower(name))"
   },
   "realtime.messages.messages_inserted_at_topic_index": {
     "schema": "realtime",
