@@ -26,14 +26,27 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_SESSION_KEY = "current";
 
 let profileFetchPromise: Promise<AuthSession | null> | null = null;
+let authFailed = false;
 
 /** Deduplicated wrapper — prevents concurrent fetches from init() and onAuthStateChange */
 function fetchAndCacheProfileDeduped(accessToken: string, session: Session): Promise<AuthSession | null> {
+  if (authFailed) return Promise.resolve(null);
   if (profileFetchPromise) return profileFetchPromise;
   profileFetchPromise = fetchAndCacheProfile(accessToken, session).finally(() => {
     profileFetchPromise = null;
   });
   return profileFetchPromise;
+}
+
+/** Helper to build AuthSession from API profile response */
+function buildAuthSession(profile: Record<string, unknown>, session: Session): AuthSession {
+  return {
+    id: AUTH_SESSION_KEY,
+    userId: profile.id as string,
+    email: (profile.email as string) ?? session.user.email ?? "",
+    role: (profile.role as "ADMIN" | "WORKER") ?? "WORKER",
+    fullName: (profile.fullName as string) ?? "",
+  };
 }
 
 /** Fetch profile from our API and save to Dexie for offline access */
@@ -45,26 +58,41 @@ async function fetchAndCacheProfile(accessToken: string, session: Session): Prom
   });
 
   if (res.ok) {
-    const profile = await res.json();
-    const authSession: AuthSession = {
-      id: AUTH_SESSION_KEY,
-      userId: profile.id,
-      email: profile.email ?? session.user.email ?? "",
-      role: profile.role ?? "WORKER",
-      fullName: profile.fullName ?? "",
-    };
+    authFailed = false;
+    const authSession = buildAuthSession(await res.json(), session);
     await db.authSession.put(authSession);
     return authSession;
   }
 
-  // Account disabled — terminal state, clear session and don't fallback
+  // Account disabled — terminal state
   if (res.status === 403) {
     await supabase.auth.signOut().catch(() => {});
     await db.authSession.delete(AUTH_SESSION_KEY);
     return null;
   }
 
-  // Fallback: use Supabase session data
+  // Unauthorized — try refreshing the session once
+  if (res.status === 401) {
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+    if (refreshed) {
+      const retry = await fetch(`${apiUrl}/api/profile`, {
+        headers: { Authorization: `Bearer ${refreshed.access_token}` },
+      });
+      if (retry.ok) {
+        authFailed = false;
+        const authSession = buildAuthSession(await retry.json(), refreshed);
+        await db.authSession.put(authSession);
+        return authSession;
+      }
+    }
+    // Refresh failed or retry still 401 — session is dead
+    authFailed = true;
+    await supabase.auth.signOut().catch(() => {});
+    await db.authSession.delete(AUTH_SESSION_KEY);
+    return null;
+  }
+
+  // Other errors (5xx, network issues) — fallback to Supabase session data for offline
   const authSession: AuthSession = {
     id: AUTH_SESSION_KEY,
     userId: session.user.id,
@@ -145,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (data.session) {
+      authFailed = false;
       const profile = await fetchAndCacheProfile(data.session.access_token, data.session);
       if (!profile) {
         throw new Error("Аккаунт заблокирован");
@@ -167,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (data.session) {
+      authFailed = false;
       const profile = await fetchAndCacheProfile(data.session.access_token, data.session);
       if (!profile) {
         throw new Error("Аккаунт заблокирован");
