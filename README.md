@@ -6,13 +6,13 @@
 
 ```
 ┌──────────────────┐       ┌──────────────────┐       ┌──────────────┐
-│    apps/web      │       │    apps/api      │       │   Supabase   │
-│                  │       │                  │──────▶│  PostgreSQL  │
-│  React 19 SPA    │──────▶│  Fastify 5       │       │  + Storage   │
-│  Dexie (IDB)     │  HTTP │  JWT Auth        │       └──────────────┘
-│  Workbox SW      │       │                  │
-│  Tailwind CSS 4  │       │                  │
-└──────────────────┘       └──────────────────┘
+│    apps/web      │       │    apps/api      │──────▶│   Supabase   │
+│                  │       │                  │       │  PostgreSQL  │
+│  React 19 SPA    │──────▶│  Fastify 5       │       └──────────────┘
+│  Dexie (IDB)     │  HTTP │  Supabase Auth   │       ┌──────────────┐
+│  Workbox SW      │       │                  │──────▶│ Cloudflare   │
+│  Tailwind CSS 4  │       │                  │       │  R2 Storage  │
+└──────────────────┘       └──────────────────┘       └──────────────┘
          │                          ▲
          │        packages/shared   │
          └────────────────────────────┘
@@ -23,7 +23,7 @@
 
 ```
 Создание отчёта (офлайн):
-  Форма → Dexie reports + photos → SyncQueue → [при появлении сети] → API → Supabase (PostgreSQL + Storage)
+  Форма → Dexie reports + photos → SyncQueue → [при появлении сети] → API → Supabase PostgreSQL + Cloudflare R2
 
 Синхронизация:
   SyncQueue обрабатывает операции в порядке: Отчёты → Фото → Финализация
@@ -50,7 +50,8 @@
 |------|-----------|
 | Frontend | React 19, TypeScript, Vite 6, React Router 7, Tailwind CSS 4, Dexie 4 |
 | Backend | Fastify 5, TypeScript, @supabase/supabase-js |
-| БД + Хранилище | Supabase (PostgreSQL + Storage) |
+| БД | Supabase (PostgreSQL) |
+| Хранилище файлов | Cloudflare R2 (S3-совместимый) |
 | PWA | Workbox 7 (injectManifest), Web App Manifest |
 | Тесты | Vitest (unit), Playwright (E2E) |
 | Монорепо | pnpm workspaces |
@@ -67,14 +68,25 @@
 # 1. Клонировать и перейти в директорию
 cd stroyfoto
 
-# 2. Скопировать переменные окружения
-cp .env.example .env
-# Заполнить SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY из Supabase Dashboard
+# 2. Создать файл переменных окружения для API
+cat > apps/api/.env << 'EOF'
+# Обязательные
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+R2_ACCOUNT_ID=your-r2-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key
+R2_SECRET_ACCESS_KEY=your-r2-secret-key
 
-# 3. Выполнить SQL-скрипт в Supabase SQL Editor (см. план миграции или supabase-schema.sql)
+# Опциональные (значения по умолчанию)
+# R2_BUCKET_NAME=stroyfoto
+# API_PORT=3001
+# PRESIGNED_URL_EXPIRY=3600
+EOF
 
-# 4. Установить зависимости и заполнить демо-данные
-pnpm setup
+# 3. Выполнить SQL-скрипт в Supabase SQL Editor (supabase/migrations/prod.sql)
+
+# 4. Установить зависимости
+pnpm install
 
 # 5. Запустить все сервисы в dev-режиме
 pnpm dev
@@ -98,8 +110,11 @@ pnpm dev
 | Путь | Описание | Офлайн? |
 |------|----------|---------|
 | `/login` | Авторизация | Только первый вход онлайн |
+| `/register` | Регистрация | Только онлайн |
 | `/reports` | Список отчётов | Да (данные из IndexedDB) |
 | `/reports/new` | Создание отчёта | Да (сохранение в IndexedDB) |
+| `/reports/:clientId` | Просмотр отчёта | Да (данные из IndexedDB) |
+| `/reports/:clientId/edit` | Редактирование отчёта | Да (данные из IndexedDB) |
 | `/sync` | Статус синхронизации, очистка хранилища | Частично |
 | `/admin` | Панель администратора | Только онлайн |
 
@@ -107,11 +122,10 @@ pnpm dev
 
 Каждый отчёт содержит:
 - **projectId** — идентификатор проекта/объекта
-- **dateTime** — дата и время создания
-- **mark** — отметка/маркер на объекте (оси)
-- **workType** — тип работ (из справочника)
-- **area** — зона/участок
+- **dateTime** — дата и время
+- **workTypes[]** — типы работ (множественный выбор из справочника)
 - **contractor** — подрядчик
+- **ownForces** — собственные силы (опционально)
 - **description** — описание
 - **photos[]** — до 20 фотографий (максимум 15 МБ каждая, автосжатие до 1920px)
 
@@ -134,8 +148,6 @@ pnpm test:web         # Только Web тесты (standalone)
 pnpm e2e              # Playwright E2E тесты
 pnpm e2e:ui           # Playwright в UI-режиме
 
-# База данных
-pnpm db:seed          # Заполнить БД демо-данными
 ```
 
 ## Guardrails и Edge Cases
@@ -174,11 +186,11 @@ pnpm db:seed          # Заполнить БД демо-данными
 ### HTTPS обязателен
 - Service Worker регистрируется только на HTTPS (кроме localhost)
 - PWA установка и Web App Manifest требуют HTTPS
-- Presigned URL для Supabase Storage работают через HTTPS по умолчанию
+- Presigned URL для Cloudflare R2 работают через HTTPS по умолчанию
 
 ### Безопасность
-- `JWT_SECRET` — обязательно заменить на длинную случайную строку (>= 64 символов)
 - `SUPABASE_SERVICE_ROLE_KEY` — хранить в секрете, не коммитить в репозиторий
+- `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` — хранить в секрете, не коммитить в репозиторий
 - Рассмотрите `navigator.storage.persist()` для предотвращения автоочистки IndexedDB браузером
 - В production рекомендуется ограничить CORS (`origin: true` → конкретные домены)
 
@@ -198,6 +210,8 @@ pnpm db:seed          # Заполнить БД демо-данными
 - [x] Ограничение размера файла (15 МБ) и количества фото (20)
 - [x] Очистка локальных копий синхронизированных фото
 - [x] Панель администратора со статистикой
+- [x] Presigned URL загрузка фото в Cloudflare R2
+- [x] Редактирование отчёта после создания
 - [x] PWA: установка на устройство, манифест
 - [x] Service Worker: кэширование app shell, runtime caching
 - [x] E2E тесты (Playwright): полный офлайн-цикл
@@ -205,10 +219,8 @@ pnpm db:seed          # Заполнить БД демо-данными
 
 ## Запланировано на v2
 
-- [ ] Прямая загрузка фото в Supabase Storage через presigned URL (backend готов)
 - [ ] Background Sync API через Service Worker
 - [ ] UI для разрешения конфликтов
-- [ ] Редактирование отчёта после создания
 - [ ] Push-уведомления о статусе синхронизации
 - [ ] Поддержка нескольких устройств с merge
 - [ ] Геолокация и привязка фото к плану объекта
@@ -225,4 +237,4 @@ pnpm db:seed          # Заполнить БД демо-данными
 5. **JWT 15m + refresh 30d**: баланс между безопасностью и удобством офлайн-работы
 6. **Last-write-wins**: в v1 конфликты не разрешаются — записи append-only по своей природе
 7. **Dexie v4 schema**: 11 таблиц с compound indexes для sync queue dedup
-8. **Supabase**: hosted PostgreSQL + Storage заменяют Docker-контейнеры PostgreSQL + MinIO
+8. **Supabase PostgreSQL + Cloudflare R2**: заменяют Docker-контейнеры PostgreSQL + MinIO
