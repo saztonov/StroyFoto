@@ -1,19 +1,40 @@
+import {
+  ABSOLUTE_MAX_PHOTO_BYTES,
+  IMAGE_MAX_DIMENSION,
+  IMAGE_QUALITY_MAX,
+  IMAGE_QUALITY_MIN,
+  IMAGE_QUALITY_STEP,
+  TARGET_PHOTO_SIZE_BYTES,
+} from "@stroyfoto/shared";
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  quality: number,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) =>
+        blob ? resolve(blob) : reject(new Error("Canvas toBlob failed")),
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
 export async function compressImage(
   file: File | Blob,
-  maxWidth = 1920,
-  quality = 0.8,
+  maxDimension = IMAGE_MAX_DIMENSION,
+  targetSize = TARGET_PHOTO_SIZE_BYTES,
 ): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
 
-  const isJpeg = file.type === "image/jpeg";
-  if (bitmap.width <= maxWidth && isJpeg) {
-    bitmap.close();
-    return file;
-  }
-
-  const scale = bitmap.width > maxWidth ? maxWidth / bitmap.width : 1;
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
+  const scale = Math.min(
+    maxDimension / bitmap.width,
+    maxDimension / bitmap.height,
+    1,
+  );
+  let w = Math.round(bitmap.width * scale);
+  let h = Math.round(bitmap.height * scale);
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
@@ -23,13 +44,27 @@ export async function compressImage(
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
 
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Canvas toBlob failed"))),
-      "image/jpeg",
-      quality,
-    );
-  });
+  let quality = IMAGE_QUALITY_MAX;
+  let blob = await canvasToBlob(canvas, quality);
+
+  while (blob.size > targetSize && quality > IMAGE_QUALITY_MIN) {
+    quality -= IMAGE_QUALITY_STEP;
+    quality = Math.max(quality, IMAGE_QUALITY_MIN);
+    blob = await canvasToBlob(canvas, quality);
+  }
+
+  if (blob.size > ABSOLUTE_MAX_PHOTO_BYTES) {
+    w = Math.round(w * 0.75);
+    h = Math.round(h * 0.75);
+    canvas.width = w;
+    canvas.height = h;
+    const bitmap2 = await createImageBitmap(file);
+    ctx.drawImage(bitmap2, 0, 0, w, h);
+    bitmap2.close();
+    blob = await canvasToBlob(canvas, IMAGE_QUALITY_MIN);
+  }
+
+  return blob;
 }
 
 export async function generateThumbnail(
@@ -50,13 +85,7 @@ export async function generateThumbnail(
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
 
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Canvas toBlob failed"))),
-      "image/jpeg",
-      0.6,
-    );
-  });
+  return canvasToBlob(canvas, 0.6);
 }
 
 async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
@@ -89,19 +118,10 @@ export interface ProcessedPhotoResult {
   mimeType: string;
 }
 
-import { MAX_FILE_SIZE_BYTES } from "@stroyfoto/shared";
-
 export async function processPhoto(file: File): Promise<ProcessedPhotoResult> {
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-    throw new Error(
-      `Файл "${file.name}" слишком большой (${sizeMb} МБ, максимум 15 МБ)`,
-    );
-  }
-
   const blob = await compressImage(file);
 
-  if (blob.size > MAX_FILE_SIZE_BYTES) {
+  if (blob.size > ABSOLUTE_MAX_PHOTO_BYTES) {
     throw new Error(
       `Фото "${file.name}" слишком большое даже после сжатия`,
     );
