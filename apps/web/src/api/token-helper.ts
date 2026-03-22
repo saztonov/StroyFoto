@@ -2,11 +2,23 @@ import { supabase } from "../lib/supabase";
 
 /**
  * Get a valid access token from Supabase Auth.
- * Supabase client handles refresh automatically.
+ * Proactively refreshes if the token expires within 30 seconds.
  */
 export async function getValidToken(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token ?? null;
+  if (!session?.access_token) return null;
+
+  try {
+    const payload = JSON.parse(atob(session.access_token.split('.')[1]));
+    if (payload.exp * 1000 < Date.now() + 30_000) {
+      const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+      return refreshed?.access_token ?? null;
+    }
+  } catch {
+    // If JWT decode fails, use token as-is (server will 401 if invalid)
+  }
+
+  return session.access_token;
 }
 
 /**

@@ -261,7 +261,7 @@ export async function executeFinalizeReport(
     return { success: false, retryable: true, error: `${unsyncedPhotos.length} фото ещё не загружены` };
   }
 
-  const res = await fetch(`${apiUrl}/api/reports/${report.serverId}/finalize`, {
+  let res = await fetch(`${apiUrl}/api/reports/${report.serverId}/finalize`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -273,6 +273,22 @@ export async function executeFinalizeReport(
     console.error("[sync:finalize] 403 — account disabled, stopping sync");
     supabase.auth.signOut().catch(() => {});
     return { success: false, retryable: false, error: "Account is disabled" };
+  }
+
+  if (res.status === 401) {
+    console.warn("[sync:finalize] 401 — refreshing token");
+    const newToken = await handleAuthError();
+    if (newToken) {
+      res = await fetch(`${apiUrl}/api/reports/${report.serverId}/finalize`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${newToken}`,
+          "X-Idempotency-Key": entry.idempotencyKey,
+        },
+      });
+    } else {
+      return { success: false, retryable: false, error: "Сессия истекла. Войдите заново." };
+    }
   }
 
   if (!res.ok) {

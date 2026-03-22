@@ -25,6 +25,17 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const AUTH_SESSION_KEY = "current";
 
+let profileFetchPromise: Promise<AuthSession | null> | null = null;
+
+/** Deduplicated wrapper — prevents concurrent fetches from init() and onAuthStateChange */
+function fetchAndCacheProfileDeduped(accessToken: string, session: Session): Promise<AuthSession | null> {
+  if (profileFetchPromise) return profileFetchPromise;
+  profileFetchPromise = fetchAndCacheProfile(accessToken, session).finally(() => {
+    profileFetchPromise = null;
+  });
+  return profileFetchPromise;
+}
+
 /** Fetch profile from our API and save to Dexie for offline access */
 async function fetchAndCacheProfile(accessToken: string, session: Session): Promise<AuthSession | null> {
   const apiUrl = import.meta.env.VITE_API_URL ?? "";
@@ -80,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (session) {
         try {
-          const profile = await fetchAndCacheProfile(session.access_token, session);
+          const profile = await fetchAndCacheProfileDeduped(session.access_token, session);
           if (profile) {
             setUser(profile);
             // Clean synced data from other users and reset reference data for current scope
@@ -113,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       } else if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
         try {
-          const profile = await fetchAndCacheProfile(session.access_token, session);
+          const profile = await fetchAndCacheProfileDeduped(session.access_token, session);
           setUser(profile);
         } catch {
           // Ignore fetch errors during token refresh

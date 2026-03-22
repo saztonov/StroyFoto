@@ -1,4 +1,5 @@
 import { db, getCurrentProfileId } from "./dexie";
+import { handleAuthError } from "../api/token-helper";
 
 /**
  * Pull reports from server into Dexie (IndexedDB) using cursor-based /api/sync/pull.
@@ -9,6 +10,7 @@ export async function pullRemoteReports(
   token: string,
   apiUrl: string,
 ): Promise<number> {
+  let currentToken = token;
   const profileId = await getCurrentProfileId();
   let pulled = 0;
   let cursor: string | null = null;
@@ -18,9 +20,19 @@ export async function pullRemoteReports(
     const params = new URLSearchParams({ limit: "50" });
     if (cursor) params.set("cursor", cursor);
 
-    const res = await fetch(`${apiUrl}/api/sync/pull?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    let res = await fetch(`${apiUrl}/api/sync/pull?${params}`, {
+      headers: { Authorization: `Bearer ${currentToken}` },
     });
+
+    if (res.status === 401) {
+      const newToken = await handleAuthError();
+      if (!newToken) break; // Session expired — stop pulling
+      currentToken = newToken;
+      res = await fetch(`${apiUrl}/api/sync/pull?${params}`, {
+        headers: { Authorization: `Bearer ${currentToken}` },
+      });
+    }
+
     if (!res.ok) break;
 
     const body: {

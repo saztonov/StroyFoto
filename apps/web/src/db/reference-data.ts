@@ -1,11 +1,13 @@
 import { REFERENCE_DATA_TTL_MS } from "@stroyfoto/shared";
 import { db, getCurrentProfileId } from "./dexie";
 import { supabase } from "../lib/supabase";
+import { handleAuthError } from "../api/token-helper";
 
 export async function syncReferenceData(
   token: string,
   apiUrl: string,
 ): Promise<void> {
+  let currentToken = token;
   const profileId = await getCurrentProfileId();
 
   const endpoints = [
@@ -36,14 +38,24 @@ export async function syncReferenceData(
       // Always do full fetch (not incremental) to ensure clean scope
       const url = `${apiUrl}/api/reference/${key}`;
 
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      let res = await fetch(url, {
+        headers: { Authorization: `Bearer ${currentToken}` },
       });
 
       if (res.status === 403) {
         supabase.auth.signOut().catch(() => {});
         return; // Terminal — stop all reference sync
       }
+
+      if (res.status === 401) {
+        const newToken = await handleAuthError();
+        if (!newToken) return; // Session expired — stop all reference sync
+        currentToken = newToken;
+        res = await fetch(url, {
+          headers: { Authorization: `Bearer ${currentToken}` },
+        });
+      }
+
       if (!res.ok) continue;
 
       const data = await res.json();
