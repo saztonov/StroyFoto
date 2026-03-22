@@ -92,13 +92,11 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           if (existingPhoto) {
             // Photo record already exists — if still pending, re-issue presigned URL
             if (existingPhoto.upload_status === "PENDING_UPLOAD") {
-              const { data: signedData } = await fastify.supabase.storage
-                .from(config.SUPABASE_STORAGE_BUCKET)
-                .createSignedUploadUrl(existingPhoto.object_key);
-
-              if (signedData) {
-                presignedUrls[photoMeta.clientId] = signedData.signedUrl;
-              }
+              presignedUrls[photoMeta.clientId] = await fastify.r2.getPresignedPutUrl(
+                existingPhoto.object_key,
+                existingPhoto.mime_type,
+                config.PRESIGNED_URL_EXPIRY,
+              );
             }
             // If UPLOADED, skip — idempotent
             continue;
@@ -107,20 +105,18 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           await fastify.supabase.from("photos").insert({
             client_id: photoMeta.clientId,
             report_id: report.id,
-            bucket: config.SUPABASE_STORAGE_BUCKET,
+            bucket: config.R2_BUCKET_NAME,
             object_key: objectKey,
             mime_type: photoMeta.mimeType,
             size_bytes: photoMeta.sizeBytes,
             upload_status: "PENDING_UPLOAD",
           });
 
-          const { data: signedData } = await fastify.supabase.storage
-            .from(config.SUPABASE_STORAGE_BUCKET)
-            .createSignedUploadUrl(objectKey);
-
-          if (signedData) {
-            presignedUrls[photoMeta.clientId] = signedData.signedUrl;
-          }
+          presignedUrls[photoMeta.clientId] = await fastify.r2.getPresignedPutUrl(
+            objectKey,
+            photoMeta.mimeType,
+            config.PRESIGNED_URL_EXPIRY,
+          );
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";

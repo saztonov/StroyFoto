@@ -1,6 +1,5 @@
 import { FastifyPluginAsync } from "fastify";
 import { completeUploadRequestSchema } from "@stroyfoto/shared";
-import { config } from "../config.js";
 
 const uploadsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -38,44 +37,29 @@ const uploadsRoutes: FastifyPluginAsync = async (fastify) => {
           continue;
         }
 
-        // Verify object exists in Supabase Storage
-        try {
-          const pathParts = photo.object_key.split("/");
-          const fileName = pathParts.pop()!;
-          const folderPath = pathParts.join("/");
+        // Verify object exists in R2
+        const headResult = await fastify.r2.headObject(photo.object_key);
 
-          const { data: files, error: listErr } = await fastify.supabase.storage
-            .from(photo.bucket)
-            .list(folderPath, { search: fileName });
-
-          if (listErr || !files || files.length === 0) {
-            results.push({
-              clientId,
-              status: "not_uploaded",
-              message: "Object not found in storage — upload may still be in progress",
-            });
-            continue;
-          }
-
-          const fileInfo = files.find((f) => f.name === fileName);
-          const sizeBytes = fileInfo?.metadata?.size ?? photo.size_bytes;
-
-          await fastify.supabase
-            .from("photos")
-            .update({
-              upload_status: "UPLOADED" as const,
-              size_bytes: sizeBytes,
-            })
-            .eq("client_id", clientId);
-
-          results.push({ clientId, status: "ok" });
-        } catch {
+        if (!headResult) {
           results.push({
             clientId,
             status: "not_uploaded",
             message: "Object not found in storage — upload may still be in progress",
           });
+          continue;
         }
+
+        const sizeBytes = headResult.contentLength ?? photo.size_bytes;
+
+        await fastify.supabase
+          .from("photos")
+          .update({
+            upload_status: "UPLOADED" as const,
+            size_bytes: sizeBytes,
+          })
+          .eq("client_id", clientId);
+
+        results.push({ clientId, status: "ok" });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         results.push({ clientId, status: "error", message });

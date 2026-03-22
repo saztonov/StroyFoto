@@ -12,25 +12,6 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function main() {
-  // --- Storage bucket ---
-  const bucketName = process.env.SUPABASE_STORAGE_BUCKET ?? "stroyfoto";
-  const { data: existingBuckets } = await supabase.storage.listBuckets();
-  const bucketExists = existingBuckets?.some((b) => b.name === bucketName);
-  if (!bucketExists) {
-    const { error: bucketErr } = await supabase.storage.createBucket(bucketName, {
-      public: false,
-      fileSizeLimit: 15 * 1024 * 1024,
-      allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
-    });
-    if (bucketErr) {
-      console.error("Failed to create storage bucket:", bucketErr.message);
-    } else {
-      console.log(`  Storage bucket "${bucketName}" created`);
-    }
-  } else {
-    console.log(`  Storage bucket "${bucketName}" already exists`);
-  }
-
   const salt = await bcrypt.genSalt(10);
 
   // --- Users ---

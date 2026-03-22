@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import type { TokenPayload } from "@stroyfoto/shared";
 import { snakeToCamel } from "../utils/case-transform.js";
 
+
 const photosRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
 
@@ -39,19 +40,12 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
     const reportClientId = reportClientIdField.value as string;
     const clientId = clientIdField.value as string;
 
-    request.log.info({ clientId, reportClientId, filename: originalFilename, mimeType, sizeBytes, bucket: config.SUPABASE_STORAGE_BUCKET }, "photos/upload: starting");
+    request.log.info({ clientId, reportClientId, filename: originalFilename, mimeType, sizeBytes }, "photos/upload: starting");
 
     const objectKey = `${user.sub}/${reportClientId}/${clientId}-${originalFilename}`;
 
-    // Upload to Supabase Storage
-    const { error: uploadErr } = await fastify.supabase.storage
-      .from(config.SUPABASE_STORAGE_BUCKET)
-      .upload(objectKey, buffer, { contentType: mimeType, upsert: true });
-
-    if (uploadErr) {
-      request.log.error({ error: uploadErr.message, objectKey, bucket: config.SUPABASE_STORAGE_BUCKET }, "photos/upload: Supabase Storage upload failed");
-      throw uploadErr;
-    }
+    // Upload to R2
+    await fastify.r2.upload(objectKey, buffer, mimeType);
 
     request.log.info({ objectKey }, "photos/upload: file uploaded to storage");
 
@@ -91,7 +85,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       .insert({
         client_id: clientId,
         report_id: report.id,
-        bucket: config.SUPABASE_STORAGE_BUCKET,
+        bucket: config.R2_BUCKET_NAME,
         object_key: objectKey,
         mime_type: mimeType,
         size_bytes: sizeBytes,
@@ -122,15 +116,8 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Photo upload not yet completed" });
     }
 
-    const { data: signedData, error: signErr } = await fastify.supabase.storage
-      .from(photo.bucket)
-      .createSignedUrl(photo.object_key, config.PRESIGNED_URL_EXPIRY);
-
-    if (signErr || !signedData) {
-      return reply.status(500).send({ error: "Failed to generate download URL" });
-    }
-
-    return reply.redirect(signedData.signedUrl);
+    const signedUrl = await fastify.r2.getPresignedGetUrl(photo.object_key, config.PRESIGNED_URL_EXPIRY);
+    return reply.redirect(signedUrl);
   });
 };
 

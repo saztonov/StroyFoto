@@ -167,11 +167,10 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       .eq("report_id", report.id);
 
     if (photos && photos.length > 0) {
-      // Delete from storage
+      // Delete from R2
       const objectKeys = photos.map((p) => p.object_key).filter(Boolean);
       if (objectKeys.length > 0) {
-        const bucket = photos[0].bucket ?? "stroyfoto";
-        await fastify.supabase.storage.from(bucket).remove(objectKeys);
+        await fastify.r2.deleteObjects(objectKeys);
       }
       // Delete photo records
       await fastify.supabase.from("photos").delete().eq("report_id", report.id);

@@ -3,6 +3,8 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { config } from "./config.js";
 import supabasePlugin from "./plugins/supabase.js";
+import r2Plugin from "./plugins/r2.js";
+import type { R2Service } from "./plugins/r2.js";
 import authPlugin from "./plugins/auth.js";
 import authRoutes from "./routes/auth.js";
 import reportsRoutes from "./routes/reports.js";
@@ -17,6 +19,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 declare module "fastify" {
   interface FastifyInstance {
     supabase: SupabaseClient;
+    r2: R2Service;
     authenticate: (request: FastifyRequest) => Promise<void>;
   }
 }
@@ -41,6 +44,7 @@ async function start() {
 
   // Register plugins
   await fastify.register(supabasePlugin);
+  await fastify.register(r2Plugin);
   await fastify.register(authPlugin);
 
   // Register routes
