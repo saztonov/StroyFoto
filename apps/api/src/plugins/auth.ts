@@ -1,17 +1,5 @@
 import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
-import jwt from "jsonwebtoken";
-import { config } from "../config.js";
-
-interface SupabaseJwtPayload {
-  sub: string;
-  email?: string;
-  app_metadata?: { app_role?: string };
-  aud?: string;
-  role?: string;
-  iat?: number;
-  exp?: number;
-}
 
 export interface AuthUser {
   /** auth.users.id */
@@ -31,35 +19,27 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
     const token = authHeader.slice(7);
 
-    let payload: SupabaseJwtPayload;
-    try {
-      payload = jwt.verify(token, config.SUPABASE_JWT_SECRET, {
-        algorithms: ["HS256"],
-      }) as SupabaseJwtPayload;
-    } catch {
+    const { data, error } = await fastify.supabase.auth.getUser(token);
+    if (error || !data.user) {
       throw fastify.httpErrors.unauthorized("Invalid or expired token");
     }
 
-    if (!payload.sub) {
-      throw fastify.httpErrors.unauthorized("Token missing subject");
-    }
+    const authUser = data.user;
 
-    // Resolve profile from auth_id
     const { getProfileByAuthId } = await import("../utils/get-profile.js");
-    const profile = await getProfileByAuthId(fastify.supabase, payload.sub);
+    const profile = await getProfileByAuthId(fastify.supabase, authUser.id);
 
     if (!profile) {
       throw fastify.httpErrors.unauthorized("User profile not found");
     }
 
-    // Attach user info to request
     (request as unknown as { user: AuthUser }).user = {
-      authId: payload.sub,
+      authId: authUser.id,
       profileId: profile.id,
       role: profile.role as "ADMIN" | "WORKER",
-      email: payload.email ?? profile.email,
+      email: authUser.email ?? profile.email,
     };
   });
 };
 
-export default fp(authPlugin, { name: "auth" });
+export default fp(authPlugin, { name: "auth", dependencies: ["supabase"] });

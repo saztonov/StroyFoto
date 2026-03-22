@@ -1684,17 +1684,34 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
-AS $function$
-BEGIN
-  INSERT INTO public.profiles (auth_id, email, role, full_name)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    'WORKER',
-    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
-  );
-  RETURN NEW;
-END;
+AS $function$
+BEGIN
+  INSERT INTO public.profiles (auth_id, email, role, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    'WORKER',
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    auth_id = EXCLUDED.auth_id,
+    full_name = EXCLUDED.full_name,
+    updated_at = now();
+  RETURN NEW;
+END;
+$function$
+
+
+-- Function: public.handle_user_deleted
+CREATE OR REPLACE FUNCTION public.handle_user_deleted()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  DELETE FROM public.profiles WHERE auth_id = OLD.id;
+  RETURN OLD;
+END;
 $function$
 
 
@@ -1702,11 +1719,11 @@ $function$
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
  RETURNS trigger
  LANGUAGE plpgsql
-AS $function$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
+AS $function$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
 $function$
 
 
@@ -3300,6 +3317,9 @@ $function$
 
 -- Trigger: on_auth_user_created on auth.users
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()
+
+-- Trigger: on_auth_user_deleted on auth.users
+CREATE TRIGGER on_auth_user_deleted AFTER DELETE ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_user_deleted()
 
 -- Trigger: set_updated_at_areas on public.areas
 CREATE TRIGGER set_updated_at_areas BEFORE UPDATE ON public.areas FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
