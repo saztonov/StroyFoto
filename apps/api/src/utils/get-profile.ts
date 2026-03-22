@@ -10,7 +10,7 @@ interface Profile {
 
 // Simple in-memory cache: authId → profile (cleared on process restart)
 const profileCache = new Map<string, { profile: Profile; expiresAt: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 30 * 1000; // 30 seconds
 
 export async function getProfileByAuthId(
   supabase: SupabaseClient,

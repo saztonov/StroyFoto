@@ -473,7 +473,14 @@
     "name": "handle_new_user",
     "arguments": "",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.handle_new_user()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  INSERT INTO public.profiles (auth_id, email, role, full_name)\r\n  VALUES (\r\n    NEW.id,\r\n    NEW.email,\r\n    'WORKER',\r\n    COALESCE(NEW.raw_user_meta_data->>'full_name', '')\r\n  );\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION public.handle_new_user()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  INSERT INTO public.profiles (auth_id, email, role, full_name)\r\n  VALUES (\r\n    NEW.id,\r\n    NEW.email,\r\n    'WORKER',\r\n    COALESCE(NEW.raw_user_meta_data->>'full_name', '')\r\n  )\r\n  ON CONFLICT (email) DO UPDATE SET\r\n    auth_id = EXCLUDED.auth_id,\r\n    full_name = EXCLUDED.full_name,\r\n    updated_at = now();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+  },
+  "public.handle_user_deleted()": {
+    "schema": "public",
+    "name": "handle_user_deleted",
+    "arguments": "",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION public.handle_user_deleted()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\r\nBEGIN\r\n  DELETE FROM public.profiles WHERE auth_id = OLD.id;\r\n  RETURN OLD;\r\nEND;\r\n$function$\n"
   },
   "public.update_updated_at_column()": {
     "schema": "public",

@@ -1,5 +1,5 @@
 -- Database Schema SQL Export
--- Generated: 2026-03-22T17:10:32.218390
+-- Generated: 2026-03-22T17:41:23.146557
 -- Database: postgres
 -- Host: aws-1-eu-west-1.pooler.supabase.com
 
@@ -1684,21 +1684,21 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
-AS $function$
-BEGIN
-  INSERT INTO public.profiles (auth_id, email, role, full_name)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    'WORKER',
-    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
-  )
-  ON CONFLICT (email) DO UPDATE SET
-    auth_id = EXCLUDED.auth_id,
-    full_name = EXCLUDED.full_name,
-    updated_at = now();
-  RETURN NEW;
-END;
+AS $function$
+BEGIN
+  INSERT INTO public.profiles (auth_id, email, role, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    'WORKER',
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    auth_id = EXCLUDED.auth_id,
+    full_name = EXCLUDED.full_name,
+    updated_at = now();
+  RETURN NEW;
+END;
 $function$
 
 
@@ -1707,11 +1707,11 @@ CREATE OR REPLACE FUNCTION public.handle_user_deleted()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
-AS $function$
-BEGIN
-  DELETE FROM public.profiles WHERE auth_id = OLD.id;
-  RETURN OLD;
-END;
+AS $function$
+BEGIN
+  DELETE FROM public.profiles WHERE auth_id = OLD.id;
+  RETURN OLD;
+END;
 $function$
 
 
@@ -1719,11 +1719,11 @@ $function$
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
  RETURNS trigger
  LANGUAGE plpgsql
-AS $function$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
+AS $function$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
 $function$
 
 
