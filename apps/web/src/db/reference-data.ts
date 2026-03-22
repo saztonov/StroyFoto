@@ -1,4 +1,4 @@
-import { WORK_TYPES, REFERENCE_DATA_TTL_MS } from "@stroyfoto/shared";
+import { REFERENCE_DATA_TTL_MS } from "@stroyfoto/shared";
 import { db } from "./dexie";
 
 export async function syncReferenceData(
@@ -58,16 +58,8 @@ export async function isReferenceDataStale(): Promise<boolean> {
   return false;
 }
 
-export async function ensureDefaultWorkTypes(): Promise<void> {
-  const count = await db.workTypes.count();
-  if (count > 0) return;
-
-  const now = new Date();
-  await db.workTypes.bulkAdd(
-    WORK_TYPES.map((name, i) => ({
-      id: `default-wt-${i}`,
-      name,
-      updatedAt: now,
-    })),
-  );
+/** Invalidate cached reference data for an entity type, triggering immediate re-sync */
+export async function invalidateReferenceCache(entityType: string): Promise<void> {
+  await db.syncState.delete(entityType);
+  window.dispatchEvent(new CustomEvent("reference-data-invalidated"));
 }

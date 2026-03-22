@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../../api/client";
 import { DictionaryFormModal, type FormField } from "./DictionaryFormModal";
+import { invalidateReferenceCache } from "../../db/reference-data";
 
 interface Column {
   key: string;
@@ -48,12 +49,14 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
       });
     }
     await loadData();
+    await invalidateReferenceCache(type);
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Деактивировать эту запись?")) return;
     await apiFetch(`/api/admin/dictionaries/${type}/${id}`, { method: "DELETE" });
     await loadData();
+    await invalidateReferenceCache(type);
   }
 
   async function handleRestore(id: string) {
@@ -62,6 +65,7 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
       body: JSON.stringify({ isActive: true }),
     });
     await loadData();
+    await invalidateReferenceCache(type);
   }
 
   if (loading) {

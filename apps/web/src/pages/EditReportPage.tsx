@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, type FormEvent } from "react";
 import { useNavigate, useParams, Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
-import { WORK_TYPES, createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
+import { createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
 import { db, type LocalPhoto } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
 import { useAuth } from "../auth/auth-context";
@@ -66,8 +66,8 @@ export function EditReportPage() {
   const ownForcesList = useLiveQuery(() => db.ownForces.toArray(), []);
 
   const workTypeOptions = useMemo(() => {
-    if (dbWorkTypes && dbWorkTypes.length > 0) return dbWorkTypes.map((wt) => wt.name);
-    return [...WORK_TYPES];
+    if (!dbWorkTypes) return [];
+    return dbWorkTypes.map((wt) => wt.name);
   }, [dbWorkTypes]);
 
   const projectOptions = useMemo(() => {

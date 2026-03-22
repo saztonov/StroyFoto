@@ -148,6 +148,13 @@ export function useSync() {
     return () => window.removeEventListener("sw-sync-trigger", onSwSync);
   }, [autoSync]);
 
+  // Trigger 6: Reference data invalidated (e.g. after admin CRUD)
+  useEffect(() => {
+    const onInvalidated = () => syncNow();
+    window.addEventListener("reference-data-invalidated", onInvalidated);
+    return () => window.removeEventListener("reference-data-invalidated", onInvalidated);
+  }, [syncNow]);
+
   return {
     syncNow,
     retryFailed: handleRetryFailed,
