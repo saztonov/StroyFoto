@@ -10,6 +10,7 @@ import {
   type SyncRunResult,
 } from "../db/sync-queue";
 import { syncReferenceData } from "../db/reference-data";
+import { pullRemoteReports } from "../db/pull-reports";
 import { useAuth } from "../auth/auth-context";
 import { useOnline } from "./use-online";
 import { getValidToken } from "../api/token-helper";
@@ -74,6 +75,13 @@ export function useSync() {
         await syncReferenceData(token, apiUrl);
       } catch {
         // Reference data sync is non-critical
+      }
+
+      // Pull remote reports into IndexedDB (non-blocking if fails)
+      try {
+        await pullRemoteReports(token, apiUrl);
+      } catch {
+        // Pull sync is non-critical
       }
 
       const result = await processQueue(token, apiUrl, setProgress);
