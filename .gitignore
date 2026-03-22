@@ -6,7 +6,7 @@ dist/
 Thumbs.db
 .vite/
 .turbo/
-
+data/
 # Prisma
 apps/api/prisma/migrations/
 
