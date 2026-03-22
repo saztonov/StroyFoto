@@ -11,7 +11,7 @@ beforeEach(async () => {
   await db.projects.clear();
   await db.workTypes.clear();
   await db.contractors.clear();
-  await db.areas.clear();
+  await db.ownForces.clear();
   await db.syncState.clear();
   await db.appSettings.clear();
 });
@@ -21,10 +21,9 @@ function makeReport(overrides: Partial<LocalReport> = {}): LocalReport {
     clientId: crypto.randomUUID(),
     projectId: "proj-1",
     dateTime: new Date("2025-01-15T10:00:00"),
-    mark: "А-Б / 1-3",
-    workType: "Монолит",
-    area: "Участок 1",
+    workTypes: ["Монолит"],
     contractor: "ООО Строй",
+    ownForces: "",
     description: "Тестовый отчёт",
     userId: "user-1",
     syncStatus: "local-only",
@@ -34,14 +33,14 @@ function makeReport(overrides: Partial<LocalReport> = {}): LocalReport {
   };
 }
 
-describe("Dexie schema v4", () => {
-  it("has all 11 tables", () => {
+describe("Dexie schema v6", () => {
+  it("has all expected tables", () => {
     const tableNames = db.tables.map((t) => t.name).sort();
     expect(tableNames).toEqual([
       "appSettings",
-      "areas",
       "authSession",
       "contractors",
+      "ownForces",
       "photos",
       "projects",
       "reports",
@@ -61,7 +60,7 @@ describe("Reports CRUD", () => {
     const fetched = await db.reports.get(report.clientId);
     expect(fetched).toBeDefined();
     expect(fetched!.projectId).toBe("proj-1");
-    expect(fetched!.mark).toBe("А-Б / 1-3");
+    expect(fetched!.workTypes).toEqual(["Монолит"]);
     expect(fetched!.syncStatus).toBe("local-only");
   });
 
@@ -181,11 +180,10 @@ describe("Reference tables", () => {
     expect(c!.name).toBe("ООО Строй");
   });
 
-  it("CRUD for areas", async () => {
-    await db.areas.add({ id: "a1", name: "Участок 1", projectId: "p1", updatedAt: new Date() });
-    const a = await db.areas.get("a1");
-    expect(a!.name).toBe("Участок 1");
-    expect(a!.projectId).toBe("p1");
+  it("CRUD for ownForces", async () => {
+    await db.ownForces.add({ id: "of1", name: "Бригада 1", updatedAt: new Date() });
+    const of = await db.ownForces.get("of1");
+    expect(of!.name).toBe("Бригада 1");
   });
 
   it("CRUD for syncState", async () => {
@@ -225,15 +223,15 @@ describe("Persistence across re-import", () => {
 
     // Re-open the same Dexie database (simulates page reload)
     const db2 = new Dexie("stroyfoto");
-    db2.version(4).stores({
+    db2.version(6).stores({
       reports: "clientId, serverId, projectId, userId, syncStatus, dateTime",
       photos: "clientId, serverId, reportClientId, syncStatus, localStatus",
-      syncQueue: "++id, operationType, entityClientId, status, nextRetryAt, createdAt",
+      syncQueue: "++id, operationType, entityClientId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
       authSession: "id",
       projects: "id, code, name",
       workTypes: "id, name",
       contractors: "id, name",
-      areas: "id, name, projectId",
+      ownForces: "id, name",
       syncState: "entityType",
       appSettings: "key",
       syncMeta: "key",

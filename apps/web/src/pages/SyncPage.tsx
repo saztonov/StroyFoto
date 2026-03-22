@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db/dexie";
 import { OP_LABELS } from "../db/sync-queue";
+import { deleteLocalReport } from "../db/report-utils";
 import { useSync } from "../hooks/use-sync";
 import { useOnline } from "../hooks/use-online";
 import { SyncProgressBar } from "../components/SyncProgressBar";
@@ -10,24 +11,6 @@ import {
   cleanSyncedBlobData,
   countCleanablePhotos,
 } from "../db/storage-cleanup";
-
-async function deleteLocalReport(reportClientId: string) {
-  // Delete all sync queue entries for this report and its photos
-  const photos = await db.photos.where("reportClientId").equals(reportClientId).toArray();
-  const photoClientIds = photos.map((p) => p.clientId);
-
-  // Delete queue entries for the report
-  await db.syncQueue.where("entityClientId").equals(reportClientId).delete();
-
-  // Delete queue entries for each photo
-  for (const photoClientId of photoClientIds) {
-    await db.syncQueue.where("entityClientId").equals(photoClientId).delete();
-  }
-
-  // Delete photos and report from Dexie
-  await db.photos.where("reportClientId").equals(reportClientId).delete();
-  await db.reports.delete(reportClientId);
-}
 
 function formatRelativeTime(date: Date): string {
   const diffMs = Date.now() - date.getTime();

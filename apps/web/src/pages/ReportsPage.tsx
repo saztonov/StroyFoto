@@ -258,10 +258,9 @@ export function ReportsPage() {
                 <p className="mt-0.5 text-xs text-gray-400">{formatDate(report.dateTime)}</p>
 
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {report.mark && <MetadataChip label="Марка" value={report.mark} />}
-                  {report.workType && <MetadataChip label="Работы" value={report.workType} />}
-                  {report.area && <MetadataChip label="Участок" value={report.area} />}
+                  {report.workTypes && report.workTypes.length > 0 && <MetadataChip label="Работы" value={report.workTypes.join(", ")} />}
                   {report.contractor && <MetadataChip label="Подрядчик" value={report.contractor} />}
+                  {report.ownForces && <MetadataChip label="Собств. силы" value={report.ownForces} />}
                   {photoCount > 0 && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">
                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>

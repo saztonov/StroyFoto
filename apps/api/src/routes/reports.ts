@@ -95,10 +95,9 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
         client_id: data.clientId,
         project_id: data.projectId,
         date_time: data.dateTime,
-        mark: data.mark,
-        work_type: data.workType,
-        area: data.area,
+        work_types: data.workTypes,
         contractor: data.contractor,
+        own_forces: data.ownForces ?? "",
         description: data.description ?? "",
         user_id: user.sub,
       })
@@ -139,6 +138,49 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return { status: "finalized" };
+  });
+
+  // DELETE /api/reports/by-client/:clientId
+  fastify.delete<{ Params: { clientId: string } }>("/api/reports/by-client/:clientId", async (request, reply) => {
+    const user = request.user as TokenPayload;
+    const { clientId } = request.params;
+
+    const { data: report, error } = await fastify.supabase
+      .from("reports")
+      .select("id, user_id")
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!report) {
+      return reply.status(404).send({ error: "Report not found" });
+    }
+
+    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
+      return reply.status(403).send({ error: "Access denied" });
+    }
+
+    // Delete photos from storage and DB
+    const { data: photos } = await fastify.supabase
+      .from("photos")
+      .select("id, object_key, bucket")
+      .eq("report_id", report.id);
+
+    if (photos && photos.length > 0) {
+      // Delete from storage
+      const objectKeys = photos.map((p) => p.object_key).filter(Boolean);
+      if (objectKeys.length > 0) {
+        const bucket = photos[0].bucket ?? "stroyfoto";
+        await fastify.supabase.storage.from(bucket).remove(objectKeys);
+      }
+      // Delete photo records
+      await fastify.supabase.from("photos").delete().eq("report_id", report.id);
+    }
+
+    // Delete report
+    await fastify.supabase.from("reports").delete().eq("id", report.id);
+
+    return { success: true };
   });
 };
 

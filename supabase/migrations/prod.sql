@@ -533,10 +533,12 @@ CREATE TABLE IF NOT EXISTS public.reports (
     client_id text NOT NULL,
     project_id uuid NOT NULL,
     date_time timestamp with time zone NOT NULL,
-    mark text NOT NULL,
-    work_type text NOT NULL,
-    area text NOT NULL,
+    mark text DEFAULT ''::text,
+    work_type text DEFAULT ''::text,
+    work_types text[] NOT NULL DEFAULT '{}'::text[],
+    area text DEFAULT ''::text,
     contractor text NOT NULL,
+    own_forces text NOT NULL DEFAULT ''::text,
     description text NOT NULL DEFAULT ''::text,
     user_id uuid NOT NULL,
     sync_status sync_status NOT NULL DEFAULT 'SYNCED'::sync_status,
@@ -570,6 +572,17 @@ CREATE TABLE IF NOT EXISTS public.work_types (
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT work_types_name_key UNIQUE (name),
     CONSTRAINT work_types_pkey PRIMARY KEY (id)
+);
+
+-- Table: public.own_forces
+CREATE TABLE IF NOT EXISTS public.own_forces (
+    id uuid NOT NULL DEFAULT uuid_generate_v4(),
+    name text NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT own_forces_name_key UNIQUE (name),
+    CONSTRAINT own_forces_pkey PRIMARY KEY (id)
 );
 
 -- Table: realtime.messages_2026_02_06

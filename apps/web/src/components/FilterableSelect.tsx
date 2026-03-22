@@ -1,0 +1,178 @@
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react";
+
+export interface FilterableSelectOption {
+  value: string;
+  label: string;
+}
+
+interface FilterableSelectProps {
+  options: FilterableSelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+export function FilterableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Начните вводить...",
+  required,
+  disabled,
+}: FilterableSelectProps) {
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Display label for the selected value
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? "";
+
+  // Filtered options based on query
+  const filtered = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        // Restore selected label when closing without selection
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (isOpen && listRef.current) {
+      const item = listRef.current.children[highlightIndex] as HTMLElement | undefined;
+      item?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightIndex, isOpen]);
+
+  const selectOption = useCallback(
+    (opt: FilterableSelectOption) => {
+      onChange(opt.value);
+      setQuery("");
+      setIsOpen(false);
+    },
+    [onChange],
+  );
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!isOpen) {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setHighlightIndex((i) => Math.max(i - 1, 0));
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (filtered[highlightIndex]) {
+          selectOption(filtered[highlightIndex]);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        setIsOpen(false);
+        setQuery("");
+        break;
+    }
+  }
+
+  function handleInputChange(val: string) {
+    setQuery(val);
+    setHighlightIndex(0);
+    if (!isOpen) setIsOpen(true);
+  }
+
+  function handleFocus() {
+    setIsOpen(true);
+    setQuery("");
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        value={isOpen ? query : selectedLabel}
+        onChange={(e) => handleInputChange(e.target.value)}
+        onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        required={required && !value}
+        disabled={disabled}
+        className="input-field"
+        autoComplete="off"
+      />
+      {value && !isOpen && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange("");
+            inputRef.current?.focus();
+          }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          tabIndex={-1}
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+
+      {isOpen && filtered.length > 0 && (
+        <ul
+          ref={listRef}
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+        >
+          {filtered.map((opt, idx) => (
+            <li
+              key={opt.value}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectOption(opt);
+              }}
+              onMouseEnter={() => setHighlightIndex(idx)}
+              className={`cursor-pointer px-3 py-2 text-sm ${
+                idx === highlightIndex
+                  ? "bg-blue-50 text-blue-700"
+                  : opt.value === value
+                    ? "bg-gray-50 font-medium text-gray-900"
+                    : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              {opt.label}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {isOpen && query && filtered.length === 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-center text-sm text-gray-400 shadow-lg">
+          Ничего не найдено
+        </div>
+      )}
+    </div>
+  );
+}

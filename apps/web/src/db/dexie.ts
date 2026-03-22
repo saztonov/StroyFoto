@@ -9,10 +9,9 @@ export interface LocalReport {
   serverId?: string;
   projectId: string;
   dateTime: Date;
-  mark: string;
-  workType: string;
-  area: string;
+  workTypes: string[];
   contractor: string;
+  ownForces: string;
   description: string;
   userId: string;
   syncStatus: LocalSyncStatus;
@@ -36,7 +35,7 @@ export interface LocalPhoto {
 }
 
 // ---------- Sync ----------
-export type SyncOperationType = "UPSERT_REPORT" | "UPLOAD_PHOTO" | "FINALIZE_REPORT";
+export type SyncOperationType = "UPSERT_REPORT" | "UPLOAD_PHOTO" | "FINALIZE_REPORT" | "DELETE_REPORT";
 export type SyncEntryStatus = "pending" | "in-progress" | "failed" | "done";
 
 export interface SyncQueueEntry {
@@ -48,6 +47,8 @@ export interface SyncQueueEntry {
   retryCount: number;
   nextRetryAt: Date | null;
   lastError: string | null;
+  /** Optional metadata for operations that need extra context (e.g. serverId for DELETE) */
+  metadata?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,10 +92,9 @@ export interface LocalContractor {
   updatedAt: Date;
 }
 
-export interface LocalArea {
+export interface LocalOwnForce {
   id: string;
   name: string;
-  projectId?: string;
   updatedAt: Date;
 }
 
@@ -119,7 +119,7 @@ const db = new Dexie("stroyfoto") as Dexie & {
   projects: EntityTable<LocalProject, "id">;
   workTypes: EntityTable<LocalWorkType, "id">;
   contractors: EntityTable<LocalContractor, "id">;
-  areas: EntityTable<LocalArea, "id">;
+  ownForces: EntityTable<LocalOwnForce, "id">;
   syncState: EntityTable<SyncState, "entityType">;
   appSettings: EntityTable<AppSetting, "key">;
   syncMeta: EntityTable<SyncMeta, "key">;
@@ -233,5 +233,38 @@ db.version(5).stores({
   appSettings: "key",
   syncMeta: "key",
 });
+
+// v6: remove mark/area fields, workType→workTypes[], add ownForces, remove areas table, add ownForces table
+db.version(6)
+  .stores({
+    reports: "clientId, serverId, projectId, userId, syncStatus, dateTime",
+    photos: "clientId, serverId, reportClientId, syncStatus, localStatus",
+    syncQueue:
+      "++id, operationType, entityClientId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
+    authSession: "id",
+    projects: "id, code, name",
+    workTypes: "id, name",
+    contractors: "id, name",
+    ownForces: "id, name",
+    areas: null, // delete areas table
+    syncState: "entityType",
+    appSettings: "key",
+    syncMeta: "key",
+  })
+  .upgrade((tx) => {
+    return tx
+      .table("reports")
+      .toCollection()
+      .modify((r: Record<string, unknown>) => {
+        // Convert workType string → workTypes array
+        r.workTypes = r.workType ? [r.workType as string] : [];
+        delete r.workType;
+        // Remove mark and area
+        delete r.mark;
+        delete r.area;
+        // Add ownForces default
+        if (!r.ownForces) r.ownForces = "";
+      });
+  });
 
 export { db };

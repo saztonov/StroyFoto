@@ -9,7 +9,7 @@ export async function syncReferenceData(
     { key: "projects", table: db.projects },
     { key: "workTypes", table: db.workTypes },
     { key: "contractors", table: db.contractors },
-    { key: "areas", table: db.areas },
+    { key: "ownForces", table: db.ownForces },
   ] as const;
 
   for (const { key, table } of endpoints) {
@@ -48,7 +48,7 @@ export async function syncReferenceData(
 
 /** Check if any reference data table has stale cache (older than TTL) */
 export async function isReferenceDataStale(): Promise<boolean> {
-  const keys = ["projects", "workTypes", "contractors", "areas"];
+  const keys = ["projects", "workTypes", "contractors", "ownForces"];
   for (const key of keys) {
     const syncState = await db.syncState.get(key);
     if (!syncState?.lastSyncedAt) return true;

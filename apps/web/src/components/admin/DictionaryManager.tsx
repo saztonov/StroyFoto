@@ -9,7 +9,7 @@ interface Column {
 }
 
 interface DictionaryManagerProps {
-  type: "projects" | "workTypes" | "contractors" | "areas";
+  type: "projects" | "workTypes" | "contractors" | "ownForces";
   title: string;
   columns: Column[];
   formFields: FormField[];

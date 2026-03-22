@@ -3,6 +3,7 @@ import {
   executeUpsertReport,
   executeUploadPhoto,
   executeFinalizeReport,
+  executeDeleteReport,
 } from "./sync-operations";
 import { getValidToken } from "../api/token-manager";
 
@@ -24,6 +25,7 @@ type ProgressCallback = (info: SyncProgress) => void;
 export async function enqueueSyncOp(
   operationType: SyncOperationType,
   entityClientId: string,
+  metadata?: Record<string, string>,
 ): Promise<void> {
   // Deduplicate: skip if a pending entry already exists for this op + entity
   const existing = await db.syncQueue
@@ -54,6 +56,7 @@ export async function enqueueSyncOp(
     retryCount: 0,
     nextRetryAt: null,
     lastError: null,
+    metadata,
     createdAt: now,
     updatedAt: now,
   });
@@ -68,12 +71,14 @@ const OP_ORDER: SyncOperationType[] = [
   "UPSERT_REPORT",
   "UPLOAD_PHOTO",
   "FINALIZE_REPORT",
+  "DELETE_REPORT",
 ];
 
 const OP_LABELS: Record<SyncOperationType, string> = {
   UPSERT_REPORT: "Отчёт",
   UPLOAD_PHOTO: "Фото",
   FINALIZE_REPORT: "Завершение",
+  DELETE_REPORT: "Удаление",
 };
 
 function computeNextRetry(retryCount: number): Date {
@@ -143,7 +148,9 @@ export async function processQueue(
           ? executeUpsertReport
           : entry.operationType === "UPLOAD_PHOTO"
             ? executeUploadPhoto
-            : executeFinalizeReport;
+            : entry.operationType === "DELETE_REPORT"
+              ? executeDeleteReport
+              : executeFinalizeReport;
 
       const result = await executor(entry, freshToken, apiUrl);
 

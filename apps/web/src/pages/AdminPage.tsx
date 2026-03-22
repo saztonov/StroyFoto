@@ -12,14 +12,14 @@ interface AdminStats {
   reportsByProject: { projectId: string; projectName?: string; projectCode?: string; count: number }[];
 }
 
-type TabKey = "overview" | "projects" | "workTypes" | "areas" | "contractors";
+type TabKey = "overview" | "projects" | "workTypes" | "contractors" | "ownForces";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Обзор" },
   { key: "projects", label: "Проекты" },
   { key: "workTypes", label: "Виды работ" },
-  { key: "areas", label: "Участки" },
   { key: "contractors", label: "Подрядчики" },
+  { key: "ownForces", label: "Собств. силы" },
 ];
 
 const projectFormFields: FormField[] = [
@@ -40,8 +40,6 @@ export function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-
   useEffect(() => {
     if (user?.role !== "ADMIN" || !isOnline) return;
 
@@ -51,12 +49,10 @@ export function AdminPage() {
     Promise.all([
       apiFetch<User[]>("/api/admin/users"),
       apiFetch<AdminStats>("/api/admin/stats"),
-      apiFetch<{ id: string; name: string }[]>("/api/admin/dictionaries/projects"),
     ])
-      .then(([usersData, statsData, projectsData]) => {
+      .then(([usersData, statsData]) => {
         setUsers(usersData);
         setStats(statsData);
-        setProjects(projectsData);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
@@ -105,18 +101,6 @@ export function AdminPage() {
       </div>
     );
   }
-
-  const areaFormFields: FormField[] = [
-    { key: "name", label: "Название", type: "text" },
-    {
-      key: "projectId",
-      label: "Проект",
-      type: "select",
-      nullable: true,
-      required: false,
-      options: projects.map((p) => ({ value: p.id, label: p.name })),
-    },
-  ];
 
   return (
     <div className="px-4 py-4">
@@ -250,29 +234,19 @@ export function AdminPage() {
         />
       )}
 
-      {activeTab === "areas" && (
-        <DictionaryManager
-          type="areas"
-          title="Участки"
-          columns={[
-            { key: "name", label: "Название" },
-            {
-              key: "projectId",
-              label: "Проект",
-              render: (value) => {
-                const project = projects.find((p) => p.id === value);
-                return project?.name ?? (value ? String(value) : "—");
-              },
-            },
-          ]}
-          formFields={areaFormFields}
-        />
-      )}
-
       {activeTab === "contractors" && (
         <DictionaryManager
           type="contractors"
           title="Подрядчики"
+          columns={[{ key: "name", label: "Название" }]}
+          formFields={simpleFormFields}
+        />
+      )}
+
+      {activeTab === "ownForces" && (
+        <DictionaryManager
+          type="ownForces"
+          title="Собственные силы"
           columns={[{ key: "name", label: "Название" }]}
           formFields={simpleFormFields}
         />

@@ -8,6 +8,7 @@ import { NewReportPage } from "./pages/NewReportPage";
 import { SyncPage } from "./pages/SyncPage";
 import { AdminPage } from "./pages/AdminPage";
 import { ReportDetailPage } from "./pages/ReportDetailPage";
+import { EditReportPage } from "./pages/EditReportPage";
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +41,10 @@ export const router = createBrowserRouter([
       {
         path: "reports/:clientId",
         element: <ReportDetailPage />,
+      },
+      {
+        path: "reports/:clientId/edit",
+        element: <EditReportPage />,
       },
       {
         path: "sync",

@@ -5,8 +5,6 @@ import {
   updateProjectSchema,
   createDictionaryItemSchema,
   updateDictionaryItemSchema,
-  createAreaSchema,
-  updateAreaSchema,
 } from "@stroyfoto/shared";
 import { snakeToCamel, snakeToCamelArray, camelToSnake } from "../utils/case-transform.js";
 
@@ -152,7 +150,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     projects: "projects",
     workTypes: "work_types",
     contractors: "contractors",
-    areas: "areas",
+    ownForces: "own_forces",
   };
 
   // GET /api/admin/dictionaries/:type — all records including inactive
@@ -182,7 +180,6 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     // Validate with appropriate schema
     const schema =
       type === "projects" ? createProjectSchema :
-      type === "areas" ? createAreaSchema :
       createDictionaryItemSchema;
 
     const parsed = schema.safeParse(request.body);
@@ -218,7 +215,6 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
     const schema =
       type === "projects" ? updateProjectSchema :
-      type === "areas" ? updateAreaSchema :
       updateDictionaryItemSchema;
 
     const parsed = schema.safeParse(request.body);

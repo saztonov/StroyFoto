@@ -57,10 +57,9 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
               client_id: reportFields.clientId,
               project_id: reportFields.projectId,
               date_time: reportFields.dateTime,
-              mark: reportFields.mark,
-              work_type: reportFields.workType,
-              area: reportFields.area,
+              work_types: reportFields.workTypes,
               contractor: reportFields.contractor,
+              own_forces: reportFields.ownForces ?? "",
               description: reportFields.description ?? "",
               user_id: user.sub,
               sync_status: "SYNCED",
@@ -212,7 +211,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
     for (const item of items) {
       try {
-        if (item.entityType === "report" && item.action === "create") {
+        if (item.entityType === "report" && (item.action === "create" || item.action === "update")) {
           const reportParsed = createReportSchema.safeParse(item.payload);
           if (!reportParsed.success) {
             request.log.warn({ entityClientId: item.entityClientId, errors: reportParsed.error.flatten() }, "sync/batch: invalid report payload");
@@ -236,15 +235,14 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
                 client_id: data.clientId,
                 project_id: data.projectId,
                 date_time: data.dateTime,
-                mark: data.mark,
-                work_type: data.workType,
-                area: data.area,
+                work_types: data.workTypes,
                 contractor: data.contractor,
+                own_forces: data.ownForces ?? "",
                 description: data.description ?? "",
                 user_id: user.sub,
                 sync_status: "SYNCED",
               },
-              { onConflict: "client_id", ignoreDuplicates: true },
+              { onConflict: "client_id", ignoreDuplicates: false },
             )
             .select()
             .single();

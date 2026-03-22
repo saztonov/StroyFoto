@@ -1,11 +1,10 @@
-import { useState, useMemo, useCallback, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useState, useMemo, useCallback, useEffect, type FormEvent } from "react";
+import { useNavigate, useParams, Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { WORK_TYPES, createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
-import { db } from "../db/dexie";
+import { db, type LocalPhoto } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
 import { useAuth } from "../auth/auth-context";
-import { useAutosave } from "../hooks/use-autosave";
 import { PhotoCapture, type ProcessedPhoto } from "../components/PhotoCapture";
 import { processPhoto } from "../lib/image-processing";
 import { FilterableSelect } from "../components/FilterableSelect";
@@ -17,22 +16,48 @@ function toLocalDateTimeString(date: Date): string {
   return local.toISOString().slice(0, 16);
 }
 
-export function NewReportPage() {
+export function EditReportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { clientId } = useParams<{ clientId: string }>();
 
-  const [clientId] = useState(() => crypto.randomUUID());
+  const report = useLiveQuery(
+    () => (clientId ? db.reports.get(clientId) : undefined),
+    [clientId],
+  );
+
+  const existingPhotos = useLiveQuery(
+    () => (clientId ? db.photos.where("reportClientId").equals(clientId).toArray() : []),
+    [clientId],
+  );
+
+  // Form state
   const [projectId, setProjectId] = useState("");
-  const [dateTime, setDateTime] = useState(toLocalDateTimeString(new Date()));
+  const [dateTime, setDateTime] = useState("");
   const [workTypes, setWorkTypes] = useState<string[]>([]);
   const [contractor, setContractor] = useState("");
   const [ownForces, setOwnForces] = useState("");
   const [description, setDescription] = useState("");
-  const [photos, setPhotos] = useState<ProcessedPhoto[]>([]);
+  const [newPhotos, setNewPhotos] = useState<ProcessedPhoto[]>([]);
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  // Pre-fill form from existing report
+  useEffect(() => {
+    if (report && !loaded) {
+      setProjectId(report.projectId);
+      setDateTime(toLocalDateTimeString(report.dateTime));
+      setWorkTypes(report.workTypes);
+      setContractor(report.contractor);
+      setOwnForces(report.ownForces);
+      setDescription(report.description);
+      setLoaded(true);
+    }
+  }, [report, loaded]);
 
   // Reference data from Dexie
   const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -45,30 +70,25 @@ export function NewReportPage() {
     return [...WORK_TYPES];
   }, [dbWorkTypes]);
 
-  // Project options for FilterableSelect
   const projectOptions = useMemo(() => {
     if (!projects) return [];
     return projects.map((p) => ({ value: p.id, label: `${p.name} (${p.code})` }));
   }, [projects]);
 
-  // Work type options for FilterableMultiSelect
   const workTypeSelectOptions = useMemo(() => {
     return workTypeOptions.map((wt) => ({ value: wt, label: wt }));
   }, [workTypeOptions]);
 
-  // Contractor options for FilterableSelect
   const contractorOptions = useMemo(() => {
     if (!contractors) return [];
     return contractors.map((c) => ({ value: c.name, label: c.name }));
   }, [contractors]);
 
-  // Own forces options for FilterableSelect
   const ownForcesOptions = useMemo(() => {
     if (!ownForcesList) return [];
     return ownForcesList.map((o) => ({ value: o.name, label: o.name }));
   }, [ownForcesList]);
 
-  // Inline-create new work type
   const handleCreateWorkType = useCallback(async (name: string) => {
     await db.workTypes.add({
       id: crypto.randomUUID(),
@@ -77,48 +97,52 @@ export function NewReportPage() {
     });
   }, []);
 
-  // Autosave draft
-  const draftData = useMemo(() => {
-    if (!user) return null;
-    return {
-      projectId: projectId.trim(),
-      dateTime: new Date(dateTime),
-      workTypes,
-      contractor: contractor.trim(),
-      ownForces: ownForces.trim(),
-      description: description.trim(),
-      userId: user.userId,
+  // Total photos = existing (minus removed) + new
+  const keptExisting = (existingPhotos ?? []).filter((p) => !removedPhotoIds.has(p.clientId));
+  const totalPhotos = keptExisting.length + newPhotos.length;
+
+  // Photo URLs for existing photos
+  const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!existingPhotos || existingPhotos.length === 0) return;
+    const urls = new Map<string, string>();
+    const objectUrls: string[] = [];
+
+    for (const photo of existingPhotos) {
+      if (photo.blob && photo.blob.size > 0) {
+        const url = URL.createObjectURL(photo.blob);
+        urls.set(photo.clientId, url);
+        objectUrls.push(url);
+      } else if (photo.thumbnail && photo.thumbnail.size > 0) {
+        const url = URL.createObjectURL(photo.thumbnail);
+        urls.set(photo.clientId, url);
+        objectUrls.push(url);
+      }
+    }
+    setPhotoUrls(new Map(urls));
+    return () => {
+      for (const url of objectUrls) URL.revokeObjectURL(url);
     };
-  }, [projectId, dateTime, workTypes, contractor, ownForces, description, user]);
+  }, [existingPhotos]);
 
-  const { lastSavedAt } = useAutosave(clientId, draftData);
-
-  // Photo handling
   const handleAddPhotos = useCallback(
     async (files: File[]) => {
       setIsProcessing(true);
       setError("");
 
       try {
-        const remaining = MAX_PHOTOS_PER_REPORT - photos.length;
+        const remaining = MAX_PHOTOS_PER_REPORT - totalPhotos;
         if (remaining <= 0) {
           setError(`Максимум ${MAX_PHOTOS_PER_REPORT} фото на отчёт`);
           return;
         }
 
         const filesToProcess = files.slice(0, remaining);
-        if (filesToProcess.length < files.length) {
-          showToast(`Добавлено только ${filesToProcess.length} из ${files.length} (лимит ${MAX_PHOTOS_PER_REPORT})`);
-        }
-
-        const existingHashes = new Set(photos.map((p) => p.hash).filter(Boolean));
-        const dbPhotos = await db.photos
-          .where("reportClientId")
-          .equals(clientId)
-          .toArray();
-        for (const p of dbPhotos) {
-          if (p.hash) existingHashes.add(p.hash);
-        }
+        const existingHashes = new Set([
+          ...newPhotos.map((p) => p.hash).filter(Boolean),
+          ...keptExisting.map((p) => p.hash).filter(Boolean),
+        ]);
 
         const results: ProcessedPhoto[] = [];
         const errors: string[] = [];
@@ -126,12 +150,10 @@ export function NewReportPage() {
         for (const file of filesToProcess) {
           try {
             const processed = await processPhoto(file);
-
             if (processed.hash && existingHashes.has(processed.hash)) {
               errors.push(`${file.name}: дубликат пропущен`);
               continue;
             }
-
             existingHashes.add(processed.hash);
             results.push({
               clientId: crypto.randomUUID(),
@@ -143,33 +165,32 @@ export function NewReportPage() {
               hash: processed.hash,
             });
           } catch (err) {
-            errors.push(err instanceof Error ? err.message : `${file.name}: ошибка обработки`);
+            errors.push(err instanceof Error ? err.message : `${file.name}: ошибка`);
           }
         }
 
-        if (results.length > 0) {
-          setPhotos((prev) => [...prev, ...results]);
-        }
-        if (errors.length > 0) {
-          setError(errors.join("; "));
-        }
+        if (results.length > 0) setNewPhotos((prev) => [...prev, ...results]);
+        if (errors.length > 0) setError(errors.join("; "));
       } finally {
         setIsProcessing(false);
       }
     },
-    [photos, clientId],
+    [totalPhotos, newPhotos, keptExisting],
   );
 
-  const handleRemovePhoto = useCallback((photoClientId: string) => {
-    setPhotos((prev) => prev.filter((p) => p.clientId !== photoClientId));
+  const handleRemoveExistingPhoto = useCallback((photoClientId: string) => {
+    setRemovedPhotoIds((prev) => new Set(prev).add(photoClientId));
   }, []);
 
-  // Submit
+  const handleRemoveNewPhoto = useCallback((photoClientId: string) => {
+    setNewPhotos((prev) => prev.filter((p) => p.clientId !== photoClientId));
+  }, []);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
 
-    if (!user) {
+    if (!user || !clientId) {
       setError("Пользователь не авторизован");
       return;
     }
@@ -195,8 +216,10 @@ export function NewReportPage() {
     try {
       const now = new Date();
 
+      // Update report
       await db.reports.put({
         clientId,
+        serverId: report?.serverId,
         projectId: parsed.data.projectId,
         dateTime: parsed.data.dateTime,
         workTypes: parsed.data.workTypes,
@@ -205,13 +228,18 @@ export function NewReportPage() {
         description: parsed.data.description,
         userId: user.userId,
         syncStatus: "local-only",
-        createdAt: (await db.reports.get(clientId))?.createdAt ?? now,
+        createdAt: report?.createdAt ?? now,
         updatedAt: now,
       });
 
-      await enqueueSyncOp("UPSERT_REPORT", clientId);
+      // Remove deleted photos
+      for (const photoId of removedPhotoIds) {
+        await db.syncQueue.where("entityClientId").equals(photoId).delete();
+        await db.photos.delete(photoId);
+      }
 
-      for (const photo of photos) {
+      // Add new photos
+      for (const photo of newPhotos) {
         await db.photos.add({
           clientId: photo.clientId,
           reportClientId: clientId,
@@ -228,8 +256,11 @@ export function NewReportPage() {
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
       }
 
-      showToast("Сохранено на устройстве");
-      setTimeout(() => navigate("/reports"), 800);
+      // Re-enqueue report sync
+      await enqueueSyncOp("UPSERT_REPORT", clientId);
+
+      showToast("Изменения сохранены");
+      setTimeout(() => navigate(`/reports/${clientId}`), 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сохранения");
     } finally {
@@ -242,19 +273,40 @@ export function NewReportPage() {
     setTimeout(() => setToast(""), 3000);
   }
 
+  if (report === undefined) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="px-4 py-20 text-center">
+        <p className="text-gray-500">Отчёт не найден</p>
+        <Link to="/reports" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
+          Вернуться к отчётам
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-4">
-      <h2 className="mb-4 text-xl font-bold text-gray-900">Новый отчёт</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <Link to={`/reports/${clientId}`} className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+          Назад
+        </Link>
+        <h2 className="text-xl font-bold text-gray-900">Редактирование</h2>
+      </div>
 
       {toast && (
         <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
           {toast}
-        </div>
-      )}
-
-      {lastSavedAt && !toast && (
-        <div className="mb-3 text-xs text-gray-400">
-          Черновик сохранён {lastSavedAt.toLocaleTimeString("ru-RU")}
         </div>
       )}
 
@@ -351,13 +403,45 @@ export function NewReportPage() {
           />
         </Field>
 
-        <Field label={`Фото (${photos.length}/${MAX_PHOTOS_PER_REPORT})`}>
+        {/* Existing photos */}
+        {keptExisting.length > 0 && (
+          <Field label={`Существующие фото (${keptExisting.length})`}>
+            <div className="grid grid-cols-4 gap-2">
+              {keptExisting.map((photo) => {
+                const url = photoUrls.get(photo.clientId);
+                return (
+                  <div key={photo.clientId} className="relative">
+                    {url ? (
+                      <img src={url} alt={photo.fileName} className="aspect-square w-full rounded-lg object-cover" />
+                    ) : (
+                      <div className="flex aspect-square items-center justify-center rounded-lg bg-gray-100">
+                        <span className="text-xs text-gray-400">Фото</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExistingPhoto(photo.clientId)}
+                      className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white shadow hover:bg-red-600"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </Field>
+        )}
+
+        {/* New photos */}
+        <Field label={`Добавить фото (всего: ${totalPhotos}/${MAX_PHOTOS_PER_REPORT})`}>
           <PhotoCapture
-            photos={photos}
+            photos={newPhotos}
             onAdd={handleAddPhotos}
-            onRemove={handleRemovePhoto}
+            onRemove={handleRemoveNewPhoto}
             isProcessing={isProcessing}
-            disabled={photos.length >= MAX_PHOTOS_PER_REPORT}
+            disabled={totalPhotos >= MAX_PHOTOS_PER_REPORT}
           />
         </Field>
 
@@ -372,11 +456,10 @@ export function NewReportPage() {
           disabled={submitting || isProcessing}
           className="w-full rounded-xl bg-blue-600 py-3.5 text-base font-semibold text-white transition hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitting ? "Сохранение..." : "Сохранить отчёт"}
+          {submitting ? "Сохранение..." : "Сохранить изменения"}
         </button>
       </form>
 
-      {/* Inline utility styles for form fields */}
       <style>{`
         .input-field {
           width: 100%;

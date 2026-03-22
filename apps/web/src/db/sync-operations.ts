@@ -32,10 +32,9 @@ export async function executeUpsertReport(
           clientId: report.clientId,
           projectId: report.projectId,
           dateTime: report.dateTime.toISOString(),
-          mark: report.mark,
-          workType: report.workType,
-          area: report.area,
+          workTypes: report.workTypes,
           contractor: report.contractor,
+          ownForces: report.ownForces,
           description: report.description,
         },
       },
@@ -260,4 +259,55 @@ export async function executeFinalizeReport(
   }
 
   return { success: true, retryable: false };
+}
+
+export async function executeDeleteReport(
+  entry: SyncQueueEntry,
+  token: string,
+  apiUrl: string,
+): Promise<OpResult> {
+  const serverId = entry.metadata?.serverId;
+  if (!serverId) {
+    console.warn("[sync:delete] No serverId in metadata, treating as success");
+    return { success: true, retryable: false };
+  }
+
+  console.log("[sync:delete] Deleting report serverId:", serverId);
+
+  const res = await fetch(`${apiUrl}/api/reports/by-client/${entry.entityClientId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Idempotency-Key": entry.idempotencyKey,
+    },
+  });
+
+  console.log("[sync:delete] Response status:", res.status);
+
+  if (res.status === 401) {
+    const newToken = await handleAuthError();
+    if (newToken) {
+      const retry = await fetch(`${apiUrl}/api/reports/by-client/${entry.entityClientId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${newToken}`,
+          "X-Idempotency-Key": entry.idempotencyKey,
+        },
+      });
+      if (retry.status === 404 || retry.ok) return { success: true, retryable: false };
+      return { success: false, retryable: retry.status >= 500, error: `HTTP ${retry.status}` };
+    }
+    return { success: false, retryable: false, error: "Сессия истекла. Войдите заново." };
+  }
+
+  // 404 means already deleted — treat as success
+  if (res.status === 404 || res.ok) {
+    return { success: true, retryable: false };
+  }
+
+  return {
+    success: false,
+    retryable: res.status >= 500,
+    error: `HTTP ${res.status}`,
+  };
 }
