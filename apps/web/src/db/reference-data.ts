@@ -15,14 +15,16 @@ export async function syncReferenceData(
   for (const { key, table } of endpoints) {
     try {
       const syncState = await db.syncState.get(key);
+      const tableCount = await (table as unknown as { count: () => Promise<number> }).count();
 
-      // Skip fetch if data was synced recently (within TTL)
+      // Skip fetch if data was synced recently (within TTL) AND table is not empty
       if (syncState?.lastSyncedAt) {
         const elapsed = Date.now() - syncState.lastSyncedAt.getTime();
-        if (elapsed < REFERENCE_DATA_TTL_MS) continue;
+        if (elapsed < REFERENCE_DATA_TTL_MS && tableCount > 0) continue;
       }
 
-      const since = syncState?.lastSyncedAt?.toISOString() ?? "";
+      // Use incremental sync only if table has data; otherwise do full fetch
+      const since = tableCount > 0 ? (syncState?.lastSyncedAt?.toISOString() ?? "") : "";
       const url = `${apiUrl}/api/reference/${key}${since ? `?updatedSince=${since}` : ""}`;
 
       const res = await fetch(url, {
