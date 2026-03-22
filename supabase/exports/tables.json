@@ -2846,6 +2846,74 @@
       }
     ]
   },
+  "public.dictionary_aliases": {
+    "schema": "public",
+    "name": "dictionary_aliases",
+    "comment": null,
+    "columns": [
+      {
+        "name": "id",
+        "comment": null,
+        "default": "uuid_generate_v4()",
+        "data_type": "uuid",
+        "is_nullable": false
+      },
+      {
+        "name": "dictionary_type",
+        "comment": null,
+        "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "item_id",
+        "comment": null,
+        "default": null,
+        "data_type": "uuid",
+        "is_nullable": false
+      },
+      {
+        "name": "alias_name",
+        "comment": null,
+        "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "created_at",
+        "comment": null,
+        "default": "now()",
+        "data_type": "timestamp with time zone",
+        "is_nullable": false
+      }
+    ],
+    "constraints": [
+      {
+        "name": "dictionary_aliases_pkey",
+        "type": "PRIMARY KEY",
+        "column": "id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "uq_alias_type_name",
+        "type": "UNIQUE",
+        "column": "alias_name",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "uq_alias_type_name",
+        "type": "UNIQUE",
+        "column": "dictionary_type",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      }
+    ]
+  },
   "public.own_forces": {
     "schema": "public",
     "name": "own_forces",
@@ -3062,6 +3130,13 @@
         "default": null,
         "data_type": "uuid",
         "is_nullable": true
+      },
+      {
+        "name": "is_active",
+        "comment": null,
+        "default": "true",
+        "data_type": "boolean",
+        "is_nullable": false
       }
     ],
     "constraints": [

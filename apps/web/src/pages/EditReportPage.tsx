@@ -9,6 +9,7 @@ import { PhotoCapture, type ProcessedPhoto } from "../components/PhotoCapture";
 import { processPhoto } from "../lib/image-processing";
 import { FilterableSelect } from "../components/FilterableSelect";
 import { FilterableMultiSelect } from "../components/FilterableMultiSelect";
+import { createLocalDictionaryItem } from "../db/dictionary-helpers";
 
 function toLocalDateTimeString(date: Date): string {
   const offset = date.getTimezoneOffset();
@@ -89,14 +90,19 @@ export function EditReportPage() {
     return ownForcesList.map((o) => ({ value: o.name, label: o.name }));
   }, [ownForcesList]);
 
+  const scopeProfileId = user?.userId ?? "";
+
   const handleCreateWorkType = useCallback(async (name: string) => {
-    await db.workTypes.add({
-      id: crypto.randomUUID(),
-      name,
-      scopeProfileId: user?.userId ?? "",
-      updatedAt: new Date(),
-    });
-  }, []);
+    await createLocalDictionaryItem("workTypes", name, scopeProfileId);
+  }, [scopeProfileId]);
+
+  const handleCreateContractor = useCallback(async (name: string) => {
+    await createLocalDictionaryItem("contractors", name, scopeProfileId);
+  }, [scopeProfileId]);
+
+  const handleCreateOwnForce = useCallback(async (name: string) => {
+    await createLocalDictionaryItem("ownForces", name, scopeProfileId);
+  }, [scopeProfileId]);
 
   // Total photos = existing (minus removed) + new
   const keptExisting = (existingPhotos ?? []).filter((p) => !removedPhotoIds.has(p.clientId));
@@ -363,43 +369,24 @@ export function EditReportPage() {
         </Field>
 
         <Field label="Подрядчик" required>
-          {contractorOptions.length > 0 ? (
-            <FilterableSelect
-              options={contractorOptions}
-              value={contractor}
-              onChange={setContractor}
-              placeholder="Выберите подрядчика"
-              required
-            />
-          ) : (
-            <input
-              type="text"
-              required
-              value={contractor}
-              onChange={(e) => setContractor(e.target.value)}
-              placeholder="Название подрядчика"
-              className="input-field"
-            />
-          )}
+          <FilterableSelect
+            options={contractorOptions}
+            value={contractor}
+            onChange={setContractor}
+            onCreateNew={handleCreateContractor}
+            placeholder="Выберите или создайте подрядчика"
+            required
+          />
         </Field>
 
         <Field label="Собственные силы">
-          {ownForcesOptions.length > 0 ? (
-            <FilterableSelect
-              options={ownForcesOptions}
-              value={ownForces}
-              onChange={setOwnForces}
-              placeholder="Выберите (необязательно)"
-            />
-          ) : (
-            <input
-              type="text"
-              value={ownForces}
-              onChange={(e) => setOwnForces(e.target.value)}
-              placeholder="Собственные силы (необязательно)"
-              className="input-field"
-            />
-          )}
+          <FilterableSelect
+            options={ownForcesOptions}
+            value={ownForces}
+            onChange={setOwnForces}
+            onCreateNew={handleCreateOwnForce}
+            placeholder="Выберите или создайте (необязательно)"
+          />
         </Field>
 
         <Field label="Описание">

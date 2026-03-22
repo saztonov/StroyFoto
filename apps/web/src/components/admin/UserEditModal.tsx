@@ -4,21 +4,24 @@ import { apiFetch } from "../../api/client";
 interface UserEditModalProps {
   userId: string;
   initialFullName: string;
+  initialRole: "ADMIN" | "WORKER";
   initialIsActive: boolean;
   isSelf: boolean;
   onClose: () => void;
-  onSaved: (data: { fullName: string; isActive: boolean }) => void;
+  onSaved: (data: { fullName: string; role: "ADMIN" | "WORKER"; isActive: boolean }) => void;
 }
 
 export function UserEditModal({
   userId,
   initialFullName,
+  initialRole,
   initialIsActive,
   isSelf,
   onClose,
   onSaved,
 }: UserEditModalProps) {
   const [fullName, setFullName] = useState(initialFullName);
+  const [role, setRole] = useState<"ADMIN" | "WORKER">(initialRole);
   const [isActive, setIsActive] = useState(initialIsActive);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -29,11 +32,16 @@ export function UserEditModal({
     setSaving(true);
 
     try {
-      await apiFetch(`/api/admin/users/${userId}/profile`, {
+      const body: Record<string, unknown> = { fullName };
+      if (!isSelf) {
+        body.role = role;
+        body.isActive = isActive;
+      }
+      await apiFetch(`/api/admin/users/${userId}`, {
         method: "PUT",
-        body: JSON.stringify({ fullName, isActive }),
+        body: JSON.stringify(body),
       });
-      onSaved({ fullName, isActive });
+      onSaved({ fullName, role: isSelf ? initialRole : role, isActive: isSelf ? initialIsActive : isActive });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сохранения");
     } finally {
@@ -59,6 +67,22 @@ export function UserEditModal({
               onChange={(e) => setFullName(e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Роль</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as "ADMIN" | "WORKER")}
+              disabled={isSelf}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
+            >
+              <option value="WORKER">Работник</option>
+              <option value="ADMIN">Админ</option>
+            </select>
+            {isSelf && (
+              <p className="mt-1 text-xs text-gray-400">Нельзя изменить свою роль</p>
+            )}
           </div>
 
           {!isSelf && (

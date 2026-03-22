@@ -34,7 +34,9 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     if (!profile.isActive) {
-      throw fastify.httpErrors.forbidden("Account is disabled");
+      const err = fastify.httpErrors.forbidden("Account is disabled");
+      (err as unknown as Record<string, unknown>).code = "ACCOUNT_DISABLED";
+      throw err;
     }
 
     (request as unknown as { user: AuthUser }).user = {

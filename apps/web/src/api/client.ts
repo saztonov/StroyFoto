@@ -37,8 +37,8 @@ export async function apiFetch<T>(
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
 
-    // Force logout if account is disabled
-    if (res.status === 403) {
+    // Force logout if account is disabled (but not for regular 403 like "Admin access required")
+    if (res.status === 403 && (body.code === "ACCOUNT_DISABLED" || body.message === "Account is disabled")) {
       await supabase.auth.signOut().catch(() => {});
     }
 

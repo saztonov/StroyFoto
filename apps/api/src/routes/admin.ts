@@ -471,18 +471,50 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const newName = (parsed.data as Record<string, unknown>).name as string | undefined;
+    const dictType = type === "workTypes" ? "work_types" : type === "ownForces" ? "own_forces" : type;
 
-    // Fetch old name before update (needed for cascade rename)
-    let oldName: string | undefined;
+    // For non-project dictionaries with name change, use atomic rename RPC
     if (newName && type !== "projects") {
-      const { data: existing } = await fastify.supabase
+      try {
+        await fastify.supabase.rpc("rename_dictionary_item", {
+          p_dict_type: dictType,
+          p_table_name: tableName,
+          p_item_id: request.params.id,
+          p_new_name: newName,
+        });
+      } catch (rpcErr: unknown) {
+        const msg = rpcErr instanceof Error ? rpcErr.message : String(rpcErr);
+        if (msg.includes("23505") || msg.includes("already exists") || msg.includes("conflicts with")) {
+          return reply.status(409).send({ error: "Запись с таким именем или алиасом уже существует" });
+        }
+        if (msg.includes("P0002") || msg.includes("not found")) {
+          return reply.status(404).send({ error: "Запись не найдена" });
+        }
+        throw rpcErr;
+      }
+
+      // Handle other fields (e.g. isActive) that might be in the payload alongside name
+      const otherFields = { ...(parsed.data as Record<string, unknown>) };
+      delete otherFields.name;
+      if (Object.keys(otherFields).length > 0) {
+        const updateData = camelToSnake(otherFields);
+        await fastify.supabase
+          .from(tableName)
+          .update({ ...updateData, updated_at: new Date().toISOString() })
+          .eq("id", request.params.id);
+      }
+
+      // Fetch updated record
+      const { data } = await fastify.supabase
         .from(tableName)
-        .select("name")
+        .select("*")
         .eq("id", request.params.id)
-        .maybeSingle();
-      oldName = existing?.name;
+        .single();
+
+      return snakeToCamel((data ?? {}) as Record<string, unknown>);
     }
 
+    // For projects or non-name updates (e.g. isActive toggle)
     const updateData = camelToSnake(parsed.data as Record<string, unknown>);
 
     const { data, error } = await fastify.supabase
@@ -500,26 +532,6 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: "Запись не найдена" });
       }
       throw error;
-    }
-
-    // Cascade rename in reports if name changed
-    if (newName && oldName && newName !== oldName) {
-      if (type === "workTypes") {
-        await fastify.supabase.rpc("rename_work_type_in_reports", {
-          old_name: oldName,
-          new_name: newName,
-        });
-      } else if (type === "contractors") {
-        await fastify.supabase
-          .from("reports")
-          .update({ contractor: newName, updated_at: new Date().toISOString() })
-          .eq("contractor", oldName);
-      } else if (type === "ownForces") {
-        await fastify.supabase
-          .from("reports")
-          .update({ own_forces: newName, updated_at: new Date().toISOString() })
-          .eq("own_forces", oldName);
-      }
     }
 
     return snakeToCamel(data as Record<string, unknown>);

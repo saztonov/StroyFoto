@@ -1,5 +1,5 @@
 -- Database Schema SQL Export
--- Generated: 2026-03-22T17:41:23.146557
+-- Generated: 2026-03-22T21:25:25.909385
 -- Database: postgres
 -- Host: aws-1-eu-west-1.pooler.supabase.com
 
@@ -454,6 +454,18 @@ CREATE TABLE IF NOT EXISTS public.contractors (
     CONSTRAINT contractors_pkey PRIMARY KEY (id)
 );
 
+-- Table: public.dictionary_aliases
+CREATE TABLE IF NOT EXISTS public.dictionary_aliases (
+    id uuid NOT NULL DEFAULT uuid_generate_v4(),
+    dictionary_type text NOT NULL,
+    item_id uuid NOT NULL,
+    alias_name text NOT NULL,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT dictionary_aliases_pkey PRIMARY KEY (id),
+    CONSTRAINT uq_alias_type_name UNIQUE (alias_name),
+    CONSTRAINT uq_alias_type_name UNIQUE (dictionary_type)
+);
+
 -- Table: public.own_forces
 CREATE TABLE IF NOT EXISTS public.own_forces (
     id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -488,10 +500,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email text NOT NULL,
     role user_role NOT NULL DEFAULT 'WORKER'::user_role,
     full_name text NOT NULL,
-    is_active boolean NOT NULL DEFAULT true,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     auth_id uuid,
+    is_active boolean NOT NULL DEFAULT true,
     CONSTRAINT profiles_auth_id_key UNIQUE (auth_id),
     CONSTRAINT profiles_email_key UNIQUE (email),
     CONSTRAINT profiles_pkey PRIMARY KEY (id)
@@ -844,26 +856,6 @@ CREATE OR REPLACE VIEW vault.decrypted_secrets AS
 -- ============================================
 -- FUNCTIONS
 -- ============================================
-
--- Function: public.rename_work_type_in_reports
--- Description: Cascade rename work type in reports.work_types[] array
-CREATE OR REPLACE FUNCTION public.rename_work_type_in_reports(old_name text, new_name text)
- RETURNS integer
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $$
-DECLARE
-  affected integer;
-BEGIN
-  UPDATE public.reports
-  SET work_types = array_replace(work_types, old_name, new_name),
-      updated_at = now()
-  WHERE old_name = ANY(work_types);
-  GET DIAGNOSTICS affected = ROW_COUNT;
-  RETURN affected;
-END;
-$$;
-
 
 -- Function: auth.email
 -- Description: Deprecated. Use auth.jwt() -> 'email' instead.
@@ -1732,6 +1724,74 @@ AS $function$
 BEGIN
   DELETE FROM public.profiles WHERE auth_id = OLD.id;
   RETURN OLD;
+END;
+$function$
+
+
+-- Function: public.rename_dictionary_item
+CREATE OR REPLACE FUNCTION public.rename_dictionary_item(p_dict_type text, p_table_name text, p_item_id uuid, p_new_name text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_old_name text;
+  v_conflict_id uuid;
+BEGIN
+  -- Получить текущее имя
+  EXECUTE format('SELECT name FROM public.%I WHERE id = $1', p_table_name)
+    INTO v_old_name USING p_item_id;
+
+  IF v_old_name IS NULL THEN
+    RAISE EXCEPTION 'Item not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_old_name = p_new_name THEN
+    RETURN;
+  END IF;
+
+  -- Проверить конфликт с каноническим именем (case-insensitive)
+  EXECUTE format('SELECT id FROM public.%I WHERE lower(name) = lower($1) AND id != $2', p_table_name)
+    INTO v_conflict_id USING p_new_name, p_item_id;
+
+  IF v_conflict_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Name already exists' USING ERRCODE = '23505';
+  END IF;
+
+  -- Проверить конфликт с алиасом
+  SELECT id INTO v_conflict_id
+    FROM public.dictionary_aliases
+    WHERE dictionary_type = p_dict_type
+      AND lower(alias_name) = lower(p_new_name);
+
+  IF v_conflict_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Name conflicts with existing alias' USING ERRCODE = '23505';
+  END IF;
+
+  -- Записать старое имя как алиас
+  INSERT INTO public.dictionary_aliases (dictionary_type, item_id, alias_name)
+    VALUES (p_dict_type, p_item_id, v_old_name)
+    ON CONFLICT (dictionary_type, alias_name) DO NOTHING;
+
+  -- Обновить каноническое имя
+  EXECUTE format('UPDATE public.%I SET name = $1, updated_at = now() WHERE id = $2', p_table_name)
+    USING p_new_name, p_item_id;
+
+  -- Каскадное обновление отчётов
+  IF p_dict_type = 'work_types' THEN
+    UPDATE public.reports
+      SET work_types = array_replace(work_types, v_old_name, p_new_name),
+          updated_at = now()
+      WHERE v_old_name = ANY(work_types);
+  ELSIF p_dict_type = 'contractors' THEN
+    UPDATE public.reports
+      SET contractor = p_new_name, updated_at = now()
+      WHERE contractor = v_old_name;
+  ELSIF p_dict_type = 'own_forces' THEN
+    UPDATE public.reports
+      SET own_forces = p_new_name, updated_at = now()
+      WHERE own_forces = v_old_name;
+  END IF;
 END;
 $function$
 
@@ -3584,11 +3644,23 @@ CREATE INDEX idx_areas_project_id ON public.areas USING btree (project_id);
 -- Index on public.contractors
 CREATE UNIQUE INDEX contractors_name_key ON public.contractors USING btree (name);
 
+-- Index on public.dictionary_aliases
+CREATE INDEX idx_dict_aliases_item_id ON public.dictionary_aliases USING btree (item_id);
+
+-- Index on public.dictionary_aliases
+CREATE INDEX idx_dict_aliases_type_name ON public.dictionary_aliases USING btree (dictionary_type, lower(alias_name));
+
+-- Index on public.dictionary_aliases
+CREATE UNIQUE INDEX uq_alias_type_name ON public.dictionary_aliases USING btree (dictionary_type, alias_name);
+
 -- Index on public.own_forces
 CREATE UNIQUE INDEX own_forces_name_key ON public.own_forces USING btree (name);
 
 -- Index on public.photos
 CREATE INDEX idx_photos_report_id ON public.photos USING btree (report_id);
+
+-- Index on public.photos
+CREATE INDEX idx_photos_report_upload_status ON public.photos USING btree (report_id, upload_status);
 
 -- Index on public.photos
 CREATE UNIQUE INDEX photos_client_id_key ON public.photos USING btree (client_id);
@@ -3603,10 +3675,19 @@ CREATE UNIQUE INDEX profiles_email_key ON public.profiles USING btree (email);
 CREATE UNIQUE INDEX projects_code_key ON public.projects USING btree (code);
 
 -- Index on public.reports
+CREATE INDEX idx_reports_contractor ON public.reports USING btree (contractor);
+
+-- Index on public.reports
 CREATE INDEX idx_reports_date_time ON public.reports USING btree (date_time);
 
 -- Index on public.reports
+CREATE INDEX idx_reports_own_forces ON public.reports USING btree (own_forces);
+
+-- Index on public.reports
 CREATE INDEX idx_reports_project_id ON public.reports USING btree (project_id);
+
+-- Index on public.reports
+CREATE INDEX idx_reports_project_sync_updated ON public.reports USING btree (project_id, sync_status, updated_at);
 
 -- Index on public.reports
 CREATE INDEX idx_reports_updated_at ON public.reports USING btree (updated_at);
@@ -3615,16 +3696,10 @@ CREATE INDEX idx_reports_updated_at ON public.reports USING btree (updated_at);
 CREATE INDEX idx_reports_user_id ON public.reports USING btree (user_id);
 
 -- Index on public.reports
-CREATE UNIQUE INDEX reports_client_id_key ON public.reports USING btree (client_id);
-
--- Index on public.reports (cascade rename performance)
-CREATE INDEX idx_reports_contractor ON public.reports USING btree (contractor);
-
--- Index on public.reports (cascade rename performance)
-CREATE INDEX idx_reports_own_forces ON public.reports USING btree (own_forces);
-
--- Index on public.reports (cascade rename performance)
 CREATE INDEX idx_reports_work_types ON public.reports USING gin (work_types);
+
+-- Index on public.reports
+CREATE UNIQUE INDEX reports_client_id_key ON public.reports USING btree (client_id);
 
 -- Index on public.user_projects
 CREATE INDEX idx_user_projects_project_id ON public.user_projects USING btree (project_id);

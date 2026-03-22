@@ -53,7 +53,7 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Деактивировать эту запись?")) return;
+    if (!confirm("Архивировать эту запись?")) return;
     await apiFetch(`/api/admin/dictionaries/${type}/${id}`, { method: "DELETE" });
     await loadData();
     await invalidateReferenceCache(type);
@@ -139,7 +139,7 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
                         onClick={() => handleDelete(item.id as string)}
                         className="text-red-600 hover:text-red-800"
                       >
-                        Удалить
+                        Архивировать
                       </button>
                     ) : (
                       <button

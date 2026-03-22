@@ -1,5 +1,6 @@
 import { REFERENCE_DATA_TTL_MS } from "@stroyfoto/shared";
 import { db, getCurrentProfileId } from "./dexie";
+import { supabase } from "../lib/supabase";
 
 export async function syncReferenceData(
   token: string,
@@ -39,6 +40,10 @@ export async function syncReferenceData(
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      if (res.status === 403) {
+        supabase.auth.signOut().catch(() => {});
+        return; // Terminal — stop all reference sync
+      }
       if (!res.ok) continue;
 
       const data = await res.json();

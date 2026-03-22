@@ -49,6 +49,20 @@ async function start() {
   await fastify.register(r2Plugin);
   await fastify.register(authPlugin);
 
+  // Custom error handler to include `code` in error responses
+  fastify.setErrorHandler((err: Error & { statusCode?: number; code?: string }, _request, reply) => {
+    const statusCode = err.statusCode ?? 500;
+    const response: Record<string, unknown> = {
+      statusCode,
+      error: err.name,
+      message: err.message,
+    };
+    if (err.code) {
+      response.code = err.code;
+    }
+    reply.status(statusCode).send(response);
+  });
+
   // Register routes
   await fastify.register(profileRoutes);
   await fastify.register(reportsRoutes);

@@ -13,6 +13,7 @@ import type { AuthUser } from "../plugins/auth.js";
 import { config } from "../config.js";
 import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
 import { getUserProjectIds, projectIdsForFilter } from "../utils/project-access.js";
+import { normalizeReportDictionaries } from "../utils/normalize-dictionary.js";
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -65,15 +66,20 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             serverId: existing.id,
           });
         } else {
+          // Normalize dictionary values
+          const normalized = await normalizeReportDictionaries(
+            fastify.supabase, reportFields.workTypes, reportFields.contractor, reportFields.ownForces ?? "",
+          );
+
           const { data: created, error: createErr } = await fastify.supabase
             .from("reports")
             .insert({
               client_id: reportFields.clientId,
               project_id: reportFields.projectId,
               date_time: reportFields.dateTime,
-              work_types: reportFields.workTypes,
-              contractor: reportFields.contractor,
-              own_forces: reportFields.ownForces ?? "",
+              work_types: normalized.workTypes,
+              contractor: normalized.contractor,
+              own_forces: normalized.ownForces,
               description: reportFields.description ?? "",
               user_id: user.profileId,
               sync_status: "SYNCED",
@@ -254,6 +260,11 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
           request.log.info({ clientId: data.clientId, projectId: data.projectId, userId: user.profileId }, "sync/batch: upserting report");
 
+          // Normalize dictionary values
+          const normalized = await normalizeReportDictionaries(
+            fastify.supabase, data.workTypes, data.contractor, data.ownForces ?? "",
+          );
+
           // Idempotent upsert
           const { data: report, error } = await fastify.supabase
             .from("reports")
@@ -262,9 +273,9 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
                 client_id: data.clientId,
                 project_id: data.projectId,
                 date_time: data.dateTime,
-                work_types: data.workTypes,
-                contractor: data.contractor,
-                own_forces: data.ownForces ?? "",
+                work_types: normalized.workTypes,
+                contractor: normalized.contractor,
+                own_forces: normalized.ownForces,
                 description: data.description ?? "",
                 user_id: user.profileId,
                 sync_status: "SYNCED",

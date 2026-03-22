@@ -26,7 +26,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_SESSION_KEY = "current";
 
 /** Fetch profile from our API and save to Dexie for offline access */
-async function fetchAndCacheProfile(accessToken: string, session: Session): Promise<AuthSession> {
+async function fetchAndCacheProfile(accessToken: string, session: Session): Promise<AuthSession | null> {
   const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
   const res = await fetch(`${apiUrl}/api/profile`, {
@@ -44,6 +44,13 @@ async function fetchAndCacheProfile(accessToken: string, session: Session): Prom
     };
     await db.authSession.put(authSession);
     return authSession;
+  }
+
+  // Account disabled — terminal state, clear session and don't fallback
+  if (res.status === 403) {
+    await supabase.auth.signOut().catch(() => {});
+    await db.authSession.delete(AUTH_SESSION_KEY);
+    return null;
   }
 
   // Fallback: use Supabase session data
@@ -74,9 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session) {
         try {
           const profile = await fetchAndCacheProfile(session.access_token, session);
-          setUser(profile);
-          // Clean synced data from other users and reset reference data for current scope
-          cleanScopedCacheOnLogin(profile.userId).catch(() => {});
+          if (profile) {
+            setUser(profile);
+            // Clean synced data from other users and reset reference data for current scope
+            cleanScopedCacheOnLogin(profile.userId).catch(() => {});
+          } else {
+            // Account disabled — profile returned null
+            setUser(null);
+          }
         } catch {
           // Offline — use cached profile
           if (cached) {
@@ -123,6 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (data.session) {
       const profile = await fetchAndCacheProfile(data.session.access_token, data.session);
+      if (!profile) {
+        throw new Error("Аккаунт заблокирован");
+      }
       setUser(profile);
     }
   }, []);
@@ -142,6 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (data.session) {
       const profile = await fetchAndCacheProfile(data.session.access_token, data.session);
+      if (!profile) {
+        throw new Error("Аккаунт заблокирован");
+      }
       setUser(profile);
     }
   }, []);

@@ -9,6 +9,7 @@ interface FilterableSelectProps {
   options: FilterableSelectOption[];
   value: string;
   onChange: (value: string) => void;
+  onCreateNew?: (name: string) => Promise<void>;
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
@@ -18,6 +19,7 @@ export function FilterableSelect({
   options,
   value,
   onChange,
+  onCreateNew,
   placeholder = "Начните вводить...",
   required,
   disabled,
@@ -25,6 +27,7 @@ export function FilterableSelect({
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [isCreating, setIsCreating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -36,6 +39,15 @@ export function FilterableSelect({
   const filtered = query
     ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
     : options;
+
+  // Whether to show "Create new" button
+  const trimmedQuery = query.trim();
+  const canCreate =
+    onCreateNew &&
+    trimmedQuery.length > 0 &&
+    !options.some((o) => o.label.toLowerCase() === trimmedQuery.toLowerCase());
+
+  const totalItems = filtered.length + (canCreate ? 1 : 0);
 
   // Close on outside click
   useEffect(() => {
@@ -67,6 +79,19 @@ export function FilterableSelect({
     [onChange],
   );
 
+  async function handleCreateNew() {
+    if (!onCreateNew || !trimmedQuery || isCreating) return;
+    setIsCreating(true);
+    try {
+      await onCreateNew(trimmedQuery);
+      onChange(trimmedQuery);
+      setQuery("");
+      setIsOpen(false);
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (!isOpen) {
       if (e.key === "ArrowDown" || e.key === "Enter") {
@@ -79,7 +104,7 @@ export function FilterableSelect({
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1));
+        setHighlightIndex((i) => Math.min(i + 1, totalItems - 1));
         break;
       case "ArrowUp":
         e.preventDefault();
@@ -87,8 +112,10 @@ export function FilterableSelect({
         break;
       case "Enter":
         e.preventDefault();
-        if (filtered[highlightIndex]) {
+        if (highlightIndex < filtered.length) {
           selectOption(filtered[highlightIndex]);
+        } else if (canCreate) {
+          handleCreateNew();
         }
         break;
       case "Escape":
@@ -141,7 +168,7 @@ export function FilterableSelect({
         </button>
       )}
 
-      {isOpen && filtered.length > 0 && (
+      {isOpen && totalItems > 0 && (
         <ul
           ref={listRef}
           className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
@@ -165,10 +192,26 @@ export function FilterableSelect({
               {opt.label}
             </li>
           ))}
+          {canCreate && (
+            <li
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleCreateNew();
+              }}
+              onMouseEnter={() => setHighlightIndex(filtered.length)}
+              className={`cursor-pointer border-t border-gray-100 px-3 py-2 text-sm ${
+                highlightIndex === filtered.length
+                  ? "bg-green-50 text-green-700"
+                  : "text-green-600 hover:bg-green-50"
+              }`}
+            >
+              {isCreating ? "Создание..." : `Создать "${trimmedQuery}"`}
+            </li>
+          )}
         </ul>
       )}
 
-      {isOpen && query && filtered.length === 0 && (
+      {isOpen && query && filtered.length === 0 && !canCreate && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-center text-sm text-gray-400 shadow-lg">
           Ничего не найдено
         </div>

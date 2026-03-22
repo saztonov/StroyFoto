@@ -3,6 +3,7 @@ import { createReportSchema } from "@stroyfoto/shared";
 import type { AuthUser } from "../plugins/auth.js";
 import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
 import { getUserProjectIds, projectIdsForFilter } from "../utils/project-access.js";
+import { normalizeReportDictionaries } from "../utils/normalize-dictionary.js";
 
 const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -107,15 +108,20 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // Normalize dictionary values (resolve aliases, create missing entries)
+    const normalized = await normalizeReportDictionaries(
+      fastify.supabase, data.workTypes, data.contractor, data.ownForces ?? "",
+    );
+
     const { data: report, error } = await fastify.supabase
       .from("reports")
       .insert({
         client_id: data.clientId,
         project_id: data.projectId,
         date_time: data.dateTime,
-        work_types: data.workTypes,
-        contractor: data.contractor,
-        own_forces: data.ownForces ?? "",
+        work_types: normalized.workTypes,
+        contractor: normalized.contractor,
+        own_forces: normalized.ownForces,
         description: data.description ?? "",
         user_id: user.profileId,
       })

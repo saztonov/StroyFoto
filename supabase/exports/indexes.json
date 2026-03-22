@@ -527,6 +527,30 @@
     "is_primary": false,
     "sql": "CREATE UNIQUE INDEX contractors_name_key ON public.contractors USING btree (name)"
   },
+  "public.dictionary_aliases.idx_dict_aliases_item_id": {
+    "schema": "public",
+    "name": "idx_dict_aliases_item_id",
+    "table_name": "dictionary_aliases",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_dict_aliases_item_id ON public.dictionary_aliases USING btree (item_id)"
+  },
+  "public.dictionary_aliases.idx_dict_aliases_type_name": {
+    "schema": "public",
+    "name": "idx_dict_aliases_type_name",
+    "table_name": "dictionary_aliases",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_dict_aliases_type_name ON public.dictionary_aliases USING btree (dictionary_type, lower(alias_name))"
+  },
+  "public.dictionary_aliases.uq_alias_type_name": {
+    "schema": "public",
+    "name": "uq_alias_type_name",
+    "table_name": "dictionary_aliases",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX uq_alias_type_name ON public.dictionary_aliases USING btree (dictionary_type, alias_name)"
+  },
   "public.own_forces.own_forces_name_key": {
     "schema": "public",
     "name": "own_forces_name_key",
@@ -542,6 +566,14 @@
     "is_unique": false,
     "is_primary": false,
     "sql": "CREATE INDEX idx_photos_report_id ON public.photos USING btree (report_id)"
+  },
+  "public.photos.idx_photos_report_upload_status": {
+    "schema": "public",
+    "name": "idx_photos_report_upload_status",
+    "table_name": "photos",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_photos_report_upload_status ON public.photos USING btree (report_id, upload_status)"
   },
   "public.photos.photos_client_id_key": {
     "schema": "public",
@@ -575,6 +607,14 @@
     "is_primary": false,
     "sql": "CREATE UNIQUE INDEX projects_code_key ON public.projects USING btree (code)"
   },
+  "public.reports.idx_reports_contractor": {
+    "schema": "public",
+    "name": "idx_reports_contractor",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_reports_contractor ON public.reports USING btree (contractor)"
+  },
   "public.reports.idx_reports_date_time": {
     "schema": "public",
     "name": "idx_reports_date_time",
@@ -583,6 +623,14 @@
     "is_primary": false,
     "sql": "CREATE INDEX idx_reports_date_time ON public.reports USING btree (date_time)"
   },
+  "public.reports.idx_reports_own_forces": {
+    "schema": "public",
+    "name": "idx_reports_own_forces",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_reports_own_forces ON public.reports USING btree (own_forces)"
+  },
   "public.reports.idx_reports_project_id": {
     "schema": "public",
     "name": "idx_reports_project_id",
@@ -590,6 +638,14 @@
     "is_unique": false,
     "is_primary": false,
     "sql": "CREATE INDEX idx_reports_project_id ON public.reports USING btree (project_id)"
+  },
+  "public.reports.idx_reports_project_sync_updated": {
+    "schema": "public",
+    "name": "idx_reports_project_sync_updated",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_reports_project_sync_updated ON public.reports USING btree (project_id, sync_status, updated_at)"
   },
   "public.reports.idx_reports_updated_at": {
     "schema": "public",
@@ -606,6 +662,14 @@
     "is_unique": false,
     "is_primary": false,
     "sql": "CREATE INDEX idx_reports_user_id ON public.reports USING btree (user_id)"
+  },
+  "public.reports.idx_reports_work_types": {
+    "schema": "public",
+    "name": "idx_reports_work_types",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_reports_work_types ON public.reports USING gin (work_types)"
   },
   "public.reports.reports_client_id_key": {
     "schema": "public",

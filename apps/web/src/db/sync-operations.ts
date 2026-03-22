@@ -2,6 +2,7 @@ import { db, type SyncQueueEntry } from "./dexie";
 import { handleAuthError } from "../api/token-helper";
 import type { SyncBatchRequest, SyncBatchResponse } from "@stroyfoto/shared";
 import { cleanReportPhotos } from "./storage-cleanup";
+import { supabase } from "../lib/supabase";
 
 export interface OpResult {
   success: boolean;
@@ -85,6 +86,12 @@ export async function executeUpsertReport(
       return { success: true, retryable: false, serverId: retryResult.serverId };
     }
     return { success: false, retryable: false, error: "Сессия истекла. Войдите заново." };
+  }
+
+  if (res.status === 403) {
+    console.error("[sync:upsert] 403 — account disabled, stopping sync");
+    supabase.auth.signOut().catch(() => {});
+    return { success: false, retryable: false, error: "Account is disabled" };
   }
 
   if (!res.ok) {
@@ -208,6 +215,12 @@ export async function executeUploadPhoto(
 
   console.log("[sync:photo] Upload response status:", res.status);
 
+  if (res.status === 403) {
+    console.error("[sync:photo] 403 — account disabled, stopping sync");
+    supabase.auth.signOut().catch(() => {});
+    return { success: false, retryable: false, error: "Account is disabled" };
+  }
+
   if (!res.ok) {
     const errBody = await res.text();
     console.error("[sync:photo] Upload failed:", res.status, errBody);
@@ -255,6 +268,12 @@ export async function executeFinalizeReport(
       "X-Idempotency-Key": entry.idempotencyKey,
     },
   });
+
+  if (res.status === 403) {
+    console.error("[sync:finalize] 403 — account disabled, stopping sync");
+    supabase.auth.signOut().catch(() => {});
+    return { success: false, retryable: false, error: "Account is disabled" };
+  }
 
   if (!res.ok) {
     // If endpoint doesn't exist (404) or returns 409 (already finalized), treat as success

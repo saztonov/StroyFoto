@@ -10,7 +10,6 @@ import { UserEditModal } from "../components/admin/UserEditModal";
 
 interface AdminUser extends User {
   assignedProjectIds: string[];
-  isActive: boolean;
 }
 
 interface AdminStats {
@@ -48,7 +47,6 @@ export function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
   const [projectsModalUser, setProjectsModalUser] = useState<AdminUser | null>(null);
   const [editModalUser, setEditModalUser] = useState<AdminUser | null>(null);
 
@@ -75,23 +73,6 @@ export function AdminPage() {
   useEffect(() => {
     loadData();
   }, [user?.role, isOnline]);
-
-  async function handleRoleChange(userId: string, newRole: "ADMIN" | "WORKER") {
-    setRoleUpdating(userId);
-    try {
-      await apiFetch(`/api/admin/users/${userId}/role`, {
-        method: "PUT",
-        body: JSON.stringify({ role: newRole }),
-      });
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка смены роли");
-    } finally {
-      setRoleUpdating(null);
-    }
-  }
 
   if (user?.role !== "ADMIN") {
     return (
@@ -227,21 +208,13 @@ export function AdminPage() {
                           {u.email}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          {u.id === user?.userId ? (
-                            <span className="inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
-                              Админ (вы)
-                            </span>
-                          ) : (
-                            <select
-                              value={u.role}
-                              disabled={roleUpdating === u.id}
-                              onChange={(e) => handleRoleChange(u.id, e.target.value as "ADMIN" | "WORKER")}
-                              className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium disabled:opacity-50"
-                            >
-                              <option value="WORKER">Работник</option>
-                              <option value="ADMIN">Админ</option>
-                            </select>
-                          )}
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                            u.role === "ADMIN"
+                              ? u.id === user?.userId ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"
+                              : "bg-gray-100 text-gray-600"
+                          }`}>
+                            {u.role === "ADMIN" ? (u.id === user?.userId ? "Админ (вы)" : "Админ") : "Работник"}
+                          </span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
                           {u.isActive ? (
@@ -347,14 +320,15 @@ export function AdminPage() {
         <UserEditModal
           userId={editModalUser.id}
           initialFullName={editModalUser.fullName}
+          initialRole={editModalUser.role}
           initialIsActive={editModalUser.isActive}
           isSelf={editModalUser.id === user?.userId}
           onClose={() => setEditModalUser(null)}
-          onSaved={({ fullName, isActive }) => {
+          onSaved={({ fullName, role: newRole, isActive }) => {
             setUsers((prev) =>
               prev.map((u) =>
                 u.id === editModalUser.id
-                  ? { ...u, fullName, isActive }
+                  ? { ...u, fullName, role: newRole, isActive }
                   : u,
               ),
             );
