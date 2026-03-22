@@ -98,7 +98,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send(snakeToCamel(photo as Record<string, unknown>));
   });
 
-  // GET /api/photos/:id — redirect to presigned GET URL
+  // GET /api/photos/:id — proxy photo from R2 (avoids CORS issues with presigned redirects)
   fastify.get<{ Params: { id: string } }>("/api/photos/:id", async (request, reply) => {
     const { id } = request.params;
 
@@ -116,8 +116,15 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Photo upload not yet completed" });
     }
 
-    const signedUrl = await fastify.r2.getPresignedGetUrl(photo.object_key, config.PRESIGNED_URL_EXPIRY);
-    return reply.redirect(signedUrl);
+    const obj = await fastify.r2.download(photo.object_key);
+    if (!obj) {
+      return reply.status(404).send({ error: "Photo file not found in storage" });
+    }
+
+    return reply
+      .header("Content-Type", obj.contentType)
+      .header("Cache-Control", "private, max-age=3600")
+      .send(obj.body);
   });
 };
 

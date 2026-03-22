@@ -12,6 +12,7 @@ import { config } from "../config.js";
 
 export interface R2Service {
   upload(objectKey: string, body: Buffer, contentType: string): Promise<void>;
+  download(objectKey: string): Promise<{ body: ReadableStream | NodeJS.ReadableStream; contentType: string; contentLength?: number } | null>;
   getPresignedGetUrl(objectKey: string, expiresIn: number): Promise<string>;
   getPresignedPutUrl(objectKey: string, contentType: string, expiresIn: number): Promise<string>;
   deleteObjects(objectKeys: string[]): Promise<void>;
@@ -40,6 +41,25 @@ const r2Plugin: FastifyPluginAsync = async (fastify) => {
           ContentType: contentType,
         }),
       );
+    },
+
+    async download(objectKey) {
+      try {
+        const result = await s3.send(
+          new GetObjectCommand({ Bucket: bucket, Key: objectKey }),
+        );
+        if (!result.Body) return null;
+        return {
+          body: result.Body as unknown as ReadableStream | NodeJS.ReadableStream,
+          contentType: result.ContentType ?? "application/octet-stream",
+          contentLength: result.ContentLength,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && "name" in err && err.name === "NoSuchKey") {
+          return null;
+        }
+        throw err;
+      }
     },
 
     async getPresignedGetUrl(objectKey, expiresIn) {
