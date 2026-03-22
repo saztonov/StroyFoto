@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { LOCAL_SYNC_STATUSES, type LocalSyncStatus } from "@stroyfoto/shared";
-import { db } from "../db/dexie";
+import { db, type LocalProject } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { useOnline } from "../hooks/use-online";
@@ -18,6 +18,12 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
+function resolveProject(projectId: string, projects: LocalProject[] | undefined) {
+  if (!projects) return { name: projectId, code: undefined };
+  const project = projects.find((p) => p.id === projectId || p.code === projectId);
+  return project ? { name: project.name, code: project.code } : { name: projectId, code: undefined };
+}
+
 const STATUS_LABELS: Record<LocalSyncStatus, string> = {
   draft: "Черновик",
   "local-only": "Локальный",
@@ -25,6 +31,15 @@ const STATUS_LABELS: Record<LocalSyncStatus, string> = {
   syncing: "Синхр...",
   synced: "Синхр.",
   error: "Ошибка",
+};
+
+const STATUS_BORDER: Record<LocalSyncStatus, string> = {
+  draft: "border-l-gray-300",
+  "local-only": "border-l-yellow-400",
+  queued: "border-l-blue-400",
+  syncing: "border-l-blue-400",
+  synced: "border-l-green-400",
+  error: "border-l-red-400",
 };
 
 export function ReportsPage() {
@@ -204,63 +219,61 @@ export function ReportsPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-3">
-          {reports.map((report) => (
-            <Link
-              to={`/reports/${report.clientId}`}
-              key={report.clientId}
-              className="block rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md"
-            >
-              <div className="mb-2 flex items-start justify-between">
-                <div>
-                  <span className="text-sm font-semibold text-blue-600">{report.projectId}</span>
-                  <p className="text-xs text-gray-400">{formatDate(report.dateTime)}</p>
+        <div className="space-y-2">
+          {reports.map((report) => {
+            const { name: projectName, code: projectCode } = resolveProject(report.projectId, projects);
+            const photoCount = photoCounts?.[report.clientId] ?? 0;
+
+            return (
+              <Link
+                to={`/reports/${report.clientId}`}
+                key={report.clientId}
+                className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-3 shadow-sm transition hover:shadow-md ${STATUS_BORDER[report.syncStatus]}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-gray-900">{projectName}</span>
+                    {projectCode && (
+                      <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[11px] font-medium text-blue-600">
+                        {projectCode}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <SyncStatusBadge status={report.syncStatus} />
+                    {report.syncStatus === "error" && (
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRetry(report.clientId); }}
+                        className="rounded-md bg-red-50 p-1 text-red-600 transition hover:bg-red-100"
+                        title="Повторить"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <SyncStatusBadge status={report.syncStatus} />
-                  {report.syncStatus === "error" && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRetry(report.clientId); }}
-                      className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100"
-                      title="Повторить"
-                    >
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+
+                <p className="mt-0.5 text-xs text-gray-400">{formatDate(report.dateTime)}</p>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {report.mark && <MetadataChip label="Марка" value={report.mark} />}
+                  {report.workType && <MetadataChip label="Работы" value={report.workType} />}
+                  {report.area && <MetadataChip label="Участок" value={report.area} />}
+                  {report.contractor && <MetadataChip label="Подрядчик" value={report.contractor} />}
+                  {photoCount > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
                       </svg>
-                    </button>
+                      {photoCount}
+                    </span>
                   )}
                 </div>
-              </div>
-
-              <div className="space-y-1 text-sm text-gray-700">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Марка:</span>
-                  <span className="font-medium">{report.mark}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Вид работ:</span>
-                  <span className="font-medium">{report.workType}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Участок:</span>
-                  <span className="font-medium">{report.area}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Подрядчик:</span>
-                  <span className="font-medium">{report.contractor}</span>
-                </div>
-              </div>
-
-              {(photoCounts?.[report.clientId] ?? 0) > 0 && (
-                <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
-                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-                  </svg>
-                  <span>{photoCounts![report.clientId]} фото</span>
-                </div>
-              )}
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
@@ -288,5 +301,14 @@ function FilterChip({
     >
       {label}
     </button>
+  );
+}
+
+function MetadataChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-xs">
+      <span className="text-gray-400">{label}</span>
+      <span className="font-medium text-gray-700">{value}</span>
+    </span>
   );
 }
