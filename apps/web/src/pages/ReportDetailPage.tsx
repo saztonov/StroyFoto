@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalPhoto } from "../db/dexie";
@@ -35,64 +35,67 @@ export function ReportDetailPage() {
 
   const projects = useLiveQuery(() => db.projects.toArray(), []);
 
-  // Photo URLs management
+  // Photo URLs management — use ref to persist URLs across re-renders
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
+  const urlsRef = useRef<Map<string, string>>(new Map());
+  const loadingRef = useRef<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const loadPhoto = useCallback(async (photo: LocalPhoto) => {
+    // Already have a URL for this photo
+    if (urlsRef.current.has(photo.clientId)) return;
+    // Already loading
+    if (loadingRef.current.has(photo.clientId)) return;
+
+    if (photo.blob && photo.blob.size > 0) {
+      const url = URL.createObjectURL(photo.blob);
+      urlsRef.current.set(photo.clientId, url);
+      setPhotoUrls(new Map(urlsRef.current));
+      return;
+    }
+    if (photo.thumbnail && photo.thumbnail.size > 0) {
+      const url = URL.createObjectURL(photo.thumbnail);
+      urlsRef.current.set(photo.clientId, url);
+      setPhotoUrls(new Map(urlsRef.current));
+      return;
+    }
+    if (photo.serverId) {
+      loadingRef.current.add(photo.clientId);
+      try {
+        const token = await getValidToken();
+        const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          // Cache blob in IndexedDB for instant loading next time
+          db.photos.update(photo.clientId, { blob }).catch(() => {});
+          const url = URL.createObjectURL(blob);
+          urlsRef.current.set(photo.clientId, url);
+          setPhotoUrls(new Map(urlsRef.current));
+        }
+      } catch {
+        // skip failed photos
+      } finally {
+        loadingRef.current.delete(photo.clientId);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!photos || photos.length === 0) return;
+    photos.forEach(loadPhoto);
+  }, [photos, loadPhoto]);
 
-    const urls = new Map<string, string>();
-    const objectUrls: string[] = [];
-
-    async function loadSinglePhoto(photo: LocalPhoto): Promise<[string, string] | null> {
-      if (photo.blob && photo.blob.size > 0) {
-        const url = URL.createObjectURL(photo.blob);
-        objectUrls.push(url);
-        return [photo.clientId, url];
-      }
-      if (photo.thumbnail && photo.thumbnail.size > 0) {
-        const url = URL.createObjectURL(photo.thumbnail);
-        objectUrls.push(url);
-        return [photo.clientId, url];
-      }
-      if (photo.serverId) {
-        try {
-          const token = await getValidToken();
-          const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          if (res.ok) {
-            const blob = await res.blob();
-            // Cache blob in IndexedDB for instant loading next time
-            db.photos.update(photo.clientId, { blob }).catch(() => {});
-            const url = URL.createObjectURL(blob);
-            objectUrls.push(url);
-            return [photo.clientId, url];
-          }
-        } catch {
-          // skip failed photos
-        }
-      }
-      return null;
-    }
-
-    async function loadUrls(photoList: LocalPhoto[]) {
-      const results = await Promise.all(photoList.map(loadSinglePhoto));
-      for (const result of results) {
-        if (result) urls.set(result[0], result[1]);
-      }
-      setPhotoUrls(new Map(urls));
-    }
-
-    loadUrls(photos);
-
+  // Revoke all object URLs on unmount only
+  useEffect(() => {
     return () => {
-      for (const url of objectUrls) {
+      for (const url of urlsRef.current.values()) {
         URL.revokeObjectURL(url);
       }
+      urlsRef.current.clear();
     };
-  }, [photos]);
+  }, []);
 
   const lightboxPhotos = useMemo(() => {
     if (!photos) return [];
