@@ -1,6 +1,7 @@
 import { db, type SyncQueueEntry } from "./dexie";
 import { handleAuthError } from "../api/token-helper";
 import type { SyncBatchRequest, SyncBatchResponse } from "@stroyfoto/shared";
+import { cleanReportPhotos } from "./storage-cleanup";
 
 export interface OpResult {
   success: boolean;
@@ -79,7 +80,7 @@ export async function executeUpsertReport(
         console.error("[sync:upsert] Retry result not ok:", retryResult);
         return { success: false, retryable: retryResult?.status === "error", error: retryResult?.message ?? "Sync error" };
       }
-      await db.reports.update(entry.entityClientId, { serverId: retryResult.serverId, syncStatus: "synced", updatedAt: new Date() });
+      await db.reports.update(entry.entityClientId, { serverId: retryResult.serverId, syncStatus: "queued", updatedAt: new Date() });
       console.log("[sync:upsert] Success (retry). serverId:", retryResult.serverId);
       return { success: true, retryable: false, serverId: retryResult.serverId };
     }
@@ -121,9 +122,10 @@ export async function executeUpsertReport(
     };
   }
 
+  // Report is on server but photos may not be uploaded yet — keep as "queued"
   await db.reports.update(entry.entityClientId, {
     serverId: result.serverId,
-    syncStatus: "synced",
+    syncStatus: "queued",
     updatedAt: new Date(),
   });
 
@@ -238,6 +240,14 @@ export async function executeFinalizeReport(
     return { success: false, retryable: true, error: "Отчёт ещё не синхронизирован" };
   }
 
+  // Check all photos for this report are synced
+  const photos = await db.photos.where("reportClientId").equals(entry.entityClientId).toArray();
+  const unsyncedPhotos = photos.filter((p) => p.syncStatus !== "synced");
+  if (unsyncedPhotos.length > 0) {
+    console.log(`[sync:finalize] ${unsyncedPhotos.length} photos not yet synced for report ${entry.entityClientId}`);
+    return { success: false, retryable: true, error: `${unsyncedPhotos.length} фото ещё не загружены` };
+  }
+
   const res = await fetch(`${apiUrl}/api/reports/${report.serverId}/finalize`, {
     method: "POST",
     headers: {
@@ -247,15 +257,32 @@ export async function executeFinalizeReport(
   });
 
   if (!res.ok) {
-    // If endpoint doesn't exist (404), treat as success — finalization is optional
-    if (res.status === 404) {
-      return { success: true, retryable: false };
+    // If endpoint doesn't exist (404) or returns 409 (already finalized), treat as success
+    if (res.status === 404 || res.status === 409) {
+      // Fall through to finalization below
+    } else {
+      return {
+        success: false,
+        retryable: res.status >= 500,
+        error: `HTTP ${res.status}`,
+      };
     }
-    return {
-      success: false,
-      retryable: res.status >= 500,
-      error: `HTTP ${res.status}`,
-    };
+  }
+
+  // Mark report as fully synced
+  await db.reports.update(entry.entityClientId, {
+    syncStatus: "synced",
+    updatedAt: new Date(),
+  });
+
+  // Auto-cleanup: remove photo blobs now that everything is on server
+  try {
+    const freed = await cleanReportPhotos(entry.entityClientId);
+    if (freed > 0) {
+      console.log(`[sync:finalize] Cleaned ${(freed / 1024).toFixed(0)} KB of photo blobs for report ${entry.entityClientId}`);
+    }
+  } catch {
+    // Cleanup failure is non-critical
   }
 
   return { success: true, retryable: false };

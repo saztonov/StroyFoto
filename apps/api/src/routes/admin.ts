@@ -7,6 +7,8 @@ import {
   updateDictionaryItemSchema,
   updateUserRoleSchema,
   updateUserProjectsSchema,
+  updateUserProfileSchema,
+  updateAdminUserSchema,
 } from "@stroyfoto/shared";
 import { snakeToCamel, snakeToCamelArray, camelToSnake } from "../utils/case-transform.js";
 import { invalidateProfileCache } from "../utils/get-profile.js";
@@ -30,7 +32,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/api/admin/users", async () => {
     const { data: users, error } = await fastify.supabase
       .from("profiles")
-      .select("id, email, role, full_name, created_at, updated_at");
+      .select("id, email, role, full_name, is_active, created_at, updated_at");
 
     if (error) throw error;
 
@@ -160,6 +162,114 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return { projectIds };
+  });
+
+  // PUT /api/admin/users/:id/profile — update user name and/or active status
+  fastify.put<{ Params: { id: string } }>("/api/admin/users/:id/profile", async (request, reply) => {
+    const currentUser = request.user as AuthUser;
+    const { id } = request.params;
+
+    const parsed = updateUserProfileSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { fullName, isActive } = parsed.data;
+
+    // Prevent self-deactivation
+    if (id === currentUser.profileId && isActive === false) {
+      return reply.status(400).send({ error: "Нельзя деактивировать самого себя" });
+    }
+
+    const updateFields: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (fullName !== undefined) updateFields.full_name = fullName;
+    if (isActive !== undefined) updateFields.is_active = isActive;
+
+    const { data: profile, error } = await fastify.supabase
+      .from("profiles")
+      .update(updateFields)
+      .eq("id", id)
+      .select("id, email, role, full_name, is_active, auth_id")
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return reply.status(404).send({ error: "Пользователь не найден" });
+      }
+      throw error;
+    }
+
+    // Invalidate profile cache
+    if (profile.auth_id) {
+      invalidateProfileCache(profile.auth_id);
+    }
+
+    return snakeToCamel(profile as Record<string, unknown>);
+  });
+
+  // PUT /api/admin/users/:id — unified update: fullName, role, isActive
+  fastify.put<{ Params: { id: string } }>("/api/admin/users/:id", async (request, reply) => {
+    const currentUser = request.user as AuthUser;
+    const { id } = request.params;
+
+    // Guard: don't match sub-routes (role, profile, projects)
+    if (["role", "profile", "projects"].includes(id)) {
+      return reply.status(400).send({ error: "Invalid user id" });
+    }
+
+    const parsed = updateAdminUserSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { fullName, role, isActive } = parsed.data;
+
+    // Self-edit restrictions: only fullName allowed
+    if (id === currentUser.profileId) {
+      if (role !== undefined) {
+        return reply.status(400).send({ error: "Нельзя изменить свою собственную роль" });
+      }
+      if (isActive !== undefined) {
+        return reply.status(400).send({ error: "Нельзя деактивировать самого себя" });
+      }
+    }
+
+    const updateFields: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (fullName !== undefined) updateFields.full_name = fullName;
+    if (role !== undefined) updateFields.role = role;
+    if (isActive !== undefined) updateFields.is_active = isActive;
+
+    const { data: profile, error } = await fastify.supabase
+      .from("profiles")
+      .update(updateFields)
+      .eq("id", id)
+      .select("id, email, role, full_name, is_active, auth_id")
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return reply.status(404).send({ error: "Пользователь не найден" });
+      }
+      throw error;
+    }
+
+    // Update app_metadata in Supabase Auth if role changed
+    if (role !== undefined && profile.auth_id) {
+      try {
+        await fastify.supabase.auth.admin.updateUserById(profile.auth_id, {
+          app_metadata: { app_role: role },
+        });
+      } catch (e) {
+        request.log.warn({ error: e, authId: profile.auth_id }, "Failed to update Supabase Auth app_metadata");
+      }
+    }
+
+    // Invalidate profile cache
+    if (profile.auth_id) {
+      invalidateProfileCache(profile.auth_id);
+    }
+
+    return snakeToCamel(profile as Record<string, unknown>);
   });
 
   // ============================================================
@@ -343,7 +453,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send(snakeToCamel(data as Record<string, unknown>));
   });
 
-  // PUT /api/admin/dictionaries/:type/:id — update record
+  // PUT /api/admin/dictionaries/:type/:id — update record (with cascade rename to reports)
   fastify.put<{ Params: { type: string; id: string } }>("/api/admin/dictionaries/:type/:id", async (request, reply) => {
     const type = request.params.type;
     const tableName = tableMap[type];
@@ -358,6 +468,19 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const newName = (parsed.data as Record<string, unknown>).name as string | undefined;
+
+    // Fetch old name before update (needed for cascade rename)
+    let oldName: string | undefined;
+    if (newName && type !== "projects") {
+      const { data: existing } = await fastify.supabase
+        .from(tableName)
+        .select("name")
+        .eq("id", request.params.id)
+        .maybeSingle();
+      oldName = existing?.name;
     }
 
     const updateData = camelToSnake(parsed.data as Record<string, unknown>);
@@ -377,6 +500,26 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: "Запись не найдена" });
       }
       throw error;
+    }
+
+    // Cascade rename in reports if name changed
+    if (newName && oldName && newName !== oldName) {
+      if (type === "workTypes") {
+        await fastify.supabase.rpc("rename_work_type_in_reports", {
+          old_name: oldName,
+          new_name: newName,
+        });
+      } else if (type === "contractors") {
+        await fastify.supabase
+          .from("reports")
+          .update({ contractor: newName, updated_at: new Date().toISOString() })
+          .eq("contractor", oldName);
+      } else if (type === "ownForces") {
+        await fastify.supabase
+          .from("reports")
+          .update({ own_forces: newName, updated_at: new Date().toISOString() })
+          .eq("own_forces", oldName);
+      }
     }
 
     return snakeToCamel(data as Record<string, unknown>);

@@ -36,6 +36,12 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
+
+    // Force logout if account is disabled
+    if (res.status === 403) {
+      await supabase.auth.signOut().catch(() => {});
+    }
+
     throw new ApiError(res.status, body.message ?? body.error ?? `HTTP ${res.status}`);
   }
 

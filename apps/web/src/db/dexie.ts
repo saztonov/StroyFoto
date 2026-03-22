@@ -14,6 +14,7 @@ export interface LocalReport {
   ownForces: string;
   description: string;
   userId: string;
+  scopeProfileId: string;
   syncStatus: LocalSyncStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -31,6 +32,7 @@ export interface LocalPhoto {
   hash?: string;
   localStatus?: PhotoLocalStatus;
   syncStatus: "pending" | "synced" | "conflict";
+  scopeProfileId: string;
   createdAt: Date;
 }
 
@@ -49,6 +51,7 @@ export interface SyncQueueEntry {
   lastError: string | null;
   /** Optional metadata for operations that need extra context (e.g. serverId for DELETE) */
   metadata?: Record<string, string>;
+  scopeProfileId: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -72,24 +75,28 @@ export interface LocalProject {
   id: string;
   name: string;
   code: string;
+  scopeProfileId: string;
   updatedAt: Date;
 }
 
 export interface LocalWorkType {
   id: string;
   name: string;
+  scopeProfileId: string;
   updatedAt: Date;
 }
 
 export interface LocalContractor {
   id: string;
   name: string;
+  scopeProfileId: string;
   updatedAt: Date;
 }
 
 export interface LocalOwnForce {
   id: string;
   name: string;
+  scopeProfileId: string;
   updatedAt: Date;
 }
 
@@ -286,5 +293,64 @@ db.version(7)
     // Clear cached projects
     await tx.table("projects").clear();
   });
+
+// v8: Add scopeProfileId to all user-scoped tables; clear synced data without scope
+db.version(8)
+  .stores({
+    reports: "clientId, serverId, projectId, userId, scopeProfileId, syncStatus, dateTime",
+    photos: "clientId, serverId, reportClientId, scopeProfileId, syncStatus, localStatus",
+    syncQueue:
+      "++id, operationType, entityClientId, scopeProfileId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
+    authSession: "id",
+    projects: "id, code, name, scopeProfileId",
+    workTypes: "id, name, scopeProfileId",
+    contractors: "id, name, scopeProfileId",
+    ownForces: "id, name, scopeProfileId",
+    syncState: "entityType",
+    appSettings: "key",
+    syncMeta: "key",
+  })
+  .upgrade(async (tx) => {
+    // Read current auth session to get profileId for scope
+    const sessions = await tx.table("authSession").toArray();
+    const profileId = sessions[0]?.userId ?? "";
+
+    // Scope existing reports — keep unsynced, tag all with profileId
+    await tx
+      .table("reports")
+      .toCollection()
+      .modify((r: Record<string, unknown>) => {
+        r.scopeProfileId = profileId;
+      });
+
+    // Scope existing photos
+    await tx
+      .table("photos")
+      .toCollection()
+      .modify((p: Record<string, unknown>) => {
+        p.scopeProfileId = profileId;
+      });
+
+    // Scope existing sync queue entries
+    await tx
+      .table("syncQueue")
+      .toCollection()
+      .modify((e: Record<string, unknown>) => {
+        e.scopeProfileId = profileId;
+      });
+
+    // Clear reference data — will be re-fetched with scope on next sync
+    await tx.table("projects").clear();
+    await tx.table("workTypes").clear();
+    await tx.table("contractors").clear();
+    await tx.table("ownForces").clear();
+    await tx.table("syncState").clear();
+  });
+
+/** Get current user's profileId for scoping local data. Returns "" if not logged in. */
+export async function getCurrentProfileId(): Promise<string> {
+  const session = await db.authSession.get("current");
+  return session?.userId ?? "";
+}
 
 export { db };

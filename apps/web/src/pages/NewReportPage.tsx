@@ -73,9 +73,10 @@ export function NewReportPage() {
     await db.workTypes.add({
       id: crypto.randomUUID(),
       name,
+      scopeProfileId: user?.userId ?? "",
       updatedAt: new Date(),
     });
-  }, []);
+  }, [user]);
 
   // Autosave draft
   const draftData = useMemo(() => {
@@ -88,6 +89,7 @@ export function NewReportPage() {
       ownForces: ownForces.trim(),
       description: description.trim(),
       userId: user.userId,
+      scopeProfileId: user.userId,
     };
   }, [projectId, dateTime, workTypes, contractor, ownForces, description, user]);
 
@@ -204,6 +206,7 @@ export function NewReportPage() {
         ownForces: parsed.data.ownForces,
         description: parsed.data.description,
         userId: user.userId,
+        scopeProfileId: user.userId,
         syncStatus: "local-only",
         createdAt: (await db.reports.get(clientId))?.createdAt ?? now,
         updatedAt: now,
@@ -223,9 +226,15 @@ export function NewReportPage() {
           hash: photo.hash,
           localStatus: "ready",
           syncStatus: "pending",
+          scopeProfileId: user.userId,
           createdAt: now,
         });
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
+      }
+
+      // Enqueue finalization (runs after all photos are uploaded)
+      if (photos.length > 0) {
+        await enqueueSyncOp("FINALIZE_REPORT", clientId);
       }
 
       showToast("Сохранено на устройстве");

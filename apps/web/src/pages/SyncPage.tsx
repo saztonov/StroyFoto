@@ -45,6 +45,7 @@ export function SyncPage() {
     pendingCount,
     failedCount,
     failedItems,
+    isPersisted,
   } = useSync();
 
   // Pending queue items
@@ -53,13 +54,29 @@ export function SyncPage() {
     [],
   );
 
+  // Unsynced data size (only truly unsynced photos)
+  const unsyncedInfo = useLiveQuery(async () => {
+    const unsyncedPhotos = await db.photos
+      .filter((p) => p.syncStatus !== "synced")
+      .toArray();
+    let totalBytes = 0;
+    let count = 0;
+    for (const p of unsyncedPhotos) {
+      if (p.blob && p.blob.size > 0) {
+        totalBytes += p.blob.size;
+        count++;
+      }
+    }
+    return { totalBytes, count };
+  }, []);
+
   // Storage info
   const [storageInfo, setStorageInfo] = useState<{
     usage: number;
     quota: number;
-    persisted: boolean;
   } | null>(null);
-  const [persistRequested, setPersistRequested] = useState(false);
+
+  // Legacy cleanup (fallback if auto-cleanup missed some)
   const [cleanableSpace, setCleanableSpace] = useState(0);
   const [cleanableCount, setCleanableCount] = useState(0);
   const [isCleaning, setIsCleaning] = useState(false);
@@ -83,11 +100,9 @@ export function SyncPage() {
       if (!navigator.storage) return;
       try {
         const estimate = await navigator.storage.estimate();
-        const persisted = await navigator.storage.persisted();
         setStorageInfo({
           usage: estimate.usage ?? 0,
           quota: estimate.quota ?? 0,
-          persisted,
         });
       } catch {
         // Storage API not available
@@ -95,25 +110,16 @@ export function SyncPage() {
     }
     loadStorage();
     loadCleanableInfo();
-  }, [persistRequested, loadCleanableInfo]);
+  }, [isSyncing, loadCleanableInfo]);
 
   const handleCleanup = async () => {
     if (cleanableCount === 0) return;
-
-    const confirmed = window.confirm(
-      `Будет освобождено ~${formatBytes(cleanableSpace)}.\n` +
-        `${cleanableCount} фото уже загружены на сервер.\n` +
-        `Локальные копии будут удалены. Продолжить?`,
-    );
-    if (!confirmed) return;
-
     setIsCleaning(true);
     setCleanResult("");
     try {
       const freed = await cleanSyncedBlobData();
       setCleanResult(`Освобождено ${formatBytes(freed)}`);
       await loadCleanableInfo();
-      setPersistRequested((p) => !p); // trigger storage info reload
     } catch {
       setCleanResult("Ошибка очистки");
     } finally {
@@ -123,14 +129,29 @@ export function SyncPage() {
 
   const requestPersistence = async () => {
     if (!navigator.storage?.persist) return;
-    const granted = await navigator.storage.persist();
-    setPersistRequested((p) => !p);
-    setStorageInfo((prev) => (prev ? { ...prev, persisted: granted } : null));
+    await navigator.storage.persist();
   };
 
   return (
     <div className="px-4 py-4">
       <h2 className="mb-4 text-xl font-bold text-gray-900">Синхронизация</h2>
+
+      {/* ---------- Persist warning ---------- */}
+      {isPersisted === false && pendingCount > 0 && (
+        <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+          <p className="font-medium">Хранилище не закреплено</p>
+          <p className="mt-1 text-xs">
+            Браузер может удалить локальные данные при нехватке места.
+            Закрепите хранилище, чтобы защитить несинхронизированные отчёты.
+          </p>
+          <button
+            onClick={requestPersistence}
+            className="mt-2 rounded-lg bg-orange-100 px-3 py-1 text-xs font-medium text-orange-700 transition hover:bg-orange-200"
+          >
+            Закрепить хранилище
+          </button>
+        </div>
+      )}
 
       {/* ---------- Online/offline transition message ---------- */}
       {!isOnline && (
@@ -401,12 +422,12 @@ export function SyncPage() {
               <span className="text-gray-600">
                 Постоянное хранение:{" "}
                 <span
-                  className={`font-medium ${storageInfo.persisted ? "text-green-600" : "text-yellow-600"}`}
+                  className={`font-medium ${isPersisted ? "text-green-600" : "text-yellow-600"}`}
                 >
-                  {storageInfo.persisted ? "Закреплено" : "Не закреплено"}
+                  {isPersisted ? "Закреплено" : "Не закреплено"}
                 </span>
               </span>
-              {!storageInfo.persisted && (
+              {!isPersisted && (
                 <button
                   onClick={requestPersistence}
                   className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 transition hover:bg-blue-100"
@@ -415,25 +436,32 @@ export function SyncPage() {
                 </button>
               )}
             </div>
+
+            {/* Unsynced data info */}
+            {unsyncedInfo && unsyncedInfo.count > 0 && (
+              <div className="mt-1 rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+                Несинхронизировано: {formatBytes(unsyncedInfo.totalBytes)} ({unsyncedInfo.count} фото)
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-sm text-gray-400">Информация недоступна</p>
         )}
       </div>
 
-      {/* ---------- Cleanup synced data ---------- */}
+      {/* ---------- Auto-cleanup status + fallback manual cleanup ---------- */}
       <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-700">
-          Очистка локальных копий
+        <h3 className="mb-2 text-sm font-semibold text-gray-700">
+          Очистка фото
         </h3>
         <p className="mb-3 text-xs text-gray-500">
-          Удаляет локальные копии фото, которые уже загружены на сервер. Несинхронизированные данные
-          никогда не удаляются.
+          Фото автоматически удаляются из локального хранилища после успешной
+          синхронизации. При просмотре отчёта фото загружаются с сервера.
         </p>
         {cleanableCount > 0 ? (
           <div className="space-y-2">
             <p className="text-sm text-gray-600">
-              Можно освободить:{" "}
+              Не очищено автоматически:{" "}
               <span className="font-medium">{formatBytes(cleanableSpace)}</span>{" "}
               ({cleanableCount} фото)
             </p>
@@ -442,11 +470,11 @@ export function SyncPage() {
               disabled={isCleaning}
               className="w-full rounded-xl bg-orange-50 py-2.5 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 active:bg-orange-200 disabled:opacity-50"
             >
-              {isCleaning ? "Очистка..." : "Очистить локальные копии"}
+              {isCleaning ? "Очистка..." : "Очистить вручную"}
             </button>
           </div>
         ) : (
-          <p className="text-sm text-gray-400">Нет данных для очистки</p>
+          <p className="text-sm text-gray-400">Локальные копии фото очищены</p>
         )}
         {cleanResult && (
           <p className="mt-2 text-xs font-medium text-green-600">

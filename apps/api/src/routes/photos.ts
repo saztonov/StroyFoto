@@ -100,11 +100,12 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/photos/:id — proxy photo from R2 (avoids CORS issues with presigned redirects)
   fastify.get<{ Params: { id: string } }>("/api/photos/:id", async (request, reply) => {
+    const user = request.user as AuthUser;
     const { id } = request.params;
 
     const { data: photo, error } = await fastify.supabase
       .from("photos")
-      .select("*")
+      .select("*, reports!inner(project_id, user_id)")
       .eq("id", id)
       .single();
 
@@ -116,6 +117,16 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Photo upload not yet completed" });
     }
 
+    // Access check: verify user can access the parent report's project
+    if (user.role !== "ADMIN") {
+      const { getUserProjectIds } = await import("../utils/project-access.js");
+      const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+      const reportProjectId = (photo.reports as Record<string, unknown>)?.project_id as string;
+      if (accessibleProjectIds !== null && !accessibleProjectIds.includes(reportProjectId)) {
+        return reply.status(403).send({ error: "Access denied" });
+      }
+    }
+
     const obj = await fastify.r2.download(photo.object_key);
     if (!obj) {
       return reply.status(404).send({ error: "Photo file not found in storage" });
@@ -123,7 +134,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply
       .header("Content-Type", obj.contentType)
-      .header("Cache-Control", "private, max-age=3600")
+      .header("Cache-Control", "private, no-store")
       .send(obj.body);
   });
 };

@@ -6,6 +6,7 @@ import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { PhotoLightbox } from "../components/PhotoLightbox";
 import { getValidToken } from "../api/token-helper";
 import { deleteReportFull } from "../db/report-utils";
+import { useOnline } from "../hooks/use-online";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -22,6 +23,7 @@ function formatDate(date: Date): string {
 export function ReportDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
+  const isOnline = useOnline();
 
   const report = useLiveQuery(
     () => (clientId ? db.reports.get(clientId) : undefined),
@@ -65,17 +67,17 @@ export function ReportDetailPage() {
         const token = await getValidToken();
         const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
+          cache: "no-store",
         });
         if (res.ok) {
           const blob = await res.blob();
-          // Cache blob in IndexedDB for instant loading next time
-          db.photos.update(photo.clientId, { blob }).catch(() => {});
+          // Memory-only: do NOT write blob back to IndexedDB
           const url = URL.createObjectURL(blob);
           urlsRef.current.set(photo.clientId, url);
           setPhotoUrls(new Map(urlsRef.current));
         }
       } catch {
-        // skip failed photos
+        // skip failed photos — will show placeholder
       } finally {
         loadingRef.current.delete(photo.clientId);
       }
@@ -218,7 +220,23 @@ export function ReportDetailPage() {
           <div className="grid grid-cols-3 gap-2">
             {photos.map((photo, idx) => {
               const url = photoUrls.get(photo.clientId);
+              const hasLocalBlob = photo.blob && photo.blob.size > 0;
               if (!url) {
+                // Offline and no local blob — show placeholder
+                if (!isOnline && !hasLocalBlob) {
+                  return (
+                    <div
+                      key={photo.clientId}
+                      className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg bg-gray-100 p-2"
+                    >
+                      <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+                      </svg>
+                      <span className="text-center text-[10px] text-gray-400">Доступно онлайн</span>
+                    </div>
+                  );
+                }
+                // Online but still loading
                 return (
                   <div
                     key={photo.clientId}

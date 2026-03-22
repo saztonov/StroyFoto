@@ -1,102 +1,125 @@
-import { db } from "./dexie";
+import { db, getCurrentProfileId } from "./dexie";
 
 /**
- * Pull reports from server into Dexie (IndexedDB).
- * Fetches reports that exist on the server but not locally,
- * including their photo metadata.
+ * Pull reports from server into Dexie (IndexedDB) using cursor-based /api/sync/pull.
+ * Upserts existing reports (not just inserts new ones).
+ * Photo metadata inserted with empty blobs (detail page fetches on-demand).
  */
 export async function pullRemoteReports(
   token: string,
   apiUrl: string,
 ): Promise<number> {
-  // 1. Fetch server reports list
-  const res = await fetch(`${apiUrl}/api/reports`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return 0;
-
-  const serverReports: Array<Record<string, unknown>> = await res.json();
-  if (!Array.isArray(serverReports) || serverReports.length === 0) return 0;
-
-  // 2. Build sets of existing local identifiers
-  const localReports = await db.reports.toArray();
-  const localClientIds = new Set(localReports.map((r) => r.clientId));
-  const localServerIds = new Set(
-    localReports.map((r) => r.serverId).filter(Boolean),
-  );
-
-  // Also build a set of existing photo clientIds to avoid duplicates
-  const localPhotos = await db.photos.toArray();
-  const localPhotoClientIds = new Set(localPhotos.map((p) => p.clientId));
-
-  // 3. Find new reports (not in Dexie by clientId or serverId)
-  const newReports = serverReports.filter(
-    (sr) =>
-      !localClientIds.has(sr.clientId as string) &&
-      !localServerIds.has(sr.id as string),
-  );
-
-  if (newReports.length === 0) return 0;
-
+  const profileId = await getCurrentProfileId();
   let pulled = 0;
+  let cursor: string | null = null;
+  let hasMore = true;
 
-  for (const sr of newReports) {
-    try {
-      // Fetch full report with photos
-      const detailRes = await fetch(`${apiUrl}/api/reports/${sr.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!detailRes.ok) continue;
+  while (hasMore) {
+    const params = new URLSearchParams({ limit: "50" });
+    if (cursor) params.set("cursor", cursor);
 
-      const detail: Record<string, unknown> = await detailRes.json();
+    const res = await fetch(`${apiUrl}/api/sync/pull?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) break;
 
-      // Insert report into Dexie
-      await db.reports.add({
-        clientId: detail.clientId as string,
-        serverId: detail.id as string,
-        projectId: detail.projectId as string,
-        dateTime: new Date(detail.dateTime as string),
-        workTypes: (detail.workTypes as string[]) ?? [],
-        contractor: (detail.contractor as string) ?? "",
-        ownForces: (detail.ownForces as string) ?? "",
-        description: (detail.description as string) ?? "",
-        userId: (detail.userId as string) ?? "",
-        syncStatus: "synced",
-        createdAt: detail.createdAt ? new Date(detail.createdAt as string) : new Date(),
-        updatedAt: detail.updatedAt ? new Date(detail.updatedAt as string) : new Date(),
-      });
+    const body: {
+      reports: Array<Record<string, unknown>>;
+      nextCursor: string | null;
+      hasMore: boolean;
+    } = await res.json();
 
-      // Insert photo metadata (no blobs — detail page fetches via serverId)
-      const photos = detail.photos as Array<Record<string, unknown>> | undefined;
-      if (photos && photos.length > 0) {
-        for (const photo of photos) {
-          const photoClientId = photo.clientId as string;
-          if (localPhotoClientIds.has(photoClientId)) continue;
+    if (!body.reports || body.reports.length === 0) break;
 
-          const objectKey = (photo.objectKey as string) ?? "";
-          const fileName = objectKey.split("/").pop() ?? "photo.jpg";
+    // Build sets of existing local identifiers for dedup
+    const localReports = await db.reports.toArray();
+    const localClientIds = new Set(localReports.map((r) => r.clientId));
+    const localServerIds = new Set(
+      localReports.map((r) => r.serverId).filter(Boolean),
+    );
 
-          await db.photos.add({
-            clientId: photoClientId,
-            serverId: photo.id as string,
-            reportClientId: detail.clientId as string,
-            blob: new Blob([]),
-            mimeType: (photo.mimeType as string) ?? "image/jpeg",
-            fileName,
-            size: photo.sizeBytes as number | undefined,
-            syncStatus: "synced",
-            localStatus: "synced",
-            createdAt: new Date(),
-          });
+    const localPhotos = await db.photos.toArray();
+    const localPhotoClientIds = new Set(localPhotos.map((p) => p.clientId));
 
-          localPhotoClientIds.add(photoClientId);
+    for (const sr of body.reports) {
+      try {
+        const clientId = sr.clientId as string;
+        const serverId = sr.id as string;
+
+        const reportData = {
+          clientId,
+          serverId,
+          projectId: sr.projectId as string,
+          dateTime: new Date(sr.dateTime as string),
+          workTypes: (sr.workTypes as string[]) ?? [],
+          contractor: (sr.contractor as string) ?? "",
+          ownForces: (sr.ownForces as string) ?? "",
+          description: (sr.description as string) ?? "",
+          userId: (sr.userId as string) ?? "",
+          scopeProfileId: profileId,
+          syncStatus: "synced" as const,
+          createdAt: sr.createdAt ? new Date(sr.createdAt as string) : new Date(),
+          updatedAt: sr.updatedAt ? new Date(sr.updatedAt as string) : new Date(),
+        };
+
+        if (localClientIds.has(clientId) || localServerIds.has(serverId)) {
+          // Upsert: update existing report with server data
+          const existing = localClientIds.has(clientId)
+            ? await db.reports.get(clientId)
+            : await db.reports.where("serverId").equals(serverId).first();
+
+          if (existing) {
+            // Only update if the report is already synced (don't overwrite local changes)
+            if (existing.syncStatus === "synced") {
+              await db.reports.update(existing.clientId, {
+                ...reportData,
+                clientId: existing.clientId, // keep original clientId
+              });
+            }
+          }
+        } else {
+          // New report: insert
+          await db.reports.add(reportData);
+          localClientIds.add(clientId);
+          localServerIds.add(serverId);
         }
-      }
 
-      pulled++;
-    } catch {
-      // Skip individual report errors, continue with next
+        // Insert photo metadata (no blobs)
+        const photos = sr.photos as Array<Record<string, unknown>> | undefined;
+        if (photos && photos.length > 0) {
+          for (const photo of photos) {
+            const photoClientId = photo.clientId as string;
+            if (localPhotoClientIds.has(photoClientId)) continue;
+
+            const objectKey = (photo.objectKey as string) ?? "";
+            const fileName = objectKey.split("/").pop() ?? "photo.jpg";
+
+            await db.photos.add({
+              clientId: photoClientId,
+              serverId: photo.id as string,
+              reportClientId: clientId,
+              blob: new Blob([]),
+              mimeType: (photo.mimeType as string) ?? "image/jpeg",
+              fileName,
+              size: photo.sizeBytes as number | undefined,
+              syncStatus: "synced",
+              localStatus: "synced",
+              scopeProfileId: profileId,
+              createdAt: new Date(),
+            });
+
+            localPhotoClientIds.add(photoClientId);
+          }
+        }
+
+        pulled++;
+      } catch {
+        // Skip individual report errors, continue with next
+      }
     }
+
+    cursor = body.nextCursor;
+    hasMore = body.hasMore && cursor !== null;
   }
 
   if (pulled > 0) {

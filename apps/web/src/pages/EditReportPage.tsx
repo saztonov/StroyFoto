@@ -93,6 +93,7 @@ export function EditReportPage() {
     await db.workTypes.add({
       id: crypto.randomUUID(),
       name,
+      scopeProfileId: user?.userId ?? "",
       updatedAt: new Date(),
     });
   }, []);
@@ -227,6 +228,7 @@ export function EditReportPage() {
         ownForces: parsed.data.ownForces,
         description: parsed.data.description,
         userId: user.userId,
+        scopeProfileId: user.userId,
         syncStatus: "local-only",
         createdAt: report?.createdAt ?? now,
         updatedAt: now,
@@ -251,6 +253,7 @@ export function EditReportPage() {
           hash: photo.hash,
           localStatus: "ready",
           syncStatus: "pending",
+          scopeProfileId: user.userId,
           createdAt: now,
         });
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
@@ -258,6 +261,12 @@ export function EditReportPage() {
 
       // Re-enqueue report sync
       await enqueueSyncOp("UPSERT_REPORT", clientId);
+
+      // Enqueue finalization (runs after all photos are uploaded)
+      const allPhotos = await db.photos.where("reportClientId").equals(clientId).toArray();
+      if (allPhotos.length > 0) {
+        await enqueueSyncOp("FINALIZE_REPORT", clientId);
+      }
 
       showToast("Изменения сохранены");
       setTimeout(() => navigate(`/reports/${clientId}`), 800);

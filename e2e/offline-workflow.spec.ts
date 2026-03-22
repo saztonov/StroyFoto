@@ -1,6 +1,4 @@
 import { test, expect, type Page } from "@playwright/test";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
 // Minimal valid 1x1 pixel JPEG (hex-encoded, ~631 bytes)
 const MINIMAL_JPEG = Buffer.from(
@@ -84,9 +82,31 @@ async function getPhotoCountFromIDB(page: Page) {
   });
 }
 
+/** Helper: get photo blob sizes from IndexedDB */
+async function getPhotoBlobSizes(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("stroyfoto");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction("photos", "readonly");
+    const store = tx.objectStore("photos");
+    const all = await new Promise<any[]>((resolve) => {
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result);
+    });
+    db.close();
+    return all.map((p: any) => ({
+      clientId: p.clientId,
+      blobSize: p.blob?.size ?? 0,
+      syncStatus: p.syncStatus,
+    }));
+  });
+}
+
 test.describe("Offline workflow — full cycle", () => {
-  // Use a unique mark per test run to identify our report
-  const testMark = `E2E-${Date.now()}`;
+  const testDescription = `E2E-${Date.now()}`;
 
   test("worker creates report offline → syncs → admin sees it", async ({
     page,
@@ -103,52 +123,41 @@ test.describe("Offline workflow — full cycle", () => {
 
     // ── Step 3: Navigate to new report form ──
     await page.goto("/reports/new");
-    await page.waitForSelector('form', { timeout: 10000 });
+    await page.waitForSelector("form", { timeout: 10000 });
 
     // Fill required fields
-    // Project — select first option if dropdown exists, else type
-    const projectSelect = page.locator('select').first();
+    // Project — select first option if dropdown exists
+    const projectSelect = page.locator("select").first();
     if (await projectSelect.isVisible()) {
       const options = await projectSelect.locator("option").allTextContents();
-      // Select first non-empty option
       if (options.length > 1) {
         await projectSelect.selectOption({ index: 1 });
       }
-    } else {
-      await page.fill('input[placeholder="Идентификатор проекта"]', "SOL-01");
     }
 
-    // Mark
-    await page.fill('input[placeholder="Например: А-Б / 1-3"]', testMark);
-
-    // WorkType is already defaulted via select
-
-    // Area — select or type
-    const areaSelect = page.locator('select').nth(2);
-    if (await areaSelect.isVisible()) {
-      const options = await areaSelect.locator("option").allTextContents();
-      if (options.length > 1) {
-        await areaSelect.selectOption({ index: 1 });
+    // Work types — select from multi-select or type
+    const workTypeInput = page.locator('input[placeholder*="работ"]').first();
+    if (await workTypeInput.isVisible()) {
+      await workTypeInput.fill("Монолит");
+      // Wait for option to appear and click it
+      const option = page.locator("text=Монолит").first();
+      if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await option.click();
       }
-    } else {
-      await page.fill('input[placeholder="Название участка"]', "Секция А");
     }
 
     // Contractor — select or type
-    const contractorSelect = page.locator('select').nth(3);
-    if (await contractorSelect.isVisible()) {
-      const options = await contractorSelect
-        .locator("option")
-        .allTextContents();
-      if (options.length > 1) {
-        await contractorSelect.selectOption({ index: 1 });
+    const contractorInput = page.locator('input[placeholder*="подрядчик" i]').first();
+    if (await contractorInput.isVisible()) {
+      await contractorInput.fill("ООО СтройМастер");
+      const option = page.locator("text=ООО СтройМастер").first();
+      if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await option.click();
       }
-    } else {
-      await page.fill('input[placeholder="Название подрядчика"]', "ООО СтройМастер");
     }
 
     // Description
-    await page.fill("textarea", "E2E тест: offline создание отчёта");
+    await page.fill("textarea", testDescription);
 
     // Add a photo
     const fileInput = page.locator('input[type="file"]');
@@ -171,9 +180,12 @@ test.describe("Offline workflow — full cycle", () => {
 
     // ── Step 5: Confirm local data preserved ──
     const reports = await getReportsFromIDB(page);
-    const ourReport = reports.find((r: any) => r.mark === testMark);
+    const ourReport = reports.find(
+      (r: any) => r.description === testDescription,
+    );
     expect(ourReport).toBeDefined();
     expect(ourReport.syncStatus).toBe("local-only");
+    expect(ourReport.scopeProfileId).toBeTruthy();
 
     const photoCount = await getPhotoCountFromIDB(page);
     expect(photoCount).toBeGreaterThanOrEqual(1);
@@ -183,13 +195,15 @@ test.describe("Offline workflow — full cycle", () => {
 
     // ── Step 7: Trigger sync ──
     await page.goto("/sync");
-    await page.waitForSelector('button', { timeout: 10000 });
+    await page.waitForSelector("button", { timeout: 10000 });
 
     // Click sync button
-    const syncBtn = page.locator('button', { hasText: "Синхронизировать" });
+    const syncBtn = page.locator("button", {
+      hasText: "Синхронизировать",
+    });
     if (await syncBtn.isEnabled()) {
       await syncBtn.click();
-      // Wait for sync to finish (button re-enables or progress disappears)
+      // Wait for sync to finish
       await page.waitForFunction(
         () => {
           const btns = document.querySelectorAll("button");
@@ -210,13 +224,21 @@ test.describe("Offline workflow — full cycle", () => {
     // Verify report is synced in IndexedDB
     const reportsAfterSync = await getReportsFromIDB(page);
     const syncedReport = reportsAfterSync.find(
-      (r: any) => r.mark === testMark,
+      (r: any) => r.description === testDescription,
     );
     expect(syncedReport).toBeDefined();
-    // Report should be synced or at least have a serverId
     expect(
       syncedReport.syncStatus === "synced" || syncedReport.serverId,
     ).toBeTruthy();
+
+    // Verify auto-cleanup: synced photo blobs should be empty
+    const photoBlobSizes = await getPhotoBlobSizes(page);
+    const syncedPhotos = photoBlobSizes.filter(
+      (p: any) => p.syncStatus === "synced",
+    );
+    for (const p of syncedPhotos) {
+      expect(p.blobSize).toBe(0);
+    }
 
     // ── Step 8: Login as admin and confirm report visible ──
     const adminPage = await context.newPage();
@@ -232,7 +254,9 @@ test.describe("Offline workflow — full cycle", () => {
     expect(statsText).toContain("Всего отчётов");
 
     // Verify the total reports count is at least 1
-    const totalReportsEl = adminPage.locator("p.text-2xl.text-blue-600").first();
+    const totalReportsEl = adminPage
+      .locator("p.text-2xl.text-blue-600")
+      .first();
     const totalText = await totalReportsEl.textContent();
     expect(parseInt(totalText ?? "0")).toBeGreaterThanOrEqual(1);
 

@@ -51,10 +51,29 @@ export function useSync() {
       [] as SyncQueueEntry[],
     );
 
-  // Load last sync time on mount
+  // Persistent storage state
+  const [isPersisted, setIsPersisted] = useState<boolean | null>(null);
+  const persistRequested = useRef(false);
+
+  // Load last sync time on mount + check persist status
   useEffect(() => {
     getLastSyncTime().then(setLastSyncTime);
+    if (navigator.storage?.persisted) {
+      navigator.storage.persisted().then(setIsPersisted);
+    }
   }, []);
+
+  // Auto-request persistent storage when unsynced data appears
+  useEffect(() => {
+    if (pendingCount > 0 && !persistRequested.current && isPersisted === false) {
+      persistRequested.current = true;
+      if (navigator.storage?.persist) {
+        navigator.storage.persist().then((granted) => {
+          setIsPersisted(granted);
+        }).catch(() => {});
+      }
+    }
+  }, [pendingCount, isPersisted]);
 
   // Core sync function
   const syncNow = useCallback(async () => {
@@ -70,21 +89,22 @@ export function useSync() {
     try {
       const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-      // Sync reference data first (non-blocking if fails)
+      // 1. Sync reference data first (non-blocking if fails)
       try {
         await syncReferenceData(token, apiUrl);
       } catch {
         // Reference data sync is non-critical
       }
 
-      // Pull remote reports into IndexedDB (non-blocking if fails)
+      // 2. Push local changes to server
+      const result = await processQueue(token, apiUrl, setProgress);
+
+      // 3. Pull remote reports into IndexedDB (after push, so server has latest data)
       try {
         await pullRemoteReports(token, apiUrl);
       } catch {
         // Pull sync is non-critical
       }
-
-      const result = await processQueue(token, apiUrl, setProgress);
       setLastResult(result);
       lastSyncTs.current = Date.now();
 
@@ -174,5 +194,6 @@ export function useSync() {
     pendingCount,
     failedCount,
     failedItems,
+    isPersisted,
   };
 }

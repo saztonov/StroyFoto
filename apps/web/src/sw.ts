@@ -2,7 +2,6 @@ import { precacheAndRoute, createHandlerBoundToURL } from "workbox-precaching";
 import { registerRoute, NavigationRoute } from "workbox-routing";
 import {
   CacheFirst,
-  NetworkFirst,
   StaleWhileRevalidate,
 } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
@@ -37,33 +36,9 @@ registerRoute(
   }),
 );
 
-// ---------- Runtime cache: photos from API ----------
-registerRoute(
-  ({ url }) => url.pathname.startsWith("/api/photos/"),
-  new CacheFirst({
-    cacheName: "photos-cache",
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 500,
-        maxAgeSeconds: 7 * 24 * 60 * 60,
-      }),
-    ],
-  }),
-);
-
-// ---------- Runtime cache: GET reference/dictionary data ----------
-registerRoute(
-  ({ url }) => url.pathname.startsWith("/api/reference/"),
-  new NetworkFirst({
-    cacheName: "reference-data",
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 50,
-        maxAgeSeconds: 7 * 24 * 60 * 60,
-      }),
-    ],
-  }),
-);
+// Photos and reference data are NOT cached in SW.
+// Photos: zero-cache policy — blobs live only in IndexedDB until sync, then fetched on-demand.
+// Reference data: managed by Dexie with full-replace per user scope.
 
 // ---------- Messages from main thread ----------
 self.addEventListener("message", (event) => {

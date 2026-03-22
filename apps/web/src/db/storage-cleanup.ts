@@ -54,6 +54,36 @@ export async function cleanSyncedBlobData(): Promise<number> {
   return freedBytes;
 }
 
+/**
+ * Clear blob data for photos of a specific report.
+ * Called after FINALIZE_REPORT succeeds.
+ */
+export async function cleanReportPhotos(reportClientId: string): Promise<number> {
+  const photos = await db.photos
+    .where("reportClientId")
+    .equals(reportClientId)
+    .toArray();
+
+  let freedBytes = 0;
+  const emptyBlob = new Blob([], { type: "application/octet-stream" });
+
+  for (const photo of photos) {
+    if (photo.blob && photo.blob.size > 0) {
+      freedBytes += photo.blob.size;
+    }
+    if (photo.thumbnail && photo.thumbnail.size > 0) {
+      freedBytes += photo.thumbnail.size;
+    }
+
+    await db.photos.update(photo.clientId, {
+      blob: emptyBlob,
+      thumbnail: emptyBlob,
+    });
+  }
+
+  return freedBytes;
+}
+
 /** Count of synced photos that still have blob data */
 export async function countCleanablePhotos(): Promise<number> {
   const syncedPhotos = await db.photos

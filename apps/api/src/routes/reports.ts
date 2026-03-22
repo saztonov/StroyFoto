@@ -21,12 +21,9 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       .from("reports")
       .select("*, photos(id)");
 
-    // Admin sees all, Worker sees own
-    if (user.role !== "ADMIN") {
-      query = query.eq("user_id", user.profileId);
-    }
-
-    // Project access filtering
+    // Worker sees all reports in assigned projects (not just own);
+    // Admin sees all reports across all projects.
+    // Project access filtering handles visibility for workers.
     if (filterIds !== null) {
       query = query.in("project_id", filterIds);
     }
@@ -70,11 +67,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.user_id !== user.profileId) {
-      return reply.status(403).send({ error: "Access denied" });
-    }
-
-    // Check project access for workers
+    // Check project access for workers (workers see all reports in assigned projects)
     if (user.role !== "ADMIN") {
       const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
       if (accessibleProjectIds !== null && !accessibleProjectIds.includes(report.project_id)) {

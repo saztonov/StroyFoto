@@ -33,6 +33,10 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       throw fastify.httpErrors.unauthorized("User profile not found");
     }
 
+    if (!profile.isActive) {
+      throw fastify.httpErrors.forbidden("Account is disabled");
+    }
+
     (request as unknown as { user: AuthUser }).user = {
       authId: authUser.id,
       profileId: profile.id,

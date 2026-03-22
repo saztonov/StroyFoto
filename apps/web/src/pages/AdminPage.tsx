@@ -6,9 +6,11 @@ import type { User } from "@stroyfoto/shared";
 import { DictionaryManager } from "../components/admin/DictionaryManager";
 import type { FormField } from "../components/admin/DictionaryFormModal";
 import { UserProjectsModal } from "../components/admin/UserProjectsModal";
+import { UserEditModal } from "../components/admin/UserEditModal";
 
 interface AdminUser extends User {
   assignedProjectIds: string[];
+  isActive: boolean;
 }
 
 interface AdminStats {
@@ -48,6 +50,7 @@ export function AdminPage() {
   const [error, setError] = useState("");
   const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
   const [projectsModalUser, setProjectsModalUser] = useState<AdminUser | null>(null);
+  const [editModalUser, setEditModalUser] = useState<AdminUser | null>(null);
 
   const loadData = () => {
     if (user?.role !== "ADMIN" || !isOnline) return;
@@ -209,12 +212,14 @@ export function AdminPage() {
                       <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
                       <th className="px-4 py-3 font-medium text-gray-500">Email</th>
                       <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
+                      <th className="px-4 py-3 font-medium text-gray-500">Статус</th>
                       <th className="px-4 py-3 font-medium text-gray-500">Проекты</th>
+                      <th className="px-4 py-3 font-medium text-gray-500"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {users.map((u) => (
-                      <tr key={u.id}>
+                      <tr key={u.id} className={!u.isActive ? "bg-gray-50 opacity-60" : ""}>
                         <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
                           {u.fullName}
                         </td>
@@ -239,6 +244,17 @@ export function AdminPage() {
                           )}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
+                          {u.isActive ? (
+                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                              Активен
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              Заблокирован
+                            </span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
                           <button
                             onClick={() => setProjectsModalUser(u)}
                             className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 transition"
@@ -246,6 +262,14 @@ export function AdminPage() {
                             {u.assignedProjectIds.length > 0
                               ? `${u.assignedProjectIds.length} проект(ов)`
                               : "Назначить"}
+                          </button>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <button
+                            onClick={() => setEditModalUser(u)}
+                            className="text-sm text-blue-600 hover:text-blue-800"
+                          >
+                            Изменить
                           </button>
                         </td>
                       </tr>
@@ -314,6 +338,27 @@ export function AdminPage() {
               ),
             );
             setProjectsModalUser(null);
+          }}
+        />
+      )}
+
+      {/* User Edit Modal */}
+      {editModalUser && (
+        <UserEditModal
+          userId={editModalUser.id}
+          initialFullName={editModalUser.fullName}
+          initialIsActive={editModalUser.isActive}
+          isSelf={editModalUser.id === user?.userId}
+          onClose={() => setEditModalUser(null)}
+          onSaved={({ fullName, isActive }) => {
+            setUsers((prev) =>
+              prev.map((u) =>
+                u.id === editModalUser.id
+                  ? { ...u, fullName, isActive }
+                  : u,
+              ),
+            );
+            setEditModalUser(null);
           }}
         />
       )}

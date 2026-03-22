@@ -6,6 +6,7 @@ interface Profile {
   role: string;
   fullName: string;
   authId: string;
+  isActive: boolean;
 }
 
 // Simple in-memory cache: authId → profile (cleared on process restart)
@@ -23,7 +24,7 @@ export async function getProfileByAuthId(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, role, full_name, auth_id")
+    .select("id, email, role, full_name, auth_id, is_active")
     .eq("auth_id", authId)
     .maybeSingle();
 
@@ -37,6 +38,7 @@ export async function getProfileByAuthId(
     role: data.role,
     fullName: data.full_name,
     authId: data.auth_id,
+    isActive: data.is_active ?? true,
   };
 
   profileCache.set(authId, {

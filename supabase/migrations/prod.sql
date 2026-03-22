@@ -488,6 +488,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email text NOT NULL,
     role user_role NOT NULL DEFAULT 'WORKER'::user_role,
     full_name text NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     auth_id uuid,
@@ -843,6 +844,26 @@ CREATE OR REPLACE VIEW vault.decrypted_secrets AS
 -- ============================================
 -- FUNCTIONS
 -- ============================================
+
+-- Function: public.rename_work_type_in_reports
+-- Description: Cascade rename work type in reports.work_types[] array
+CREATE OR REPLACE FUNCTION public.rename_work_type_in_reports(old_name text, new_name text)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $$
+DECLARE
+  affected integer;
+BEGIN
+  UPDATE public.reports
+  SET work_types = array_replace(work_types, old_name, new_name),
+      updated_at = now()
+  WHERE old_name = ANY(work_types);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected;
+END;
+$$;
+
 
 -- Function: auth.email
 -- Description: Deprecated. Use auth.jwt() -> 'email' instead.
@@ -3595,6 +3616,15 @@ CREATE INDEX idx_reports_user_id ON public.reports USING btree (user_id);
 
 -- Index on public.reports
 CREATE UNIQUE INDEX reports_client_id_key ON public.reports USING btree (client_id);
+
+-- Index on public.reports (cascade rename performance)
+CREATE INDEX idx_reports_contractor ON public.reports USING btree (contractor);
+
+-- Index on public.reports (cascade rename performance)
+CREATE INDEX idx_reports_own_forces ON public.reports USING btree (own_forces);
+
+-- Index on public.reports (cascade rename performance)
+CREATE INDEX idx_reports_work_types ON public.reports USING gin (work_types);
 
 -- Index on public.user_projects
 CREATE INDEX idx_user_projects_project_id ON public.user_projects USING btree (project_id);

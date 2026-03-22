@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { LOCAL_SYNC_STATUSES, type LocalSyncStatus } from "@stroyfoto/shared";
 import { db, type LocalProject } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
+import { useAuth } from "../auth/auth-context";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { useOnline } from "../hooks/use-online";
 import { useSync } from "../hooks/use-sync";
@@ -45,6 +46,8 @@ const STATUS_BORDER: Record<LocalSyncStatus, string> = {
 export function ReportsPage() {
   const isOnline = useOnline();
   const { syncNow, isSyncing } = useSync();
+  const { user } = useAuth();
+  const profileId = user?.userId ?? "";
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<LocalSyncStatus | "all">("all");
@@ -53,13 +56,18 @@ export function ReportsPage() {
   const [projectFilter, setProjectFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
+  const projects = useLiveQuery(
+    () => profileId ? db.projects.where("scopeProfileId").equals(profileId).toArray() : db.projects.toArray(),
+    [profileId],
+  );
 
   const reports = useLiveQuery(
     () => {
       let query = db.reports.orderBy("dateTime").reverse();
 
       return query.filter((r) => {
+        // scope isolation: show only current user's data
+        if (profileId && r.scopeProfileId !== profileId) return false;
         // exclude drafts from main list
         if (r.syncStatus === "draft") return false;
         if (statusFilter !== "all" && r.syncStatus !== statusFilter) return false;
@@ -75,7 +83,7 @@ export function ReportsPage() {
         return true;
       }).toArray();
     },
-    [statusFilter, dateFrom, dateTo, projectFilter],
+    [statusFilter, dateFrom, dateTo, projectFilter, profileId],
   );
 
   const photoCounts = useLiveQuery(async () => {

@@ -26,6 +26,7 @@ function makeReport(overrides: Partial<LocalReport> = {}): LocalReport {
     ownForces: "",
     description: "Тестовый отчёт",
     userId: "user-1",
+    scopeProfileId: "user-1",
     syncStatus: "local-only",
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -116,6 +117,7 @@ describe("Photos CRUD", () => {
       hash: "abc123",
       localStatus: "ready",
       syncStatus: "pending",
+      scopeProfileId: "user-1",
       createdAt: new Date(),
     };
 
@@ -140,6 +142,7 @@ describe("Photos CRUD", () => {
       mimeType: "image/jpeg",
       fileName: "p.jpg",
       syncStatus: "pending" as const,
+      scopeProfileId: "user-1",
       createdAt: new Date(),
     });
 
@@ -160,6 +163,7 @@ describe("Reference tables", () => {
       id: "p1",
       name: "Проект Альфа",
       code: "ALFA",
+      scopeProfileId: "user-1",
       updatedAt: new Date(),
     });
 
@@ -169,19 +173,19 @@ describe("Reference tables", () => {
   });
 
   it("CRUD for workTypes", async () => {
-    await db.workTypes.add({ id: "wt1", name: "Монолит", updatedAt: new Date() });
+    await db.workTypes.add({ id: "wt1", name: "Монолит", scopeProfileId: "user-1", updatedAt: new Date() });
     const wt = await db.workTypes.get("wt1");
     expect(wt!.name).toBe("Монолит");
   });
 
   it("CRUD for contractors", async () => {
-    await db.contractors.add({ id: "c1", name: "ООО Строй", updatedAt: new Date() });
+    await db.contractors.add({ id: "c1", name: "ООО Строй", scopeProfileId: "user-1", updatedAt: new Date() });
     const c = await db.contractors.get("c1");
     expect(c!.name).toBe("ООО Строй");
   });
 
   it("CRUD for ownForces", async () => {
-    await db.ownForces.add({ id: "of1", name: "Бригада 1", updatedAt: new Date() });
+    await db.ownForces.add({ id: "of1", name: "Бригада 1", scopeProfileId: "user-1", updatedAt: new Date() });
     const of = await db.ownForces.get("of1");
     expect(of!.name).toBe("Бригада 1");
   });
@@ -223,15 +227,15 @@ describe("Persistence across re-import", () => {
 
     // Re-open the same Dexie database (simulates page reload)
     const db2 = new Dexie("stroyfoto");
-    db2.version(6).stores({
-      reports: "clientId, serverId, projectId, userId, syncStatus, dateTime",
-      photos: "clientId, serverId, reportClientId, syncStatus, localStatus",
-      syncQueue: "++id, operationType, entityClientId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
+    db2.version(8).stores({
+      reports: "clientId, serverId, projectId, userId, scopeProfileId, syncStatus, dateTime",
+      photos: "clientId, serverId, reportClientId, scopeProfileId, syncStatus, localStatus",
+      syncQueue: "++id, operationType, entityClientId, scopeProfileId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
       authSession: "id",
-      projects: "id, code, name",
-      workTypes: "id, name",
-      contractors: "id, name",
-      ownForces: "id, name",
+      projects: "id, code, name, scopeProfileId",
+      workTypes: "id, name, scopeProfileId",
+      contractors: "id, name, scopeProfileId",
+      ownForces: "id, name, scopeProfileId",
       syncState: "entityType",
       appSettings: "key",
       syncMeta: "key",

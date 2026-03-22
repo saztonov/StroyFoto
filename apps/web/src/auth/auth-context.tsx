@@ -8,6 +8,7 @@ import {
 } from "react";
 import { supabase } from "../lib/supabase";
 import { db, type AuthSession } from "../db/dexie";
+import { cleanScopedCacheOnLogin } from "../db/scope-migration";
 import type { Session } from "@supabase/supabase-js";
 
 interface AuthContextValue {
@@ -74,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const profile = await fetchAndCacheProfile(session.access_token, session);
           setUser(profile);
+          // Clean synced data from other users and reset reference data for current scope
+          cleanScopedCacheOnLogin(profile.userId).catch(() => {});
         } catch {
           // Offline — use cached profile
           if (cached) {

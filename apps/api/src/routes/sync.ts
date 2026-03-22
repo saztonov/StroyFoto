@@ -164,12 +164,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         .select("*, photos(*)")
         .eq("sync_status", "SYNCED");
 
-      // Worker sees own reports, admin sees all
-      if (user.role !== "ADMIN") {
-        query = query.eq("user_id", user.profileId);
-      }
-
-      // Project access filtering
+      // Worker sees all reports in assigned projects; admin sees all.
+      // Project access filtering handles visibility for workers.
       if (filterIds !== null) {
         query = query.in("project_id", filterIds);
       }

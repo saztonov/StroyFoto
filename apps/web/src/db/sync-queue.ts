@@ -1,4 +1,4 @@
-import { db, type SyncOperationType, type SyncQueueEntry } from "./dexie";
+import { db, getCurrentProfileId, type SyncOperationType, type SyncQueueEntry } from "./dexie";
 import {
   executeUpsertReport,
   executeUploadPhoto,
@@ -48,6 +48,7 @@ export async function enqueueSyncOp(
   }
 
   const now = new Date();
+  const profileId = await getCurrentProfileId();
   await db.syncQueue.add({
     operationType,
     entityClientId,
@@ -57,6 +58,7 @@ export async function enqueueSyncOp(
     nextRetryAt: null,
     lastError: null,
     metadata,
+    scopeProfileId: profileId,
     createdAt: now,
     updatedAt: now,
   });
@@ -92,12 +94,14 @@ export async function processQueue(
   onProgress?: ProgressCallback,
 ): Promise<SyncRunResult> {
   const now = new Date();
+  const profileId = await getCurrentProfileId();
 
-  // Get all actionable entries
-  const allEntries = await db.syncQueue
+  // Get all actionable entries (scoped to current user)
+  const allEntries = (await db.syncQueue
     .where("status")
     .anyOf(["pending", "failed"])
-    .toArray();
+    .toArray())
+    .filter((e) => !profileId || e.scopeProfileId === profileId);
 
   // Filter: pending always, failed only if nextRetryAt has passed
   const entries = allEntries.filter(
@@ -265,17 +269,20 @@ export async function getSyncStats(): Promise<{
   failed: number;
   inProgress: number;
 }> {
-  const pending = await db.syncQueue.where("status").equals("pending").count();
-  const failed = await db.syncQueue.where("status").equals("failed").count();
-  const inProgress = await db.syncQueue
-    .where("status")
-    .equals("in-progress")
-    .count();
-  return { pending, failed, inProgress };
+  const profileId = await getCurrentProfileId();
+  const all = await db.syncQueue.toArray();
+  const scoped = profileId ? all.filter((e) => e.scopeProfileId === profileId) : all;
+  return {
+    pending: scoped.filter((e) => e.status === "pending").length,
+    failed: scoped.filter((e) => e.status === "failed").length,
+    inProgress: scoped.filter((e) => e.status === "in-progress").length,
+  };
 }
 
 export async function getFailedItems(): Promise<SyncQueueEntry[]> {
-  return db.syncQueue.where("status").equals("failed").toArray();
+  const profileId = await getCurrentProfileId();
+  const failed = await db.syncQueue.where("status").equals("failed").toArray();
+  return profileId ? failed.filter((e) => e.scopeProfileId === profileId) : failed;
 }
 
 export async function getLastSyncTime(): Promise<Date | null> {
