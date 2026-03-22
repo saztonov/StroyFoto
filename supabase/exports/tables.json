@@ -2719,189 +2719,6 @@
       }
     ]
   },
-  "cron.job": {
-    "schema": "cron",
-    "name": "job",
-    "comment": null,
-    "columns": [
-      {
-        "name": "jobid",
-        "comment": null,
-        "default": "nextval('cron.jobid_seq'::regclass)",
-        "data_type": "bigint",
-        "is_nullable": false
-      },
-      {
-        "name": "schedule",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "command",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "nodename",
-        "comment": null,
-        "default": "'localhost'::text",
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "nodeport",
-        "comment": null,
-        "default": "inet_server_port()",
-        "data_type": "integer",
-        "is_nullable": false
-      },
-      {
-        "name": "database",
-        "comment": null,
-        "default": "current_database()",
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "username",
-        "comment": null,
-        "default": "CURRENT_USER",
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "active",
-        "comment": null,
-        "default": "true",
-        "data_type": "boolean",
-        "is_nullable": false
-      },
-      {
-        "name": "jobname",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      }
-    ],
-    "constraints": [
-      {
-        "name": "job_pkey",
-        "type": "PRIMARY KEY",
-        "column": "jobid",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "jobname_username_uniq",
-        "type": "UNIQUE",
-        "column": "jobname",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "jobname_username_uniq",
-        "type": "UNIQUE",
-        "column": "username",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "cron.job_run_details": {
-    "schema": "cron",
-    "name": "job_run_details",
-    "comment": null,
-    "columns": [
-      {
-        "name": "jobid",
-        "comment": null,
-        "default": null,
-        "data_type": "bigint",
-        "is_nullable": true
-      },
-      {
-        "name": "runid",
-        "comment": null,
-        "default": "nextval('cron.runid_seq'::regclass)",
-        "data_type": "bigint",
-        "is_nullable": false
-      },
-      {
-        "name": "job_pid",
-        "comment": null,
-        "default": null,
-        "data_type": "integer",
-        "is_nullable": true
-      },
-      {
-        "name": "database",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "username",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "command",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "status",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "return_message",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "start_time",
-        "comment": null,
-        "default": null,
-        "data_type": "timestamp with time zone",
-        "is_nullable": true
-      },
-      {
-        "name": "end_time",
-        "comment": null,
-        "default": null,
-        "data_type": "timestamp with time zone",
-        "is_nullable": true
-      }
-    ],
-    "constraints": [
-      {
-        "name": "job_run_details_pkey",
-        "type": "PRIMARY KEY",
-        "column": "runid",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
   "public.areas": {
     "schema": "public",
     "name": "areas",
@@ -3029,6 +2846,66 @@
       }
     ]
   },
+  "public.own_forces": {
+    "schema": "public",
+    "name": "own_forces",
+    "comment": null,
+    "columns": [
+      {
+        "name": "id",
+        "comment": null,
+        "default": "uuid_generate_v4()",
+        "data_type": "uuid",
+        "is_nullable": false
+      },
+      {
+        "name": "name",
+        "comment": null,
+        "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "is_active",
+        "comment": null,
+        "default": "true",
+        "data_type": "boolean",
+        "is_nullable": false
+      },
+      {
+        "name": "created_at",
+        "comment": null,
+        "default": "now()",
+        "data_type": "timestamp with time zone",
+        "is_nullable": false
+      },
+      {
+        "name": "updated_at",
+        "comment": null,
+        "default": "now()",
+        "data_type": "timestamp with time zone",
+        "is_nullable": false
+      }
+    ],
+    "constraints": [
+      {
+        "name": "own_forces_name_key",
+        "type": "UNIQUE",
+        "column": "name",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "own_forces_pkey",
+        "type": "PRIMARY KEY",
+        "column": "id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      }
+    ]
+  },
   "public.photos": {
     "schema": "public",
     "name": "photos",
@@ -3132,6 +3009,88 @@
       }
     ]
   },
+  "public.profiles": {
+    "schema": "public",
+    "name": "profiles",
+    "comment": null,
+    "columns": [
+      {
+        "name": "id",
+        "comment": null,
+        "default": "uuid_generate_v4()",
+        "data_type": "uuid",
+        "is_nullable": false
+      },
+      {
+        "name": "email",
+        "comment": null,
+        "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "role",
+        "comment": null,
+        "default": "'WORKER'::user_role",
+        "data_type": "user_role",
+        "is_nullable": false
+      },
+      {
+        "name": "full_name",
+        "comment": null,
+        "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "created_at",
+        "comment": null,
+        "default": "now()",
+        "data_type": "timestamp with time zone",
+        "is_nullable": false
+      },
+      {
+        "name": "updated_at",
+        "comment": null,
+        "default": "now()",
+        "data_type": "timestamp with time zone",
+        "is_nullable": false
+      },
+      {
+        "name": "auth_id",
+        "comment": null,
+        "default": null,
+        "data_type": "uuid",
+        "is_nullable": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "profiles_auth_id_key",
+        "type": "UNIQUE",
+        "column": "auth_id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "profiles_email_key",
+        "type": "UNIQUE",
+        "column": "email",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "profiles_pkey",
+        "type": "PRIMARY KEY",
+        "column": "id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      }
+    ]
+  },
   "public.projects": {
     "schema": "public",
     "name": "projects",
@@ -3206,74 +3165,6 @@
       }
     ]
   },
-  "public.refresh_tokens": {
-    "schema": "public",
-    "name": "refresh_tokens",
-    "comment": null,
-    "columns": [
-      {
-        "name": "id",
-        "comment": null,
-        "default": "uuid_generate_v4()",
-        "data_type": "uuid",
-        "is_nullable": false
-      },
-      {
-        "name": "token",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "user_id",
-        "comment": null,
-        "default": null,
-        "data_type": "uuid",
-        "is_nullable": false
-      },
-      {
-        "name": "expires_at",
-        "comment": null,
-        "default": null,
-        "data_type": "timestamp with time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "created_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp with time zone",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "refresh_tokens_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "refresh_tokens_token_key",
-        "type": "UNIQUE",
-        "column": "token",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "refresh_tokens_user_id_fkey",
-        "type": "FOREIGN KEY",
-        "column": "user_id",
-        "foreign_table": "users",
-        "foreign_column": "id",
-        "foreign_table_schema": "public"
-      }
-    ]
-  },
   "public.reports": {
     "schema": "public",
     "name": "reports",
@@ -3309,29 +3200,43 @@
       },
       {
         "name": "mark",
-        "comment": null,
-        "default": null,
+        "comment": "DEPRECATED: kept for backward compatibility, will be removed",
+        "default": "''::text",
         "data_type": "text",
-        "is_nullable": false
+        "is_nullable": true
       },
       {
         "name": "work_type",
-        "comment": null,
-        "default": null,
+        "comment": "DEPRECATED: use work_types[] array instead",
+        "default": "''::text",
         "data_type": "text",
+        "is_nullable": true
+      },
+      {
+        "name": "work_types",
+        "comment": null,
+        "default": "'{}'::text[]",
+        "data_type": "text[]",
         "is_nullable": false
       },
       {
         "name": "area",
-        "comment": null,
-        "default": null,
+        "comment": "DEPRECATED: kept for backward compatibility, will be removed",
+        "default": "''::text",
         "data_type": "text",
-        "is_nullable": false
+        "is_nullable": true
       },
       {
         "name": "contractor",
         "comment": null,
         "default": null,
+        "data_type": "text",
+        "is_nullable": false
+      },
+      {
+        "name": "own_forces",
+        "comment": null,
+        "default": "''::text",
         "data_type": "text",
         "is_nullable": false
       },
@@ -3400,15 +3305,15 @@
         "name": "reports_user_id_fkey",
         "type": "FOREIGN KEY",
         "column": "user_id",
-        "foreign_table": "users",
+        "foreign_table": "profiles",
         "foreign_column": "id",
         "foreign_table_schema": "public"
       }
     ]
   },
-  "public.users": {
+  "public.user_projects": {
     "schema": "public",
-    "name": "users",
+    "name": "user_projects",
     "comment": null,
     "columns": [
       {
@@ -3419,31 +3324,17 @@
         "is_nullable": false
       },
       {
-        "name": "username",
+        "name": "user_id",
         "comment": null,
         "default": null,
-        "data_type": "text",
+        "data_type": "uuid",
         "is_nullable": false
       },
       {
-        "name": "password",
+        "name": "project_id",
         "comment": null,
         "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "role",
-        "comment": null,
-        "default": "'WORKER'::user_role",
-        "data_type": "user_role",
-        "is_nullable": false
-      },
-      {
-        "name": "full_name",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
+        "data_type": "uuid",
         "is_nullable": false
       },
       {
@@ -3452,18 +3343,11 @@
         "default": "now()",
         "data_type": "timestamp with time zone",
         "is_nullable": false
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp with time zone",
-        "is_nullable": false
       }
     ],
     "constraints": [
       {
-        "name": "users_pkey",
+        "name": "user_projects_pkey",
         "type": "PRIMARY KEY",
         "column": "id",
         "foreign_table": null,
@@ -3471,12 +3355,36 @@
         "foreign_table_schema": null
       },
       {
-        "name": "users_username_key",
+        "name": "user_projects_project_fkey",
+        "type": "FOREIGN KEY",
+        "column": "project_id",
+        "foreign_table": "projects",
+        "foreign_column": "id",
+        "foreign_table_schema": "public"
+      },
+      {
+        "name": "user_projects_unique",
         "type": "UNIQUE",
-        "column": "username",
+        "column": "project_id",
         "foreign_table": null,
         "foreign_column": null,
         "foreign_table_schema": null
+      },
+      {
+        "name": "user_projects_unique",
+        "type": "UNIQUE",
+        "column": "user_id",
+        "foreign_table": null,
+        "foreign_column": null,
+        "foreign_table_schema": null
+      },
+      {
+        "name": "user_projects_user_fkey",
+        "type": "FOREIGN KEY",
+        "column": "user_id",
+        "foreign_table": "profiles",
+        "foreign_column": "id",
+        "foreign_table_schema": "public"
       }
     ]
   },
@@ -3534,411 +3442,6 @@
         "name": "work_types_pkey",
         "type": "PRIMARY KEY",
         "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "realtime.messages_2026_02_06": {
-    "schema": "realtime",
-    "name": "messages_2026_02_06",
-    "comment": null,
-    "columns": [
-      {
-        "name": "topic",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "extension",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "payload",
-        "comment": null,
-        "default": null,
-        "data_type": "jsonb",
-        "is_nullable": true
-      },
-      {
-        "name": "event",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "private",
-        "comment": null,
-        "default": "false",
-        "data_type": "boolean",
-        "is_nullable": true
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "inserted_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "id",
-        "comment": null,
-        "default": "gen_random_uuid()",
-        "data_type": "uuid",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "messages_2026_02_06_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "messages_2026_02_06_pkey",
-        "type": "PRIMARY KEY",
-        "column": "inserted_at",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "realtime.messages_2026_02_07": {
-    "schema": "realtime",
-    "name": "messages_2026_02_07",
-    "comment": null,
-    "columns": [
-      {
-        "name": "topic",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "extension",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "payload",
-        "comment": null,
-        "default": null,
-        "data_type": "jsonb",
-        "is_nullable": true
-      },
-      {
-        "name": "event",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "private",
-        "comment": null,
-        "default": "false",
-        "data_type": "boolean",
-        "is_nullable": true
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "inserted_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "id",
-        "comment": null,
-        "default": "gen_random_uuid()",
-        "data_type": "uuid",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "messages_2026_02_07_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "messages_2026_02_07_pkey",
-        "type": "PRIMARY KEY",
-        "column": "inserted_at",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "realtime.messages_2026_02_08": {
-    "schema": "realtime",
-    "name": "messages_2026_02_08",
-    "comment": null,
-    "columns": [
-      {
-        "name": "topic",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "extension",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "payload",
-        "comment": null,
-        "default": null,
-        "data_type": "jsonb",
-        "is_nullable": true
-      },
-      {
-        "name": "event",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "private",
-        "comment": null,
-        "default": "false",
-        "data_type": "boolean",
-        "is_nullable": true
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "inserted_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "id",
-        "comment": null,
-        "default": "gen_random_uuid()",
-        "data_type": "uuid",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "messages_2026_02_08_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "messages_2026_02_08_pkey",
-        "type": "PRIMARY KEY",
-        "column": "inserted_at",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "realtime.messages_2026_02_09": {
-    "schema": "realtime",
-    "name": "messages_2026_02_09",
-    "comment": null,
-    "columns": [
-      {
-        "name": "topic",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "extension",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "payload",
-        "comment": null,
-        "default": null,
-        "data_type": "jsonb",
-        "is_nullable": true
-      },
-      {
-        "name": "event",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "private",
-        "comment": null,
-        "default": "false",
-        "data_type": "boolean",
-        "is_nullable": true
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "inserted_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "id",
-        "comment": null,
-        "default": "gen_random_uuid()",
-        "data_type": "uuid",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "messages_2026_02_09_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "messages_2026_02_09_pkey",
-        "type": "PRIMARY KEY",
-        "column": "inserted_at",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      }
-    ]
-  },
-  "realtime.messages_2026_02_10": {
-    "schema": "realtime",
-    "name": "messages_2026_02_10",
-    "comment": null,
-    "columns": [
-      {
-        "name": "topic",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "extension",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": false
-      },
-      {
-        "name": "payload",
-        "comment": null,
-        "default": null,
-        "data_type": "jsonb",
-        "is_nullable": true
-      },
-      {
-        "name": "event",
-        "comment": null,
-        "default": null,
-        "data_type": "text",
-        "is_nullable": true
-      },
-      {
-        "name": "private",
-        "comment": null,
-        "default": "false",
-        "data_type": "boolean",
-        "is_nullable": true
-      },
-      {
-        "name": "updated_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "inserted_at",
-        "comment": null,
-        "default": "now()",
-        "data_type": "timestamp without time zone",
-        "is_nullable": false
-      },
-      {
-        "name": "id",
-        "comment": null,
-        "default": "gen_random_uuid()",
-        "data_type": "uuid",
-        "is_nullable": false
-      }
-    ],
-    "constraints": [
-      {
-        "name": "messages_2026_02_10_pkey",
-        "type": "PRIMARY KEY",
-        "column": "id",
-        "foreign_table": null,
-        "foreign_column": null,
-        "foreign_table_schema": null
-      },
-      {
-        "name": "messages_2026_02_10_pkey",
-        "type": "PRIMARY KEY",
-        "column": "inserted_at",
         "foreign_table": null,
         "foreign_column": null,
         "foreign_table_schema": null

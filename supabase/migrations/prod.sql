@@ -1,7 +1,7 @@
 -- Database Schema SQL Export
--- Generated: 2026-03-22T00:44:50.894881
+-- Generated: 2026-03-22T17:10:32.218390
 -- Database: postgres
--- Host: aws-1-eu-west-2.pooler.supabase.com
+-- Host: aws-1-eu-west-1.pooler.supabase.com
 
 -- ============================================
 -- TABLES
@@ -431,37 +431,6 @@ CREATE TABLE IF NOT EXISTS auth.webauthn_credentials (
     CONSTRAINT webauthn_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 
--- Table: cron.job
-CREATE TABLE IF NOT EXISTS cron.job (
-    jobid bigint NOT NULL DEFAULT nextval('cron.jobid_seq'::regclass),
-    schedule text NOT NULL,
-    command text NOT NULL,
-    nodename text NOT NULL DEFAULT 'localhost'::text,
-    nodeport integer NOT NULL DEFAULT inet_server_port(),
-    database text NOT NULL DEFAULT current_database(),
-    username text NOT NULL DEFAULT CURRENT_USER,
-    active boolean NOT NULL DEFAULT true,
-    jobname text,
-    CONSTRAINT job_pkey PRIMARY KEY (jobid),
-    CONSTRAINT jobname_username_uniq UNIQUE (jobname),
-    CONSTRAINT jobname_username_uniq UNIQUE (username)
-);
-
--- Table: cron.job_run_details
-CREATE TABLE IF NOT EXISTS cron.job_run_details (
-    jobid bigint,
-    runid bigint NOT NULL DEFAULT nextval('cron.runid_seq'::regclass),
-    job_pid integer,
-    database text,
-    username text,
-    command text,
-    status text,
-    return_message text,
-    start_time timestamp with time zone,
-    end_time timestamp with time zone,
-    CONSTRAINT job_run_details_pkey PRIMARY KEY (runid)
-);
-
 -- Table: public.areas
 CREATE TABLE IF NOT EXISTS public.areas (
     id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -485,6 +454,17 @@ CREATE TABLE IF NOT EXISTS public.contractors (
     CONSTRAINT contractors_pkey PRIMARY KEY (id)
 );
 
+-- Table: public.own_forces
+CREATE TABLE IF NOT EXISTS public.own_forces (
+    id uuid NOT NULL DEFAULT uuid_generate_v4(),
+    name text NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT own_forces_name_key UNIQUE (name),
+    CONSTRAINT own_forces_pkey PRIMARY KEY (id)
+);
+
 -- Table: public.photos
 CREATE TABLE IF NOT EXISTS public.photos (
     id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -502,6 +482,20 @@ CREATE TABLE IF NOT EXISTS public.photos (
     CONSTRAINT photos_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id)
 );
 
+-- Table: public.profiles
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id uuid NOT NULL DEFAULT uuid_generate_v4(),
+    email text NOT NULL,
+    role user_role NOT NULL DEFAULT 'WORKER'::user_role,
+    full_name text NOT NULL,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    auth_id uuid,
+    CONSTRAINT profiles_auth_id_key UNIQUE (auth_id),
+    CONSTRAINT profiles_email_key UNIQUE (email),
+    CONSTRAINT profiles_pkey PRIMARY KEY (id)
+);
+
 -- Table: public.projects
 CREATE TABLE IF NOT EXISTS public.projects (
     id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -513,18 +507,6 @@ CREATE TABLE IF NOT EXISTS public.projects (
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT projects_code_key UNIQUE (code),
     CONSTRAINT projects_pkey PRIMARY KEY (id)
-);
-
--- Table: public.refresh_tokens
-CREATE TABLE IF NOT EXISTS public.refresh_tokens (
-    id uuid NOT NULL DEFAULT uuid_generate_v4(),
-    token text NOT NULL,
-    user_id uuid NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone NOT NULL DEFAULT now(),
-    CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id),
-    CONSTRAINT refresh_tokens_token_key UNIQUE (token),
-    CONSTRAINT refresh_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 
 -- Table: public.reports
@@ -547,20 +529,23 @@ CREATE TABLE IF NOT EXISTS public.reports (
     CONSTRAINT reports_client_id_key UNIQUE (client_id),
     CONSTRAINT reports_pkey PRIMARY KEY (id),
     CONSTRAINT reports_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
-    CONSTRAINT reports_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+    CONSTRAINT reports_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
 );
+COMMENT ON COLUMN public.reports.mark IS 'DEPRECATED: kept for backward compatibility, will be removed';
+COMMENT ON COLUMN public.reports.work_type IS 'DEPRECATED: use work_types[] array instead';
+COMMENT ON COLUMN public.reports.area IS 'DEPRECATED: kept for backward compatibility, will be removed';
 
--- Table: public.users
-CREATE TABLE IF NOT EXISTS public.users (
+-- Table: public.user_projects
+CREATE TABLE IF NOT EXISTS public.user_projects (
     id uuid NOT NULL DEFAULT uuid_generate_v4(),
-    username text NOT NULL,
-    password text NOT NULL,
-    role user_role NOT NULL DEFAULT 'WORKER'::user_role,
-    full_name text NOT NULL,
+    user_id uuid NOT NULL,
+    project_id uuid NOT NULL,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
-    updated_at timestamp with time zone NOT NULL DEFAULT now(),
-    CONSTRAINT users_pkey PRIMARY KEY (id),
-    CONSTRAINT users_username_key UNIQUE (username)
+    CONSTRAINT user_projects_pkey PRIMARY KEY (id),
+    CONSTRAINT user_projects_project_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+    CONSTRAINT user_projects_unique UNIQUE (project_id),
+    CONSTRAINT user_projects_unique UNIQUE (user_id),
+    CONSTRAINT user_projects_user_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
 );
 
 -- Table: public.work_types
@@ -572,87 +557,6 @@ CREATE TABLE IF NOT EXISTS public.work_types (
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT work_types_name_key UNIQUE (name),
     CONSTRAINT work_types_pkey PRIMARY KEY (id)
-);
-
--- Table: public.own_forces
-CREATE TABLE IF NOT EXISTS public.own_forces (
-    id uuid NOT NULL DEFAULT uuid_generate_v4(),
-    name text NOT NULL,
-    is_active boolean NOT NULL DEFAULT true,
-    created_at timestamp with time zone NOT NULL DEFAULT now(),
-    updated_at timestamp with time zone NOT NULL DEFAULT now(),
-    CONSTRAINT own_forces_name_key UNIQUE (name),
-    CONSTRAINT own_forces_pkey PRIMARY KEY (id)
-);
-
--- Table: realtime.messages_2026_02_06
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_02_06 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone NOT NULL DEFAULT now(),
-    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_02_06_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_02_06_pkey PRIMARY KEY (inserted_at)
-);
-
--- Table: realtime.messages_2026_02_07
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_02_07 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone NOT NULL DEFAULT now(),
-    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_02_07_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_02_07_pkey PRIMARY KEY (inserted_at)
-);
-
--- Table: realtime.messages_2026_02_08
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_02_08 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone NOT NULL DEFAULT now(),
-    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_02_08_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_02_08_pkey PRIMARY KEY (inserted_at)
-);
-
--- Table: realtime.messages_2026_02_09
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_02_09 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone NOT NULL DEFAULT now(),
-    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_02_09_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_02_09_pkey PRIMARY KEY (inserted_at)
-);
-
--- Table: realtime.messages_2026_02_10
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_02_10 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone NOT NULL DEFAULT now(),
-    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_02_10_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_02_10_pkey PRIMARY KEY (inserted_at)
 );
 
 -- Table: realtime.schema_migrations
@@ -909,10 +813,9 @@ CREATE OR REPLACE VIEW public.reports_with_photo_count AS
     client_id,
     project_id,
     date_time,
-    mark,
-    work_type,
-    area,
+    work_types,
     contractor,
+    own_forces,
     description,
     user_id,
     sync_status,
@@ -998,65 +901,6 @@ AS $function$
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
   )::uuid
 $function$
-
-
--- Function: cron.alter_job
--- Description: Alter the job identified by job_id. Any option left as NULL will not be modified.
-CREATE OR REPLACE FUNCTION cron.alter_job(job_id bigint, schedule text DEFAULT NULL::text, command text DEFAULT NULL::text, database text DEFAULT NULL::text, username text DEFAULT NULL::text, active boolean DEFAULT NULL::boolean)
- RETURNS void
- LANGUAGE c
-AS '$libdir/pg_cron', $function$cron_alter_job$function$
-
-
--- Function: cron.job_cache_invalidate
--- Description: invalidate job cache
-CREATE OR REPLACE FUNCTION cron.job_cache_invalidate()
- RETURNS trigger
- LANGUAGE c
-AS '$libdir/pg_cron', $function$cron_job_cache_invalidate$function$
-
-
--- Function: cron.schedule
--- Description: schedule a pg_cron job
-CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text)
- RETURNS bigint
- LANGUAGE c
-AS '$libdir/pg_cron', $function$cron_schedule_named$function$
-
-
--- Function: cron.schedule
--- Description: schedule a pg_cron job
-CREATE OR REPLACE FUNCTION cron.schedule(schedule text, command text)
- RETURNS bigint
- LANGUAGE c
- STRICT
-AS '$libdir/pg_cron', $function$cron_schedule$function$
-
-
--- Function: cron.schedule_in_database
--- Description: schedule a pg_cron job
-CREATE OR REPLACE FUNCTION cron.schedule_in_database(job_name text, schedule text, command text, database text, username text DEFAULT NULL::text, active boolean DEFAULT true)
- RETURNS bigint
- LANGUAGE c
-AS '$libdir/pg_cron', $function$cron_schedule_named$function$
-
-
--- Function: cron.unschedule
--- Description: unschedule a pg_cron job
-CREATE OR REPLACE FUNCTION cron.unschedule(job_name text)
- RETURNS boolean
- LANGUAGE c
- STRICT
-AS '$libdir/pg_cron', $function$cron_unschedule_named$function$
-
-
--- Function: cron.unschedule
--- Description: unschedule a pg_cron job
-CREATE OR REPLACE FUNCTION cron.unschedule(job_id bigint)
- RETURNS boolean
- LANGUAGE c
- STRICT
-AS '$libdir/pg_cron', $function$cron_unschedule$function$
 
 
 -- Function: extensions.armor
@@ -1156,19 +1000,19 @@ AS '$libdir/pgcrypto', $function$pg_random_uuid$function$
 
 
 -- Function: extensions.gen_salt
-CREATE OR REPLACE FUNCTION extensions.gen_salt(text)
- RETURNS text
- LANGUAGE c
- PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
-
-
--- Function: extensions.gen_salt
 CREATE OR REPLACE FUNCTION extensions.gen_salt(text, integer)
  RETURNS text
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
+
+
+-- Function: extensions.gen_salt
+CREATE OR REPLACE FUNCTION extensions.gen_salt(text)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
 
 
 -- Function: extensions.grant_pg_cron_access
@@ -1315,7 +1159,7 @@ $function$
 
 
 -- Function: extensions.hmac
-CREATE OR REPLACE FUNCTION extensions.hmac(bytea, bytea, text)
+CREATE OR REPLACE FUNCTION extensions.hmac(text, text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1323,7 +1167,7 @@ AS '$libdir/pgcrypto', $function$pg_hmac$function$
 
 
 -- Function: extensions.hmac
-CREATE OR REPLACE FUNCTION extensions.hmac(text, text, text)
+CREATE OR REPLACE FUNCTION extensions.hmac(bytea, bytea, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1371,7 +1215,7 @@ AS '$libdir/pgcrypto', $function$pgp_key_id_w$function$
 
 
 -- Function: extensions.pgp_pub_decrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1379,7 +1223,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
 
 
 -- Function: extensions.pgp_pub_decrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1403,7 +1247,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 
 
 -- Function: extensions.pgp_pub_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1411,7 +1255,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 
 
 -- Function: extensions.pgp_pub_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1435,14 +1279,6 @@ AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
 
 
 -- Function: extensions.pgp_pub_encrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea)
- RETURNS bytea
- LANGUAGE c
- PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
-
-
--- Function: extensions.pgp_pub_encrypt_bytea
 CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea, text)
  RETURNS bytea
  LANGUAGE c
@@ -1450,12 +1286,12 @@ CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
 
 
--- Function: extensions.pgp_sym_decrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt(bytea, text)
- RETURNS text
+-- Function: extensions.pgp_pub_encrypt_bytea
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt_bytea(bytea, bytea)
+ RETURNS bytea
  LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
 
 
 -- Function: extensions.pgp_sym_decrypt
@@ -1466,8 +1302,16 @@ CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt(bytea, text, text)
 AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
 
 
+-- Function: extensions.pgp_sym_decrypt
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt(bytea, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+
+
 -- Function: extensions.pgp_sym_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1475,7 +1319,7 @@ AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
 
 
 -- Function: extensions.pgp_sym_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1835,13 +1679,22 @@ AS $function$
   $function$
 
 
--- Function: public.reports_count_by_project
-CREATE OR REPLACE FUNCTION public.reports_count_by_project()
- RETURNS TABLE(project_id uuid, count bigint)
- LANGUAGE sql
- STABLE
+-- Function: public.handle_new_user
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
 AS $function$
-  SELECT project_id, count(*) FROM reports GROUP BY project_id;
+BEGIN
+  INSERT INTO public.profiles (auth_id, email, role, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    'WORKER',
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  );
+  RETURN NEW;
+END;
 $function$
 
 
@@ -1851,8 +1704,8 @@ CREATE OR REPLACE FUNCTION public.update_updated_at_column()
  LANGUAGE plpgsql
 AS $function$
 BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
+    NEW.updated_at = now();
+    RETURN NEW;
 END;
 $function$
 
@@ -2553,70 +2406,6 @@ END
 $function$
 
 
--- Function: storage.delete_leaf_prefixes
-CREATE OR REPLACE FUNCTION storage.delete_leaf_prefixes(bucket_ids text[], names text[])
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-DECLARE
-    v_rows_deleted integer;
-BEGIN
-    LOOP
-        WITH candidates AS (
-            SELECT DISTINCT
-                t.bucket_id,
-                unnest(storage.get_prefixes(t.name)) AS name
-            FROM unnest(bucket_ids, names) AS t(bucket_id, name)
-        ),
-        uniq AS (
-             SELECT
-                 bucket_id,
-                 name,
-                 storage.get_level(name) AS level
-             FROM candidates
-             WHERE name <> ''
-             GROUP BY bucket_id, name
-        ),
-        leaf AS (
-             SELECT
-                 p.bucket_id,
-                 p.name,
-                 p.level
-             FROM storage.prefixes AS p
-                  JOIN uniq AS u
-                       ON u.bucket_id = p.bucket_id
-                           AND u.name = p.name
-                           AND u.level = p.level
-             WHERE NOT EXISTS (
-                 SELECT 1
-                 FROM storage.objects AS o
-                 WHERE o.bucket_id = p.bucket_id
-                   AND o.level = p.level + 1
-                   AND o.name COLLATE "C" LIKE p.name || '/%'
-             )
-             AND NOT EXISTS (
-                 SELECT 1
-                 FROM storage.prefixes AS c
-                 WHERE c.bucket_id = p.bucket_id
-                   AND c.level = p.level + 1
-                   AND c.name COLLATE "C" LIKE p.name || '/%'
-             )
-        )
-        DELETE
-        FROM storage.prefixes AS p
-            USING leaf AS l
-        WHERE p.bucket_id = l.bucket_id
-          AND p.name = l.name
-          AND p.level = l.level;
-
-        GET DIAGNOSTICS v_rows_deleted = ROW_COUNT;
-        EXIT WHEN v_rows_deleted = 0;
-    END LOOP;
-END;
-$function$
-
-
 -- Function: storage.enforce_bucket_name_length
 CREATE OR REPLACE FUNCTION storage.enforce_bucket_name_length()
  RETURNS trigger
@@ -2635,15 +2424,15 @@ $function$
 CREATE OR REPLACE FUNCTION storage.extension(name text)
  RETURNS text
  LANGUAGE plpgsql
- IMMUTABLE
 AS $function$
 DECLARE
-    _parts text[];
-    _filename text;
+_parts text[];
+_filename text;
 BEGIN
-    SELECT string_to_array(name, '/') INTO _parts;
-    SELECT _parts[array_length(_parts,1)] INTO _filename;
-    RETURN reverse(split_part(reverse(_filename), '.', 1));
+	select string_to_array(name, '/') into _parts;
+	select _parts[array_length(_parts,1)] into _filename;
+	-- @todo return the last part instead of 2
+	return reverse(split_part(reverse(_filename), '.', 1));
 END
 $function$
 
@@ -2666,15 +2455,12 @@ $function$
 CREATE OR REPLACE FUNCTION storage.foldername(name text)
  RETURNS text[]
  LANGUAGE plpgsql
- IMMUTABLE
 AS $function$
 DECLARE
-    _parts text[];
+_parts text[];
 BEGIN
-    -- Split on "/" to get path segments
-    SELECT string_to_array(name, '/') INTO _parts;
-    -- Return everything except the last segment
-    RETURN _parts[1 : array_length(_parts,1) - 1];
+	select string_to_array(name, '/') into _parts;
+	return _parts[1:array_length(_parts,1)-1];
 END
 $function$
 
@@ -2693,66 +2479,14 @@ END;
 $function$
 
 
--- Function: storage.get_level
-CREATE OR REPLACE FUNCTION storage.get_level(name text)
- RETURNS integer
- LANGUAGE sql
- IMMUTABLE STRICT
-AS $function$
-SELECT array_length(string_to_array("name", '/'), 1);
-$function$
-
-
--- Function: storage.get_prefix
-CREATE OR REPLACE FUNCTION storage.get_prefix(name text)
- RETURNS text
- LANGUAGE sql
- IMMUTABLE STRICT
-AS $function$
-SELECT
-    CASE WHEN strpos("name", '/') > 0 THEN
-             regexp_replace("name", '[\/]{1}[^\/]+\/?$', '')
-         ELSE
-             ''
-        END;
-$function$
-
-
--- Function: storage.get_prefixes
-CREATE OR REPLACE FUNCTION storage.get_prefixes(name text)
- RETURNS text[]
- LANGUAGE plpgsql
- IMMUTABLE STRICT
-AS $function$
-DECLARE
-    parts text[];
-    prefixes text[];
-    prefix text;
-BEGIN
-    -- Split the name into parts by '/'
-    parts := string_to_array("name", '/');
-    prefixes := '{}';
-
-    -- Construct the prefixes, stopping one level below the last part
-    FOR i IN 1..array_length(parts, 1) - 1 LOOP
-            prefix := array_to_string(parts[1:i], '/');
-            prefixes := array_append(prefixes, prefix);
-    END LOOP;
-
-    RETURN prefixes;
-END;
-$function$
-
-
 -- Function: storage.get_size_by_bucket
 CREATE OR REPLACE FUNCTION storage.get_size_by_bucket()
  RETURNS TABLE(size bigint, bucket_id text)
  LANGUAGE plpgsql
- STABLE
 AS $function$
 BEGIN
     return query
-        select sum((metadata->>'size')::bigint) as size, obj.bucket_id
+        select sum((metadata->>'size')::int) as size, obj.bucket_id
         from "storage".objects as obj
         group by obj.bucket_id;
 END
@@ -3405,74 +3139,6 @@ END;
 $function$
 
 
--- Function: storage.search_legacy_v1
-CREATE OR REPLACE FUNCTION storage.search_legacy_v1(prefix text, bucketname text, limits integer DEFAULT 100, levels integer DEFAULT 1, offsets integer DEFAULT 0, search text DEFAULT ''::text, sortcolumn text DEFAULT 'name'::text, sortorder text DEFAULT 'asc'::text)
- RETURNS TABLE(name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, last_accessed_at timestamp with time zone, metadata jsonb)
- LANGUAGE plpgsql
- STABLE
-AS $function$
-declare
-    v_order_by text;
-    v_sort_order text;
-begin
-    case
-        when sortcolumn = 'name' then
-            v_order_by = 'name';
-        when sortcolumn = 'updated_at' then
-            v_order_by = 'updated_at';
-        when sortcolumn = 'created_at' then
-            v_order_by = 'created_at';
-        when sortcolumn = 'last_accessed_at' then
-            v_order_by = 'last_accessed_at';
-        else
-            v_order_by = 'name';
-        end case;
-
-    case
-        when sortorder = 'asc' then
-            v_sort_order = 'asc';
-        when sortorder = 'desc' then
-            v_sort_order = 'desc';
-        else
-            v_sort_order = 'asc';
-        end case;
-
-    v_order_by = v_order_by || ' ' || v_sort_order;
-
-    return query execute
-        'with folders as (
-           select path_tokens[$1] as folder
-           from storage.objects
-             where objects.name ilike $2 || $3 || ''%''
-               and bucket_id = $4
-               and array_length(objects.path_tokens, 1) <> $1
-           group by folder
-           order by folder ' || v_sort_order || '
-     )
-     (select folder as "name",
-            null as id,
-            null as updated_at,
-            null as created_at,
-            null as last_accessed_at,
-            null as metadata from folders)
-     union all
-     (select path_tokens[$1] as "name",
-            id,
-            updated_at,
-            created_at,
-            last_accessed_at,
-            metadata
-     from storage.objects
-     where objects.name ilike $2 || $3 || ''%''
-       and bucket_id = $4
-       and array_length(objects.path_tokens, 1) = $1
-     order by ' || v_order_by || ')
-     limit $5
-     offset $6' using levels, prefix, search, bucketname, limits, offsets;
-end;
-$function$
-
-
 -- Function: storage.search_v2
 CREATE OR REPLACE FUNCTION storage.search_v2(prefix text, bucket_name text, limits integer DEFAULT 100, levels integer DEFAULT 1, start_after text DEFAULT ''::text, sort_order text DEFAULT 'asc'::text, sort_column text DEFAULT 'name'::text, sort_column_after text DEFAULT ''::text)
  RETURNS TABLE(key text, name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, last_accessed_at timestamp with time zone, metadata jsonb)
@@ -3632,8 +3298,8 @@ $function$
 -- TRIGGERS
 -- ============================================
 
--- Trigger: cron_job_cache_invalidate on cron.job
-CREATE TRIGGER cron_job_cache_invalidate AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON cron.job FOR EACH STATEMENT EXECUTE FUNCTION cron.job_cache_invalidate()
+-- Trigger: on_auth_user_created on auth.users
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()
 
 -- Trigger: set_updated_at_areas on public.areas
 CREATE TRIGGER set_updated_at_areas BEFORE UPDATE ON public.areas FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
@@ -3641,17 +3307,20 @@ CREATE TRIGGER set_updated_at_areas BEFORE UPDATE ON public.areas FOR EACH ROW E
 -- Trigger: set_updated_at_contractors on public.contractors
 CREATE TRIGGER set_updated_at_contractors BEFORE UPDATE ON public.contractors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
+-- Trigger: set_updated_at_own_forces on public.own_forces
+CREATE TRIGGER set_updated_at_own_forces BEFORE UPDATE ON public.own_forces FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
 -- Trigger: set_updated_at_photos on public.photos
 CREATE TRIGGER set_updated_at_photos BEFORE UPDATE ON public.photos FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+
+-- Trigger: set_updated_at_profiles on public.profiles
+CREATE TRIGGER set_updated_at_profiles BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 -- Trigger: set_updated_at_projects on public.projects
 CREATE TRIGGER set_updated_at_projects BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 -- Trigger: set_updated_at_reports on public.reports
 CREATE TRIGGER set_updated_at_reports BEFORE UPDATE ON public.reports FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
-
--- Trigger: set_updated_at_users on public.users
-CREATE TRIGGER set_updated_at_users BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
 
 -- Trigger: set_updated_at_work_types on public.work_types
 CREATE TRIGGER set_updated_at_work_types BEFORE UPDATE ON public.work_types FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
@@ -3868,14 +3537,14 @@ CREATE UNIQUE INDEX webauthn_credentials_credential_id_key ON auth.webauthn_cred
 -- Index on auth.webauthn_credentials
 CREATE INDEX webauthn_credentials_user_id_idx ON auth.webauthn_credentials USING btree (user_id);
 
--- Index on cron.job
-CREATE UNIQUE INDEX jobname_username_uniq ON cron.job USING btree (jobname, username);
-
 -- Index on public.areas
 CREATE INDEX idx_areas_project_id ON public.areas USING btree (project_id);
 
 -- Index on public.contractors
 CREATE UNIQUE INDEX contractors_name_key ON public.contractors USING btree (name);
+
+-- Index on public.own_forces
+CREATE UNIQUE INDEX own_forces_name_key ON public.own_forces USING btree (name);
 
 -- Index on public.photos
 CREATE INDEX idx_photos_report_id ON public.photos USING btree (report_id);
@@ -3883,17 +3552,14 @@ CREATE INDEX idx_photos_report_id ON public.photos USING btree (report_id);
 -- Index on public.photos
 CREATE UNIQUE INDEX photos_client_id_key ON public.photos USING btree (client_id);
 
+-- Index on public.profiles
+CREATE UNIQUE INDEX profiles_auth_id_key ON public.profiles USING btree (auth_id);
+
+-- Index on public.profiles
+CREATE UNIQUE INDEX profiles_email_key ON public.profiles USING btree (email);
+
 -- Index on public.projects
 CREATE UNIQUE INDEX projects_code_key ON public.projects USING btree (code);
-
--- Index on public.refresh_tokens
-CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens USING btree (expires_at);
-
--- Index on public.refresh_tokens
-CREATE INDEX idx_refresh_tokens_user_id ON public.refresh_tokens USING btree (user_id);
-
--- Index on public.refresh_tokens
-CREATE UNIQUE INDEX refresh_tokens_token_key ON public.refresh_tokens USING btree (token);
 
 -- Index on public.reports
 CREATE INDEX idx_reports_date_time ON public.reports USING btree (date_time);
@@ -3910,29 +3576,20 @@ CREATE INDEX idx_reports_user_id ON public.reports USING btree (user_id);
 -- Index on public.reports
 CREATE UNIQUE INDEX reports_client_id_key ON public.reports USING btree (client_id);
 
--- Index on public.users
-CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username);
+-- Index on public.user_projects
+CREATE INDEX idx_user_projects_project_id ON public.user_projects USING btree (project_id);
+
+-- Index on public.user_projects
+CREATE INDEX idx_user_projects_user_id ON public.user_projects USING btree (user_id);
+
+-- Index on public.user_projects
+CREATE UNIQUE INDEX user_projects_unique ON public.user_projects USING btree (user_id, project_id);
 
 -- Index on public.work_types
 CREATE UNIQUE INDEX work_types_name_key ON public.work_types USING btree (name);
 
 -- Index on realtime.messages
 CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
--- Index on realtime.messages_2026_02_06
-CREATE INDEX messages_2026_02_06_inserted_at_topic_idx ON realtime.messages_2026_02_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
--- Index on realtime.messages_2026_02_07
-CREATE INDEX messages_2026_02_07_inserted_at_topic_idx ON realtime.messages_2026_02_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
--- Index on realtime.messages_2026_02_08
-CREATE INDEX messages_2026_02_08_inserted_at_topic_idx ON realtime.messages_2026_02_08 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
--- Index on realtime.messages_2026_02_09
-CREATE INDEX messages_2026_02_09_inserted_at_topic_idx ON realtime.messages_2026_02_09 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
--- Index on realtime.messages_2026_02_10
-CREATE INDEX messages_2026_02_10_inserted_at_topic_idx ON realtime.messages_2026_02_10 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 -- Index on realtime.subscription
 CREATE INDEX ix_realtime_subscription_entity ON realtime.subscription USING btree (entity);

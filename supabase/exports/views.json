@@ -12,7 +12,7 @@
   "public.reports_with_photo_count": {
     "schema": "public",
     "name": "reports_with_photo_count",
-    "sql": "CREATE OR REPLACE VIEW public.reports_with_photo_count AS\n SELECT id,\n    client_id,\n    project_id,\n    date_time,\n    mark,\n    work_type,\n    area,\n    contractor,\n    description,\n    user_id,\n    sync_status,\n    created_at,\n    updated_at,\n    ( SELECT count(*) AS count\n           FROM photos p\n          WHERE (p.report_id = r.id)) AS photo_count\n   FROM reports r;"
+    "sql": "CREATE OR REPLACE VIEW public.reports_with_photo_count AS\n SELECT id,\n    client_id,\n    project_id,\n    date_time,\n    work_types,\n    contractor,\n    own_forces,\n    description,\n    user_id,\n    sync_status,\n    created_at,\n    updated_at,\n    ( SELECT count(*) AS count\n           FROM photos p\n          WHERE (p.report_id = r.id)) AS photo_count\n   FROM reports r;"
   },
   "vault.decrypted_secrets": {
     "schema": "vault",

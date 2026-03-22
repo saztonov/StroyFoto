@@ -1,12 +1,12 @@
 {
-  "cron.job.cron_job_cache_invalidate": {
-    "schema": "cron",
-    "name": "cron_job_cache_invalidate",
-    "table_name": "job",
+  "auth.users.on_auth_user_created": {
+    "schema": "auth",
+    "name": "on_auth_user_created",
+    "table_name": "users",
     "event": null,
     "timing": null,
     "comment": null,
-    "sql": "CREATE TRIGGER cron_job_cache_invalidate AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON cron.job FOR EACH STATEMENT EXECUTE FUNCTION cron.job_cache_invalidate()"
+    "sql": "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()"
   },
   "public.areas.set_updated_at_areas": {
     "schema": "public",
@@ -26,6 +26,15 @@
     "comment": null,
     "sql": "CREATE TRIGGER set_updated_at_contractors BEFORE UPDATE ON public.contractors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
   },
+  "public.own_forces.set_updated_at_own_forces": {
+    "schema": "public",
+    "name": "set_updated_at_own_forces",
+    "table_name": "own_forces",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_own_forces BEFORE UPDATE ON public.own_forces FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
   "public.photos.set_updated_at_photos": {
     "schema": "public",
     "name": "set_updated_at_photos",
@@ -34,6 +43,15 @@
     "timing": null,
     "comment": null,
     "sql": "CREATE TRIGGER set_updated_at_photos BEFORE UPDATE ON public.photos FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+  },
+  "public.profiles.set_updated_at_profiles": {
+    "schema": "public",
+    "name": "set_updated_at_profiles",
+    "table_name": "profiles",
+    "event": null,
+    "timing": null,
+    "comment": null,
+    "sql": "CREATE TRIGGER set_updated_at_profiles BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
   },
   "public.projects.set_updated_at_projects": {
     "schema": "public",
@@ -52,15 +70,6 @@
     "timing": null,
     "comment": null,
     "sql": "CREATE TRIGGER set_updated_at_reports BEFORE UPDATE ON public.reports FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
-  },
-  "public.users.set_updated_at_users": {
-    "schema": "public",
-    "name": "set_updated_at_users",
-    "table_name": "users",
-    "event": null,
-    "timing": null,
-    "comment": null,
-    "sql": "CREATE TRIGGER set_updated_at_users BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
   },
   "public.work_types.set_updated_at_work_types": {
     "schema": "public",
