@@ -45,33 +45,42 @@ export function ReportDetailPage() {
     const urls = new Map<string, string>();
     const objectUrls: string[] = [];
 
-    async function loadUrls(photoList: LocalPhoto[]) {
-      for (const photo of photoList) {
-        if (photo.blob && photo.blob.size > 0) {
-          const url = URL.createObjectURL(photo.blob);
-          urls.set(photo.clientId, url);
-          objectUrls.push(url);
-        } else if (photo.thumbnail && photo.thumbnail.size > 0) {
-          const url = URL.createObjectURL(photo.thumbnail);
-          urls.set(photo.clientId, url);
-          objectUrls.push(url);
-        } else if (photo.serverId) {
-          try {
-            const token = await getValidToken();
-            const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-              redirect: "follow",
-            });
-            if (res.ok) {
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              urls.set(photo.clientId, url);
-              objectUrls.push(url);
-            }
-          } catch {
-            // skip failed photos
+    async function loadSinglePhoto(photo: LocalPhoto): Promise<[string, string] | null> {
+      if (photo.blob && photo.blob.size > 0) {
+        const url = URL.createObjectURL(photo.blob);
+        objectUrls.push(url);
+        return [photo.clientId, url];
+      }
+      if (photo.thumbnail && photo.thumbnail.size > 0) {
+        const url = URL.createObjectURL(photo.thumbnail);
+        objectUrls.push(url);
+        return [photo.clientId, url];
+      }
+      if (photo.serverId) {
+        try {
+          const token = await getValidToken();
+          const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            // Cache blob in IndexedDB for instant loading next time
+            db.photos.update(photo.clientId, { blob }).catch(() => {});
+            const url = URL.createObjectURL(blob);
+            objectUrls.push(url);
+            return [photo.clientId, url];
           }
+        } catch {
+          // skip failed photos
         }
+      }
+      return null;
+    }
+
+    async function loadUrls(photoList: LocalPhoto[]) {
+      const results = await Promise.all(photoList.map(loadSinglePhoto));
+      for (const result of results) {
+        if (result) urls.set(result[0], result[1]);
       }
       setPhotoUrls(new Map(urls));
     }
