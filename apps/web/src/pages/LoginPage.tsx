@@ -5,7 +5,7 @@ import { useAuth } from "../auth/auth-context";
 export function LoginPage() {
   const navigate = useNavigate();
   const { login, isAuthenticated } = useAuth();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +20,7 @@ export function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login(username, password);
+      await login(email, password);
       navigate("/reports", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка авторизации");
@@ -39,19 +39,19 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="username" className="mb-1 block text-sm font-medium text-gray-700">
-              Имя пользователя
+            <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
+              Email
             </label>
             <input
-              id="username"
-              type="text"
+              id="email"
+              type="email"
               required
-              autoComplete="username"
+              autoComplete="email"
               autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Логин"
+              placeholder="email@example.com"
             />
           </div>
 

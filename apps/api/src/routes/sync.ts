@@ -5,13 +5,14 @@ import {
   syncPushRequestSchema,
 } from "@stroyfoto/shared";
 import type {
-  TokenPayload,
   SyncBatchResponse,
   SyncPushResponse,
   SyncPushResult,
 } from "@stroyfoto/shared";
+import type { AuthUser } from "../plugins/auth.js";
 import { config } from "../config.js";
 import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
+import { getUserProjectIds, projectIdsForFilter } from "../utils/project-access.js";
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -20,12 +21,15 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/sync/push — new presigned-URL flow
   // ============================================================
   fastify.post("/api/sync/push", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
 
     const parsed = syncPushRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
     }
+
+    // Get accessible projects for worker
+    const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
 
     const { reports } = parsed.data;
     const results: SyncPushResult[] = [];
@@ -34,6 +38,16 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
     for (const reportData of reports) {
       try {
         const { photos, ...reportFields } = reportData;
+
+        // Check project access for workers
+        if (accessibleProjectIds !== null && !accessibleProjectIds.includes(reportFields.projectId)) {
+          results.push({
+            clientId: reportFields.clientId,
+            status: "error",
+            message: "У вас нет доступа к этому проекту",
+          });
+          continue;
+        }
 
         // Idempotent: check if report exists
         const { data: existing } = await fastify.supabase
@@ -61,7 +75,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
               contractor: reportFields.contractor,
               own_forces: reportFields.ownForces ?? "",
               description: reportFields.description ?? "",
-              user_id: user.sub,
+              user_id: user.profileId,
               sync_status: "SYNCED",
             })
             .select()
@@ -81,7 +95,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Process photo metadata — upsert each, generate presigned PUT URLs
         for (const photoMeta of photos) {
-          const objectKey = `${user.sub}/${reportFields.clientId}/${photoMeta.clientId}-${photoMeta.fileName}`;
+          const objectKey = `${user.profileId}/${reportFields.clientId}/${photoMeta.clientId}-${photoMeta.fileName}`;
 
           const { data: existingPhoto } = await fastify.supabase
             .from("photos")
@@ -138,9 +152,12 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { cursor?: string; limit?: string } }>(
     "/api/sync/pull",
     async (request) => {
-      const user = request.user as TokenPayload;
+      const user = request.user as AuthUser;
       const cursor = request.query.cursor;
       const limit = Math.min(Math.max(parseInt(request.query.limit ?? "50", 10) || 50, 1), 200);
+
+      const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+      const filterIds = projectIdsForFilter(accessibleProjectIds);
 
       let query = fastify.supabase
         .from("reports")
@@ -149,7 +166,12 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Worker sees own reports, admin sees all
       if (user.role !== "ADMIN") {
-        query = query.eq("user_id", user.sub);
+        query = query.eq("user_id", user.profileId);
+      }
+
+      // Project access filtering
+      if (filterIds !== null) {
+        query = query.in("project_id", filterIds);
       }
 
       if (cursor) {
@@ -194,13 +216,16 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/sync/batch — legacy endpoint (backward compat)
   // ============================================================
   fastify.post("/api/sync/batch", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
 
     const parsed = syncBatchRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       request.log.warn({ details: parsed.error.flatten() }, "sync/batch: invalid request body");
       return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
     }
+
+    // Get accessible projects for worker
+    const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
 
     const { items } = parsed.data;
     const results: SyncBatchResponse["results"] = [];
@@ -221,7 +246,17 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
           const data = reportParsed.data;
 
-          request.log.info({ clientId: data.clientId, projectId: data.projectId, userId: user.sub }, "sync/batch: upserting report");
+          // Check project access for workers
+          if (accessibleProjectIds !== null && !accessibleProjectIds.includes(data.projectId)) {
+            results.push({
+              entityClientId: item.entityClientId,
+              status: "error",
+              message: "У вас нет доступа к этому проекту",
+            });
+            continue;
+          }
+
+          request.log.info({ clientId: data.clientId, projectId: data.projectId, userId: user.profileId }, "sync/batch: upserting report");
 
           // Idempotent upsert
           const { data: report, error } = await fastify.supabase
@@ -235,7 +270,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
                 contractor: data.contractor,
                 own_forces: data.ownForces ?? "",
                 description: data.description ?? "",
-                user_id: user.sub,
+                user_id: user.profileId,
                 sync_status: "SYNCED",
               },
               { onConflict: "client_id", ignoreDuplicates: false },
@@ -247,7 +282,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             request.log.warn({ error: error.message, code: error.code, clientId: data.clientId }, "sync/batch: upsert returned error, fetching existing");
 
             // Try to fetch existing record (upsert may fail due to ignoreDuplicates returning no row)
-            const { data: existing, error: fetchErr } = await fastify.supabase
+            const { data: existing } = await fastify.supabase
               .from("reports")
               .select("id")
               .eq("client_id", data.clientId)
@@ -262,7 +297,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
               });
             } else {
               // Real error (e.g. FK violation) — no existing record either
-              request.log.error({ error: error.message, code: error.code, fetchErr: fetchErr?.message, clientId: data.clientId }, "sync/batch: upsert failed and no existing record found");
+              request.log.error({ error: error.message, code: error.code, clientId: data.clientId }, "sync/batch: upsert failed and no existing record found");
               results.push({
                 entityClientId: item.entityClientId,
                 status: "error",

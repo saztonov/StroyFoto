@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from "fastify";
 import { createReportSchema } from "@stroyfoto/shared";
-import type { TokenPayload } from "@stroyfoto/shared";
+import type { AuthUser } from "../plugins/auth.js";
 import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
+import { getUserProjectIds, projectIdsForFilter } from "../utils/project-access.js";
 
 const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -10,8 +11,11 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{
     Querystring: { projectId?: string; from?: string; to?: string };
   }>("/api/reports", async (request) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
     const { projectId, from, to } = request.query;
+
+    const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+    const filterIds = projectIdsForFilter(accessibleProjectIds);
 
     let query = fastify.supabase
       .from("reports")
@@ -19,7 +23,12 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Admin sees all, Worker sees own
     if (user.role !== "ADMIN") {
-      query = query.eq("user_id", user.sub);
+      query = query.eq("user_id", user.profileId);
+    }
+
+    // Project access filtering
+    if (filterIds !== null) {
+      query = query.in("project_id", filterIds);
     }
 
     if (projectId) {
@@ -48,7 +57,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/reports/:id
   fastify.get<{ Params: { id: string } }>("/api/reports/:id", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
     const { id } = request.params;
 
     const { data: report, error } = await fastify.supabase
@@ -61,8 +70,16 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
+    if (user.role !== "ADMIN" && report.user_id !== user.profileId) {
       return reply.status(403).send({ error: "Access denied" });
+    }
+
+    // Check project access for workers
+    if (user.role !== "ADMIN") {
+      const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+      if (accessibleProjectIds !== null && !accessibleProjectIds.includes(report.project_id)) {
+        return reply.status(403).send({ error: "Access denied" });
+      }
     }
 
     // Filter uploaded photos only
@@ -80,7 +97,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /api/reports
   fastify.post("/api/reports", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
 
     const parsed = createReportSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -88,6 +105,14 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const data = parsed.data;
+
+    // Check project access for workers
+    if (user.role !== "ADMIN") {
+      const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+      if (accessibleProjectIds !== null && !accessibleProjectIds.includes(data.projectId)) {
+        return reply.status(403).send({ error: "У вас нет доступа к этому проекту" });
+      }
+    }
 
     const { data: report, error } = await fastify.supabase
       .from("reports")
@@ -99,7 +124,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
         contractor: data.contractor,
         own_forces: data.ownForces ?? "",
         description: data.description ?? "",
-        user_id: user.sub,
+        user_id: user.profileId,
       })
       .select()
       .single();
@@ -111,7 +136,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /api/reports/:id/finalize
   fastify.post<{ Params: { id: string } }>("/api/reports/:id/finalize", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
     const { id } = request.params;
 
     const { data: report, error } = await fastify.supabase
@@ -124,7 +149,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
+    if (user.role !== "ADMIN" && report.user_id !== user.profileId) {
       return reply.status(403).send({ error: "Access denied" });
     }
 
@@ -142,7 +167,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // DELETE /api/reports/by-client/:clientId
   fastify.delete<{ Params: { clientId: string } }>("/api/reports/by-client/:clientId", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
     const { clientId } = request.params;
 
     const { data: report, error } = await fastify.supabase
@@ -156,7 +181,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Report not found" });
     }
 
-    if (user.role !== "ADMIN" && report.user_id !== user.sub) {
+    if (user.role !== "ADMIN" && report.user_id !== user.profileId) {
       return reply.status(403).send({ error: "Access denied" });
     }
 

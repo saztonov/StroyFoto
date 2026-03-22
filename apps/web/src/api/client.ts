@@ -1,4 +1,4 @@
-import { getValidToken, handleAuthError } from "./token-manager";
+import { supabase } from "../lib/supabase";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -16,7 +16,9 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = await getValidToken();
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
   const headers = new Headers(options.headers);
 
   if (token) {
@@ -27,26 +29,14 @@ export async function apiFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  let res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers,
   });
 
-  // On 401, attempt token refresh and retry once
-  if (res.status === 401) {
-    const newToken = await handleAuthError();
-    if (newToken) {
-      headers.set("Authorization", `Bearer ${newToken}`);
-      res = await fetch(`${BASE_URL}${path}`, {
-        ...options,
-        headers,
-      });
-    }
-  }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new ApiError(res.status, body.message ?? `HTTP ${res.status}`);
+    throw new ApiError(res.status, body.message ?? body.error ?? `HTTP ${res.status}`);
   }
 
   if (res.status === 204) {

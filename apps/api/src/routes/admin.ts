@@ -1,33 +1,170 @@
 import { FastifyPluginAsync } from "fastify";
-import type { TokenPayload } from "@stroyfoto/shared";
+import type { AuthUser } from "../plugins/auth.js";
 import {
   createProjectSchema,
   updateProjectSchema,
   createDictionaryItemSchema,
   updateDictionaryItemSchema,
+  updateUserRoleSchema,
+  updateUserProjectsSchema,
 } from "@stroyfoto/shared";
 import { snakeToCamel, snakeToCamelArray, camelToSnake } from "../utils/case-transform.js";
+import { invalidateProfileCache } from "../utils/get-profile.js";
 
 const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
 
   // Admin-only guard
   fastify.addHook("onRequest", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
     if (user.role !== "ADMIN") {
       return reply.status(403).send({ error: "Admin access required" });
     }
   });
 
-  // GET /api/admin/users
+  // ============================================================
+  // USER MANAGEMENT
+  // ============================================================
+
+  // GET /api/admin/users — list all users with assigned project IDs
   fastify.get("/api/admin/users", async () => {
     const { data: users, error } = await fastify.supabase
-      .from("users")
-      .select("id, username, role, full_name, created_at, updated_at");
+      .from("profiles")
+      .select("id, email, role, full_name, created_at, updated_at");
 
     if (error) throw error;
-    return snakeToCamelArray(users ?? []);
+
+    // Fetch all user-project assignments in one query
+    const { data: assignments } = await fastify.supabase
+      .from("user_projects")
+      .select("user_id, project_id");
+
+    const assignmentMap = new Map<string, string[]>();
+    for (const a of assignments ?? []) {
+      const list = assignmentMap.get(a.user_id) ?? [];
+      list.push(a.project_id);
+      assignmentMap.set(a.user_id, list);
+    }
+
+    return (users ?? []).map((u) => ({
+      ...snakeToCamel(u as Record<string, unknown>),
+      assignedProjectIds: assignmentMap.get(u.id) ?? [],
+    }));
   });
+
+  // PUT /api/admin/users/:id/role — change user role
+  fastify.put<{ Params: { id: string } }>("/api/admin/users/:id/role", async (request, reply) => {
+    const currentUser = request.user as AuthUser;
+    const { id } = request.params;
+
+    // Prevent self-lock
+    if (id === currentUser.profileId) {
+      return reply.status(400).send({ error: "Нельзя изменить свою собственную роль" });
+    }
+
+    const parsed = updateUserRoleSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { role } = parsed.data;
+
+    // Update profile
+    const { data: profile, error } = await fastify.supabase
+      .from("profiles")
+      .update({ role, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("id, email, role, full_name, auth_id")
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return reply.status(404).send({ error: "Пользователь не найден" });
+      }
+      throw error;
+    }
+
+    // Update app_metadata in Supabase Auth
+    if (profile.auth_id) {
+      try {
+        await fastify.supabase.auth.admin.updateUserById(profile.auth_id, {
+          app_metadata: { app_role: role },
+        });
+      } catch (e) {
+        request.log.warn({ error: e, authId: profile.auth_id }, "Failed to update Supabase Auth app_metadata");
+      }
+
+      // Invalidate profile cache
+      invalidateProfileCache(profile.auth_id);
+    }
+
+    return snakeToCamel(profile as Record<string, unknown>);
+  });
+
+  // GET /api/admin/users/:id/projects — get user's assigned projects
+  fastify.get<{ Params: { id: string } }>("/api/admin/users/:id/projects", async (request) => {
+    const { id } = request.params;
+
+    const { data, error } = await fastify.supabase
+      .from("user_projects")
+      .select("project_id")
+      .eq("user_id", id);
+
+    if (error) throw error;
+
+    return {
+      projectIds: (data ?? []).map((r) => r.project_id),
+    };
+  });
+
+  // PUT /api/admin/users/:id/projects — replace user's project assignments
+  fastify.put<{ Params: { id: string } }>("/api/admin/users/:id/projects", async (request, reply) => {
+    const { id } = request.params;
+
+    const parsed = updateUserProjectsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { projectIds } = parsed.data;
+
+    // Verify user exists
+    const { data: userExists } = await fastify.supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (!userExists) {
+      return reply.status(404).send({ error: "Пользователь не найден" });
+    }
+
+    // Delete current assignments
+    await fastify.supabase
+      .from("user_projects")
+      .delete()
+      .eq("user_id", id);
+
+    // Insert new assignments
+    if (projectIds.length > 0) {
+      const rows = projectIds.map((projectId) => ({
+        user_id: id,
+        project_id: projectId,
+      }));
+
+      const { error } = await fastify.supabase
+        .from("user_projects")
+        .insert(rows);
+
+      if (error) throw error;
+    }
+
+    return { projectIds };
+  });
+
+  // ============================================================
+  // STATS
+  // ============================================================
 
   // GET /api/admin/stats
   fastify.get("/api/admin/stats", async () => {
@@ -88,7 +225,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     // Build query for reports with related data
     let query = fastify.supabase
       .from("reports")
-      .select("*, users!inner(full_name, username), projects!inner(name, code), photos(id)");
+      .select("*, profiles!inner(full_name, email), projects!inner(name, code), photos(id)");
 
     if (projectId) {
       query = query.eq("project_id", projectId);
@@ -129,12 +266,12 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       reports: (reports ?? []).map((r) => {
         const photoCount = (r.photos as Array<unknown>).length;
-        const user = r.users as { full_name: string; username: string };
+        const profile = r.profiles as { full_name: string; email: string };
         const project = r.projects as { name: string; code: string };
-        const { photos: _, users: _u, projects: _p, ...fields } = r;
+        const { photos: _, profiles: _u, projects: _p, ...fields } = r;
         return {
           ...snakeToCamel(fields as Record<string, unknown>),
-          user: { fullName: user.full_name, username: user.username },
+          user: { fullName: profile.full_name, email: profile.email },
           project: { name: project.name, code: project.code },
           photoCount,
         };
@@ -144,6 +281,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       limit,
     };
   });
+
   // --- Dictionary CRUD ---
 
   const tableMap: Record<string, string> = {

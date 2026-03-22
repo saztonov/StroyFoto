@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import { config } from "../config.js";
-import type { TokenPayload } from "@stroyfoto/shared";
+import type { AuthUser } from "../plugins/auth.js";
 import { snakeToCamel } from "../utils/case-transform.js";
 
 
@@ -9,7 +9,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /api/photos/upload — legacy direct upload (backward compat)
   fastify.post("/api/photos/upload", async (request, reply) => {
-    const user = request.user as TokenPayload;
+    const user = request.user as AuthUser;
 
     const data = await request.file();
     if (!data) {
@@ -42,7 +42,7 @@ const photosRoutes: FastifyPluginAsync = async (fastify) => {
 
     request.log.info({ clientId, reportClientId, filename: originalFilename, mimeType, sizeBytes }, "photos/upload: starting");
 
-    const objectKey = `${user.sub}/${reportClientId}/${clientId}-${originalFilename}`;
+    const objectKey = `${user.profileId}/${reportClientId}/${clientId}-${originalFilename}`;
 
     // Upload to R2
     await fastify.r2.upload(objectKey, buffer, mimeType);

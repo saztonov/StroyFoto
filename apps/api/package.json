@@ -9,24 +9,23 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "db:seed": "tsx --env-file=../../.env scripts/seed.ts"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1014.0",
     "@aws-sdk/s3-request-presigner": "^3.1014.0",
     "@fastify/cors": "^11.0.0",
-    "@fastify/jwt": "^9.0.0",
     "@fastify/multipart": "^9.0.0",
+    "@fastify/sensible": "^6.0.0",
     "@stroyfoto/shared": "workspace:*",
     "@supabase/supabase-js": "^2.99.3",
-    "bcrypt": "^5.1.0",
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.0.0",
+    "jsonwebtoken": "^9.0.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",

@@ -61,15 +61,10 @@ export interface SyncMeta {
 // ---------- Auth ----------
 export interface AuthSession {
   id: string;
-  token: string;
-  refreshToken: string;
   userId: string;
-  username: string;
+  email: string;
   role: "ADMIN" | "WORKER";
   fullName: string;
-  expiresAt: number;
-  /** Timestamp (ms) when the access token was issued */
-  tokenIssuedAt?: number;
 }
 
 // ---------- Reference data ----------
@@ -265,6 +260,31 @@ db.version(6)
         // Add ownForces default
         if (!r.ownForces) r.ownForces = "";
       });
+  });
+
+// v7: Supabase Auth migration — simplify authSession, clear project cache
+db.version(7)
+  .stores({
+    reports: "clientId, serverId, projectId, userId, syncStatus, dateTime",
+    photos: "clientId, serverId, reportClientId, syncStatus, localStatus",
+    syncQueue:
+      "++id, operationType, entityClientId, status, [operationType+entityClientId+status], nextRetryAt, createdAt",
+    authSession: "id",
+    projects: "id, code, name",
+    workTypes: "id, name",
+    contractors: "id, name",
+    ownForces: "id, name",
+    syncState: "entityType",
+    appSettings: "key",
+    syncMeta: "key",
+  })
+  .upgrade(async (tx) => {
+    // Clear auth session (users need to re-login with Supabase Auth)
+    await tx.table("authSession").clear();
+    // Clear projects sync state so filtered projects are re-fetched
+    await tx.table("syncState").where("entityType").equals("projects").delete();
+    // Clear cached projects
+    await tx.table("projects").clear();
   });
 
 export { db };

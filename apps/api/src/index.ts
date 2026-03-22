@@ -1,12 +1,14 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import sensible from "@fastify/sensible";
 import { config } from "./config.js";
 import supabasePlugin from "./plugins/supabase.js";
 import r2Plugin from "./plugins/r2.js";
 import type { R2Service } from "./plugins/r2.js";
 import authPlugin from "./plugins/auth.js";
-import authRoutes from "./routes/auth.js";
+import type { AuthUser } from "./plugins/auth.js";
+import profileRoutes from "./routes/profile.js";
 import reportsRoutes from "./routes/reports.js";
 import photosRoutes from "./routes/photos.js";
 import syncRoutes from "./routes/sync.js";
@@ -22,12 +24,9 @@ declare module "fastify" {
     r2: R2Service;
     authenticate: (request: FastifyRequest) => Promise<void>;
   }
-}
 
-declare module "@fastify/jwt" {
-  interface FastifyJWT {
-    payload: { sub: string; username: string; role: string };
-    user: { sub: string; username: string; role: string; iat: number; exp: number };
+  interface FastifyRequest {
+    user: AuthUser;
   }
 }
 
@@ -39,6 +38,9 @@ async function start() {
   // Register CORS
   await fastify.register(cors, { origin: true });
 
+  // Register sensible (httpErrors helper)
+  await fastify.register(sensible);
+
   // Register multipart support (15 MB file limit to match MAX_FILE_SIZE_BYTES)
   await fastify.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -48,7 +50,7 @@ async function start() {
   await fastify.register(authPlugin);
 
   // Register routes
-  await fastify.register(authRoutes);
+  await fastify.register(profileRoutes);
   await fastify.register(reportsRoutes);
   await fastify.register(photosRoutes);
   await fastify.register(syncRoutes);

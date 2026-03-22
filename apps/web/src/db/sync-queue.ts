@@ -5,7 +5,7 @@ import {
   executeFinalizeReport,
   executeDeleteReport,
 } from "./sync-operations";
-import { getValidToken } from "../api/token-manager";
+import { getValidToken } from "../api/token-helper";
 
 // ---------- Progress callback ----------
 export interface SyncProgress {

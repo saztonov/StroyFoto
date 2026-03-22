@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalPhoto } from "../db/dexie";
 import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { PhotoLightbox } from "../components/PhotoLightbox";
-import { getValidToken } from "../api/token-manager";
+import { getValidToken } from "../api/token-helper";
 import { deleteReportFull } from "../db/report-utils";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";

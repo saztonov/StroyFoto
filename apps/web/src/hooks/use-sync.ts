@@ -12,11 +12,12 @@ import {
 import { syncReferenceData } from "../db/reference-data";
 import { useAuth } from "../auth/auth-context";
 import { useOnline } from "./use-online";
+import { getValidToken } from "../api/token-helper";
 
 const MIN_SYNC_INTERVAL_MS = 30_000; // 30 seconds between auto-syncs
 
 export function useSync() {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const isOnline = useOnline();
   const [isSyncing, setIsSyncing] = useState(false);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
@@ -56,7 +57,11 @@ export function useSync() {
 
   // Core sync function
   const syncNow = useCallback(async () => {
-    if (!token || syncLock.current || !isOnline) return;
+    if (!isAuthenticated || syncLock.current || !isOnline) return;
+
+    const token = await getValidToken();
+    if (!token) return;
+
     syncLock.current = true;
     setIsSyncing(true);
     setProgress(null);
@@ -84,7 +89,7 @@ export function useSync() {
       setIsSyncing(false);
       setProgress(null);
     }
-  }, [token, isOnline]);
+  }, [isAuthenticated, isOnline]);
 
   const handleRetryFailed = useCallback(
     async (ids?: number[]) => {
@@ -104,18 +109,18 @@ export function useSync() {
 
   // Auto-sync helper (respects interval)
   const autoSync = useCallback(() => {
-    if (!isOnline || !token || syncLock.current) return;
+    if (!isOnline || !isAuthenticated || syncLock.current) return;
     if (Date.now() - lastSyncTs.current < MIN_SYNC_INTERVAL_MS) return;
     syncNow();
-  }, [isOnline, token, syncNow]);
+  }, [isOnline, isAuthenticated, syncNow]);
 
   // Trigger 1: App start — sync once on mount
   useEffect(() => {
-    if (token && isOnline) {
+    if (isAuthenticated && isOnline) {
       syncNow();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [isAuthenticated]);
 
   // Trigger 2: Online event — sync when coming back online
   useEffect(() => {

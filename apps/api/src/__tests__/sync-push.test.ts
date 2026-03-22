@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { buildApp, loginAs } from "./helpers.js";
+import { buildApp } from "./helpers.js";
 
+// NOTE: These tests require a valid Supabase Auth JWT token.
+// They need a running Supabase instance with data.
+// Set SUPABASE_TEST_TOKEN env var to a valid worker JWT.
 let app: FastifyInstance;
 let workerToken: string;
 let projectId: string;
@@ -10,9 +13,11 @@ let projectId: string;
 beforeAll(async () => {
   app = await buildApp();
 
-  // Login as worker
-  const { accessToken } = await loginAs(app, "worker", "worker123");
-  workerToken = accessToken;
+  workerToken = process.env.SUPABASE_TEST_TOKEN ?? "";
+  if (!workerToken) {
+    console.warn("SUPABASE_TEST_TOKEN not set — sync tests will be skipped");
+    return;
+  }
 
   // Get a project ID from dictionaries
   const dictRes = await app.inject({
@@ -24,7 +29,7 @@ beforeAll(async () => {
   projectId = dicts.projects[0]?.id;
 
   if (!projectId) {
-    throw new Error("No projects found in seed data — run `pnpm db:seed` first");
+    throw new Error("No projects found — create projects via admin panel first");
   }
 });
 

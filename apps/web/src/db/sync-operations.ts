@@ -1,5 +1,5 @@
 import { db, type SyncQueueEntry } from "./dexie";
-import { handleAuthError } from "../api/token-manager";
+import { handleAuthError } from "../api/token-helper";
 import type { SyncBatchRequest, SyncBatchResponse } from "@stroyfoto/shared";
 
 export interface OpResult {

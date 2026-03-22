@@ -23,7 +23,6 @@ pnpm build            # Сборка
 pnpm typecheck        # Проверка типов
 pnpm test             # Unit-тесты (Vitest)
 pnpm e2e              # E2E тесты (Playwright)
-pnpm db:seed          # Демо-данные (через Supabase)
 ```
 
 ## Технологические соглашения
@@ -51,7 +50,8 @@ pnpm db:seed          # Демо-данные (через Supabase)
 - Автосжатие: JPEG, max 1920px, quality 0.8
 - TTL справочников: 24 часа (`REFERENCE_DATA_TTL_MS`)
 
-## Демо-пользователи
+## Аутентификация
 
-- admin / admin123 (ADMIN)
-- worker / worker123 (WORKER)
+- Supabase Auth (email + пароль)
+- Пользователи регистрируются самостоятельно, получают роль WORKER
+- Админ назначает проекты и управляет ролями через панель администратора

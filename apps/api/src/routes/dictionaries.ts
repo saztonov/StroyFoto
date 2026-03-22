@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
-import type { TokenPayload } from "@stroyfoto/shared";
+import type { AuthUser } from "../plugins/auth.js";
 import { snakeToCamel, snakeToCamelArray } from "../utils/case-transform.js";
+import { getUserProjectIds, projectIdsForFilter } from "../utils/project-access.js";
 
 const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook("onRequest", fastify.authenticate);
@@ -9,12 +10,21 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { updatedSince?: string } }>(
     "/api/reference/projects",
     async (request) => {
+      const user = request.user as AuthUser;
       const { updatedSince } = request.query;
+
+      const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+      const filterIds = projectIdsForFilter(accessibleProjectIds);
+
       let query = fastify.supabase
         .from("projects")
         .select("*")
         .eq("is_active", true)
         .order("name");
+
+      if (filterIds !== null) {
+        query = query.in("id", filterIds);
+      }
 
       if (updatedSince) {
         query = query.gt("updated_at", updatedSince);
@@ -130,9 +140,18 @@ const dictionariesRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /api/dictionaries — combined endpoint with version hashes
-  fastify.get("/api/dictionaries", async () => {
+  fastify.get("/api/dictionaries", async (request) => {
+    const user = request.user as AuthUser;
+    const accessibleProjectIds = await getUserProjectIds(fastify.supabase, user.profileId, user.role);
+    const filterIds = projectIdsForFilter(accessibleProjectIds);
+
+    let projectsQuery = fastify.supabase.from("projects").select("*").eq("is_active", true).order("name");
+    if (filterIds !== null) {
+      projectsQuery = projectsQuery.in("id", filterIds);
+    }
+
     const [projectsRes, workTypesRes, contractorsRes, ownForcesRes] = await Promise.all([
-      fastify.supabase.from("projects").select("*").eq("is_active", true).order("name"),
+      projectsQuery,
       fastify.supabase.from("work_types").select("*").eq("is_active", true).order("name"),
       fastify.supabase.from("contractors").select("*").eq("is_active", true).order("name"),
       fastify.supabase.from("own_forces").select("*").eq("is_active", true).order("name"),

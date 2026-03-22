@@ -5,7 +5,7 @@ import { useAuth } from "../auth/auth-context";
 export function RegisterPage() {
   const navigate = useNavigate();
   const { register, isAuthenticated } = useAuth();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,7 +28,7 @@ export function RegisterPage() {
     setSubmitting(true);
 
     try {
-      await register(username, password, fullName);
+      await register(email, password, fullName);
       navigate("/reports", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка регистрации");
@@ -64,19 +64,18 @@ export function RegisterPage() {
           </div>
 
           <div>
-            <label htmlFor="username" className="mb-1 block text-sm font-medium text-gray-700">
-              Имя пользователя
+            <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
+              Email
             </label>
             <input
-              id="username"
-              type="text"
+              id="email"
+              type="email"
               required
-              minLength={3}
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Логин (мин. 3 символа)"
+              placeholder="email@example.com"
             />
           </div>
 

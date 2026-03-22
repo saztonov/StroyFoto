@@ -5,6 +5,11 @@ import { apiFetch } from "../api/client";
 import type { User } from "@stroyfoto/shared";
 import { DictionaryManager } from "../components/admin/DictionaryManager";
 import type { FormField } from "../components/admin/DictionaryFormModal";
+import { UserProjectsModal } from "../components/admin/UserProjectsModal";
+
+interface AdminUser extends User {
+  assignedProjectIds: string[];
+}
 
 interface AdminStats {
   totalReports: number;
@@ -12,10 +17,11 @@ interface AdminStats {
   reportsByProject: { projectId: string; projectName?: string; projectCode?: string; count: number }[];
 }
 
-type TabKey = "overview" | "projects" | "workTypes" | "contractors" | "ownForces";
+type TabKey = "overview" | "users" | "projects" | "workTypes" | "contractors" | "ownForces";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Обзор" },
+  { key: "users", label: "Пользователи" },
   { key: "projects", label: "Проекты" },
   { key: "workTypes", label: "Виды работ" },
   { key: "contractors", label: "Подрядчики" },
@@ -36,18 +42,21 @@ export function AdminPage() {
   const { user } = useAuth();
   const isOnline = useOnline();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
+  const [roleUpdating, setRoleUpdating] = useState<string | null>(null);
+  const [projectsModalUser, setProjectsModalUser] = useState<AdminUser | null>(null);
+
+  const loadData = () => {
     if (user?.role !== "ADMIN" || !isOnline) return;
 
     setLoading(true);
     setError("");
 
     Promise.all([
-      apiFetch<User[]>("/api/admin/users"),
+      apiFetch<AdminUser[]>("/api/admin/users"),
       apiFetch<AdminStats>("/api/admin/stats"),
     ])
       .then(([usersData, statsData]) => {
@@ -58,7 +67,28 @@ export function AdminPage() {
         setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadData();
   }, [user?.role, isOnline]);
+
+  async function handleRoleChange(userId: string, newRole: "ADMIN" | "WORKER") {
+    setRoleUpdating(userId);
+    try {
+      await apiFetch(`/api/admin/users/${userId}/role`, {
+        method: "PUT",
+        body: JSON.stringify({ role: newRole }),
+      });
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка смены роли");
+    } finally {
+      setRoleUpdating(null);
+    }
+  }
 
   if (user?.role !== "ADMIN") {
     return (
@@ -161,55 +191,73 @@ export function AdminPage() {
               </div>
             </div>
           )}
-
-          {/* Users table */}
-          <div>
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">
-              Пользователи ({users.length})
-            </h3>
-
-            {users.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-gray-200 bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
-                        <th className="px-4 py-3 font-medium text-gray-500">Логин</th>
-                        <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {users.map((u) => (
-                        <tr key={u.id}>
-                          <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
-                            {u.fullName}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-gray-600">
-                            {u.username}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3">
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                                u.role === "ADMIN"
-                                  ? "bg-orange-100 text-orange-700"
-                                  : "bg-gray-100 text-gray-600"
-                              }`}
-                            >
-                              {u.role === "ADMIN" ? "Админ" : "Работник"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <p className="text-center text-sm text-gray-400">Нет данных</p>
-            )}
-          </div>
         </>
+      )}
+
+      {activeTab === "users" && (
+        <div>
+          <h3 className="mb-3 text-sm font-semibold text-gray-700">
+            Пользователи ({users.length})
+          </h3>
+
+          {users.length > 0 ? (
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-gray-200 bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
+                      <th className="px-4 py-3 font-medium text-gray-500">Email</th>
+                      <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
+                      <th className="px-4 py-3 font-medium text-gray-500">Проекты</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {users.map((u) => (
+                      <tr key={u.id}>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
+                          {u.fullName}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                          {u.email}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {u.id === user?.userId ? (
+                            <span className="inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                              Админ (вы)
+                            </span>
+                          ) : (
+                            <select
+                              value={u.role}
+                              disabled={roleUpdating === u.id}
+                              onChange={(e) => handleRoleChange(u.id, e.target.value as "ADMIN" | "WORKER")}
+                              className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium disabled:opacity-50"
+                            >
+                              <option value="WORKER">Работник</option>
+                              <option value="ADMIN">Админ</option>
+                            </select>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <button
+                            onClick={() => setProjectsModalUser(u)}
+                            className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 transition"
+                          >
+                            {u.assignedProjectIds.length > 0
+                              ? `${u.assignedProjectIds.length} проект(ов)`
+                              : "Назначить"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-sm text-gray-400">Нет данных</p>
+          )}
+        </div>
       )}
 
       {activeTab === "projects" && (
@@ -249,6 +297,24 @@ export function AdminPage() {
           title="Собственные силы"
           columns={[{ key: "name", label: "Название" }]}
           formFields={simpleFormFields}
+        />
+      )}
+
+      {/* User Projects Modal */}
+      {projectsModalUser && (
+        <UserProjectsModal
+          user={projectsModalUser}
+          onClose={() => setProjectsModalUser(null)}
+          onSaved={(projectIds) => {
+            setUsers((prev) =>
+              prev.map((u) =>
+                u.id === projectsModalUser.id
+                  ? { ...u, assignedProjectIds: projectIds }
+                  : u,
+              ),
+            );
+            setProjectsModalUser(null);
+          }}
         />
       )}
     </div>
