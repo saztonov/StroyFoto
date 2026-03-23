@@ -1,7 +1,6 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
-import { LOCAL_SYNC_STATUSES, type LocalSyncStatus } from "@stroyfoto/shared";
 import { db } from "../db/dexie";
 import { useAuth } from "../auth/auth-context";
 import { useOnline } from "../hooks/use-online";
@@ -9,15 +8,7 @@ import { useSync } from "../hooks/use-sync";
 import { useGroupedReports } from "../hooks/useGroupedReports";
 import { useReportThumbnails } from "../hooks/useReportThumbnails";
 import { ProjectSection } from "../components/reports/ProjectSection";
-
-const STATUS_LABELS: Record<LocalSyncStatus, string> = {
-  draft: "Черновик",
-  "local-only": "Локальный",
-  queued: "В очереди",
-  syncing: "Синхр...",
-  synced: "Синхр.",
-  error: "Ошибка",
-};
+import { ReportFilters } from "../components/reports/ReportFilters";
 
 export function ReportsPage() {
   const isOnline = useOnline();
@@ -26,26 +17,46 @@ export function ReportsPage() {
   const profileId = user?.userId ?? "";
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState<LocalSyncStatus | "all">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [projectFilter, setProjectFilter] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [contractorFilter, setContractorFilter] = useState("");
+  const [descriptionSearch, setDescriptionSearch] = useState("");
+  const [workTypeFilter, setWorkTypeFilter] = useState<string[]>([]);
+
+  const deferredSearch = useDeferredValue(descriptionSearch);
 
   const projects = useLiveQuery(
     () => profileId ? db.projects.where("scopeProfileId").equals(profileId).toArray() : db.projects.toArray(),
     [profileId],
   );
 
+  const contractors = useLiveQuery(
+    () => profileId ? db.contractors.where("scopeProfileId").equals(profileId).toArray() : db.contractors.toArray(),
+    [profileId],
+  );
+
+  const workTypes = useLiveQuery(
+    () => profileId ? db.workTypes.where("scopeProfileId").equals(profileId).toArray() : db.workTypes.toArray(),
+    [profileId],
+  );
+
+  const contractorOptions = useMemo(
+    () => (contractors ?? []).map((c) => ({ value: c.name, label: c.name })),
+    [contractors],
+  );
+
+  const workTypeOptions = useMemo(
+    () => (workTypes ?? []).map((wt) => ({ value: wt.name, label: wt.name })),
+    [workTypes],
+  );
+
   const reports = useLiveQuery(
     () => {
-      let query = db.reports.orderBy("dateTime").reverse();
+      const query = db.reports.orderBy("dateTime").reverse();
 
       return query.filter((r) => {
         if (profileId && r.scopeProfileId !== profileId) return false;
         if (r.syncStatus === "draft") return false;
-        if (statusFilter !== "all" && r.syncStatus !== statusFilter) return false;
-        if (projectFilter && r.projectId !== projectFilter) return false;
         if (dateFrom) {
           const from = new Date(dateFrom);
           if (r.dateTime < from) return false;
@@ -54,51 +65,80 @@ export function ReportsPage() {
           const to = new Date(dateTo + "T23:59:59");
           if (r.dateTime > to) return false;
         }
+        if (contractorFilter && r.contractor !== contractorFilter) return false;
+        if (deferredSearch && !r.description.toLowerCase().includes(deferredSearch.toLowerCase())) return false;
+        if (workTypeFilter.length > 0 && !workTypeFilter.some((wt) => r.workTypes.includes(wt))) return false;
         return true;
       }).toArray();
     },
-    [statusFilter, dateFrom, dateTo, projectFilter, profileId],
+    [dateFrom, dateTo, contractorFilter, deferredSearch, workTypeFilter, profileId],
   );
 
   const grouped = useGroupedReports(reports, projects);
 
-  // Expanded state: default all expanded if <=3 projects, else first only
-  const [expandedProjects, setExpandedProjects] = useState<Set<string> | null>(null);
+  // Expansion state: unified Set with composite keys
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const defaultApplied = useRef(false);
 
-  const effectiveExpanded = useMemo(() => {
-    if (expandedProjects !== null) return expandedProjects;
-    if (grouped.length === 0) return new Set<string>();
-    if (grouped.length <= 3) return new Set(grouped.map((g) => g.projectId));
-    return new Set([grouped[0].projectId]);
-  }, [expandedProjects, grouped]);
+  useEffect(() => {
+    if (grouped.length > 0 && !defaultApplied.current) {
+      defaultApplied.current = true;
+      const initial = new Set<string>();
+      const projectsToExpand = grouped.length <= 3 ? grouped : [grouped[0]];
+      for (const pg of projectsToExpand) {
+        initial.add(`p:${pg.projectId}`);
+        if (pg.months.length > 0) {
+          const latestMonth = pg.months[0];
+          initial.add(`m:${pg.projectId}:${latestMonth.monthKey}`);
+          if (latestMonth.days.length > 0) {
+            initial.add(`d:${pg.projectId}:${latestMonth.days[0].dateKey}`);
+          }
+        }
+      }
+      setExpandedNodes(initial);
+    }
+  }, [grouped]);
 
-  // Collect report IDs from expanded projects for thumbnail loading
+  function toggleNode(key: string) {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  // Collect report IDs from fully expanded paths for thumbnail loading
   const visibleReportIds = useMemo(() => {
     const ids: string[] = [];
-    for (const group of grouped) {
-      if (effectiveExpanded.has(group.projectId)) {
-        for (const dateGroup of group.dates) {
-          for (const report of dateGroup.reports) {
-            ids.push(report.clientId);
+    for (const pg of grouped) {
+      if (!expandedNodes.has(`p:${pg.projectId}`)) continue;
+      for (const mg of pg.months) {
+        if (!expandedNodes.has(`m:${pg.projectId}:${mg.monthKey}`)) continue;
+        for (const dg of mg.days) {
+          if (!expandedNodes.has(`d:${pg.projectId}:${dg.dateKey}`)) continue;
+          for (const cluster of dg.workTypeClusters) {
+            for (const report of cluster.reports) {
+              ids.push(report.clientId);
+            }
           }
         }
       }
     }
     return ids;
-  }, [grouped, effectiveExpanded]);
+  }, [grouped, expandedNodes]);
 
   const thumbnails = useReportThumbnails(visibleReportIds);
 
-  function toggleProject(projectId: string) {
-    setExpandedProjects((prev) => {
-      const next = new Set(prev ?? effectiveExpanded);
-      if (next.has(projectId)) {
-        next.delete(projectId);
-      } else {
-        next.add(projectId);
-      }
-      return next;
-    });
+  function clearFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setContractorFilter("");
+    setDescriptionSearch("");
+    setWorkTypeFilter([]);
   }
 
   if (reports === undefined) {
@@ -114,12 +154,6 @@ export function ReportsPage() {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Отчёты</h2>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowFilters((v) => !v)}
-            className="rounded-lg bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 transition hover:bg-gray-200 dark:hover:bg-gray-600"
-          >
-            Фильтры
-          </button>
           {isOnline && (
             <button
               onClick={() => syncNow()}
@@ -132,84 +166,22 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {/* Filters panel */}
-      {showFilters && (
-        <div className="mb-4 space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-          {/* Status chips */}
-          <div>
-            <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Статус</p>
-            <div className="flex flex-wrap gap-1.5">
-              <FilterChip
-                label="Все"
-                active={statusFilter === "all"}
-                onClick={() => setStatusFilter("all")}
-              />
-              {LOCAL_SYNC_STATUSES.filter((s) => s !== "draft").map((s) => (
-                <FilterChip
-                  key={s}
-                  label={STATUS_LABELS[s]}
-                  active={statusFilter === s}
-                  onClick={() => setStatusFilter(s)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Date range */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">С</p>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">По</p>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Project filter */}
-          {projects && projects.length > 0 && (
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Проект</p>
-              <select
-                value={projectFilter}
-                onChange={(e) => setProjectFilter(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
-              >
-                <option value="">Все проекты</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.code}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Clear filters */}
-          <button
-            onClick={() => {
-              setStatusFilter("all");
-              setDateFrom("");
-              setDateTo("");
-              setProjectFilter("");
-            }}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Сбросить фильтры
-          </button>
-        </div>
-      )}
+      {/* Filters — always visible */}
+      <ReportFilters
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        contractorFilter={contractorFilter}
+        descriptionSearch={descriptionSearch}
+        workTypeFilter={workTypeFilter}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onContractorChange={setContractorFilter}
+        onDescriptionChange={setDescriptionSearch}
+        onWorkTypeChange={setWorkTypeFilter}
+        onClear={clearFilters}
+        contractorOptions={contractorOptions}
+        workTypeOptions={workTypeOptions}
+      />
 
       {reports.length === 0 ? (
         <div className="mt-16 text-center">
@@ -232,37 +204,15 @@ export function ReportsPage() {
             <ProjectSection
               key={group.projectId}
               group={group}
-              expanded={effectiveExpanded.has(group.projectId)}
-              onToggle={() => toggleProject(group.projectId)}
+              expanded={expandedNodes.has(`p:${group.projectId}`)}
+              onToggle={() => toggleNode(`p:${group.projectId}`)}
+              expandedNodes={expandedNodes}
+              onToggleNode={toggleNode}
               thumbnails={thumbnails}
             />
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-        active
-          ? "bg-blue-600 text-white"
-          : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
