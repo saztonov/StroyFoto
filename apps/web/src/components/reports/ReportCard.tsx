@@ -5,7 +5,6 @@ import { SyncStatusBadge } from "../SyncStatusBadge";
 import type { ReportPhotoInfo } from "../../hooks/useReportThumbnails";
 import { enqueueSyncOp } from "../../db/sync-queue";
 import { useOnline } from "../../hooks/use-online";
-import { useSync } from "../../hooks/use-sync";
 
 const STATUS_BORDER: Record<LocalSyncStatus, string> = {
   draft: "border-l-gray-300",
@@ -30,7 +29,6 @@ interface ReportCardProps {
 
 export function ReportCard({ report, photoInfo }: ReportCardProps) {
   const isOnline = useOnline();
-  const { syncNow } = useSync();
 
   async function handleRetry(e: React.MouseEvent) {
     e.preventDefault();
@@ -39,7 +37,7 @@ export function ReportCard({ report, photoInfo }: ReportCardProps) {
       db.reports.update(report.clientId, { syncStatus: "local-only" }),
     );
     await enqueueSyncOp("UPSERT_REPORT", report.clientId);
-    if (isOnline) syncNow();
+    if (isOnline) window.dispatchEvent(new CustomEvent("sw-sync-trigger"));
   }
 
   const urls = photoInfo?.urls ?? [];
