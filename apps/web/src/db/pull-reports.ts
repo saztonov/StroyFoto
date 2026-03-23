@@ -81,8 +81,8 @@ export async function pullRemoteReports(
             : await db.reports.where("serverId").equals(serverId).first();
 
           if (existing) {
-            // Only update if the report is already synced (don't overwrite local changes)
-            if (existing.syncStatus === "synced") {
+            // Update if the report is synced or stuck as queued (don't overwrite local-only/draft changes)
+            if (existing.syncStatus === "synced" || existing.syncStatus === "queued") {
               await db.reports.update(existing.clientId, {
                 ...reportData,
                 clientId: existing.clientId, // keep original clientId

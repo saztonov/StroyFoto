@@ -9,6 +9,8 @@ import { SyncPage } from "./pages/SyncPage";
 import { AdminPage } from "./pages/AdminPage";
 import { ReportDetailPage } from "./pages/ReportDetailPage";
 import { EditReportPage } from "./pages/EditReportPage";
+import { PlansPage } from "./pages/PlansPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -49,6 +51,14 @@ export const router = createBrowserRouter([
       {
         path: "sync",
         element: <SyncPage />,
+      },
+      {
+        path: "plans",
+        element: <PlansPage />,
+      },
+      {
+        path: "settings",
+        element: <SettingsPage />,
       },
       {
         path: "admin",

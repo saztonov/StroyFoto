@@ -33,7 +33,7 @@ export function FilterableSelect({
   const listRef = useRef<HTMLUListElement>(null);
 
   // Display label for the selected value
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? "";
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? value;
 
   // Filtered options based on query
   const filtered = query

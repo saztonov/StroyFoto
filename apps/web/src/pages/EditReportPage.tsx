@@ -10,6 +10,9 @@ import { processPhoto } from "../lib/image-processing";
 import { FilterableSelect } from "../components/FilterableSelect";
 import { FilterableMultiSelect } from "../components/FilterableMultiSelect";
 import { createLocalDictionaryItem } from "../db/dictionary-helpers";
+import { getValidToken } from "../api/token-helper";
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 function toLocalDateTimeString(date: Date): string {
   const offset = date.getTimezoneOffset();
@@ -110,26 +113,66 @@ export function EditReportPage() {
 
   // Photo URLs for existing photos
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
+  const photoUrlsRef = useRef<Map<string, string>>(new Map());
+  const loadingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!existingPhotos || existingPhotos.length === 0) return;
-    const urls = new Map<string, string>();
-    const objectUrls: string[] = [];
+    let cancelled = false;
 
-    for (const photo of existingPhotos) {
-      if (photo.blob && photo.blob.size > 0) {
-        const url = URL.createObjectURL(photo.blob);
-        urls.set(photo.clientId, url);
-        objectUrls.push(url);
-      } else if (photo.thumbnail && photo.thumbnail.size > 0) {
-        const url = URL.createObjectURL(photo.thumbnail);
-        urls.set(photo.clientId, url);
-        objectUrls.push(url);
+    async function loadPhotos() {
+      for (const photo of existingPhotos!) {
+        if (cancelled) return;
+        if (photoUrlsRef.current.has(photo.clientId)) continue;
+        if (loadingRef.current.has(photo.clientId)) continue;
+
+        // Try local blob first
+        if (photo.blob && photo.blob.size > 0) {
+          const url = URL.createObjectURL(photo.blob);
+          photoUrlsRef.current.set(photo.clientId, url);
+          if (!cancelled) setPhotoUrls(new Map(photoUrlsRef.current));
+          continue;
+        }
+        if (photo.thumbnail && photo.thumbnail.size > 0) {
+          const url = URL.createObjectURL(photo.thumbnail);
+          photoUrlsRef.current.set(photo.clientId, url);
+          if (!cancelled) setPhotoUrls(new Map(photoUrlsRef.current));
+          continue;
+        }
+
+        // Fallback: fetch from server for synced photos with cleared blobs
+        if (photo.serverId) {
+          loadingRef.current.add(photo.clientId);
+          try {
+            const token = await getValidToken();
+            const res = await fetch(`${BASE_URL}/api/photos/${photo.serverId}`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+              cache: "no-store",
+            });
+            if (res.ok && !cancelled) {
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              photoUrlsRef.current.set(photo.clientId, url);
+              setPhotoUrls(new Map(photoUrlsRef.current));
+            }
+          } catch {
+            // skip failed photos — will show placeholder
+          } finally {
+            loadingRef.current.delete(photo.clientId);
+          }
+        }
       }
     }
-    setPhotoUrls(new Map(urls));
+
+    loadPhotos();
+
     return () => {
-      for (const url of objectUrls) URL.revokeObjectURL(url);
+      cancelled = true;
+      for (const url of photoUrlsRef.current.values()) {
+        URL.revokeObjectURL(url);
+      }
+      photoUrlsRef.current.clear();
+      loadingRef.current.clear();
     };
   }, [existingPhotos]);
 
@@ -268,11 +311,8 @@ export function EditReportPage() {
       // Re-enqueue report sync
       await enqueueSyncOp("UPSERT_REPORT", clientId);
 
-      // Enqueue finalization (runs after all photos are uploaded)
-      const allPhotos = await db.photos.where("reportClientId").equals(clientId).toArray();
-      if (allPhotos.length > 0) {
-        await enqueueSyncOp("FINALIZE_REPORT", clientId);
-      }
+      // Always enqueue finalization (handles both with and without photos)
+      await enqueueSyncOp("FINALIZE_REPORT", clientId);
 
       showToast("Изменения сохранены");
       setTimeout(() => navigate(`/reports/${clientId}`), 800);

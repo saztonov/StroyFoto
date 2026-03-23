@@ -81,7 +81,8 @@ export async function executeUpsertReport(
         console.error("[sync:upsert] Retry result not ok:", retryResult);
         return { success: false, retryable: retryResult?.status === "error", error: retryResult?.message ?? "Sync error" };
       }
-      await db.reports.update(entry.entityClientId, { serverId: retryResult.serverId, syncStatus: "queued", updatedAt: new Date() });
+      const retryPhotoCount = await db.photos.where("reportClientId").equals(entry.entityClientId).count();
+      await db.reports.update(entry.entityClientId, { serverId: retryResult.serverId, syncStatus: retryPhotoCount > 0 ? "queued" : "synced", updatedAt: new Date() });
       console.log("[sync:upsert] Success (retry). serverId:", retryResult.serverId);
       return { success: true, retryable: false, serverId: retryResult.serverId };
     }
@@ -129,10 +130,11 @@ export async function executeUpsertReport(
     };
   }
 
-  // Report is on server but photos may not be uploaded yet — keep as "queued"
+  // If report has no photos, mark as synced immediately; otherwise keep queued for photo uploads
+  const photoCount = await db.photos.where("reportClientId").equals(entry.entityClientId).count();
   await db.reports.update(entry.entityClientId, {
     serverId: result.serverId,
-    syncStatus: "queued",
+    syncStatus: photoCount > 0 ? "queued" : "synced",
     updatedAt: new Date(),
   });
 

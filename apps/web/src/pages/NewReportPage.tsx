@@ -237,10 +237,8 @@ export function NewReportPage() {
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
       }
 
-      // Enqueue finalization (runs after all photos are uploaded)
-      if (photos.length > 0) {
-        await enqueueSyncOp("FINALIZE_REPORT", clientId);
-      }
+      // Always enqueue finalization (handles both with and without photos)
+      await enqueueSyncOp("FINALIZE_REPORT", clientId);
 
       showToast("Сохранено на устройстве");
       setTimeout(() => navigate("/reports"), 800);

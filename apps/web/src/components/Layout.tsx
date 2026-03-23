@@ -1,20 +1,32 @@
+import { useState } from "react";
 import { Outlet, NavLink } from "react-router";
 import { useOnline } from "../hooks/use-online";
 import { useAuth } from "../auth/auth-context";
 import { useSync } from "../hooks/use-sync";
 import { OfflineBanner } from "./OfflineBanner";
 import { InstallBanner } from "./InstallBanner";
+import { Sidebar } from "./Sidebar";
 
 export function Layout() {
   const isOnline = useOnline();
   const { user, logout } = useAuth();
   const { pendingCount } = useSync();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
       {/* Top bar */}
       <header className="sticky top-0 z-30 flex items-center justify-between bg-blue-600 px-4 py-3 text-white shadow-md">
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-md p-1 transition hover:bg-blue-700"
+            aria-label="Открыть меню"
+          >
+            <HamburgerIcon className="h-6 w-6" />
+          </button>
           <h1 className="text-lg font-bold">СтройФото</h1>
           <span
             className={`h-2.5 w-2.5 rounded-full ${isOnline ? "bg-green-400" : "bg-red-400"}`}
@@ -104,6 +116,14 @@ function SyncIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+    </svg>
+  );
+}
+
+function HamburgerIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
     </svg>
   );
 }

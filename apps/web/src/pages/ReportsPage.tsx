@@ -1,29 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { LOCAL_SYNC_STATUSES, type LocalSyncStatus } from "@stroyfoto/shared";
-import { db, type LocalProject } from "../db/dexie";
-import { enqueueSyncOp } from "../db/sync-queue";
+import { db } from "../db/dexie";
 import { useAuth } from "../auth/auth-context";
-import { SyncStatusBadge } from "../components/SyncStatusBadge";
 import { useOnline } from "../hooks/use-online";
 import { useSync } from "../hooks/use-sync";
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function resolveProject(projectId: string, projects: LocalProject[] | undefined) {
-  if (!projects) return { name: projectId, code: undefined };
-  const project = projects.find((p) => p.id === projectId || p.code === projectId);
-  return project ? { name: project.name, code: project.code } : { name: projectId, code: undefined };
-}
+import { useGroupedReports } from "../hooks/useGroupedReports";
+import { useReportThumbnails } from "../hooks/useReportThumbnails";
+import { ProjectSection } from "../components/reports/ProjectSection";
 
 const STATUS_LABELS: Record<LocalSyncStatus, string> = {
   draft: "Черновик",
@@ -32,15 +17,6 @@ const STATUS_LABELS: Record<LocalSyncStatus, string> = {
   syncing: "Синхр...",
   synced: "Синхр.",
   error: "Ошибка",
-};
-
-const STATUS_BORDER: Record<LocalSyncStatus, string> = {
-  draft: "border-l-gray-300",
-  "local-only": "border-l-yellow-400",
-  queued: "border-l-blue-400",
-  syncing: "border-l-blue-400",
-  synced: "border-l-green-400",
-  error: "border-l-red-400",
 };
 
 export function ReportsPage() {
@@ -66,9 +42,7 @@ export function ReportsPage() {
       let query = db.reports.orderBy("dateTime").reverse();
 
       return query.filter((r) => {
-        // scope isolation: show only current user's data
         if (profileId && r.scopeProfileId !== profileId) return false;
-        // exclude drafts from main list
         if (r.syncStatus === "draft") return false;
         if (statusFilter !== "all" && r.syncStatus !== statusFilter) return false;
         if (projectFilter && r.projectId !== projectFilter) return false;
@@ -86,19 +60,45 @@ export function ReportsPage() {
     [statusFilter, dateFrom, dateTo, projectFilter, profileId],
   );
 
-  const photoCounts = useLiveQuery(async () => {
-    const photos = await db.photos.toArray();
-    const counts: Record<string, number> = {};
-    for (const photo of photos) {
-      counts[photo.reportClientId] = (counts[photo.reportClientId] ?? 0) + 1;
-    }
-    return counts;
-  }, []);
+  const grouped = useGroupedReports(reports, projects);
 
-  async function handleRetry(reportClientId: string) {
-    await db.reports.update(reportClientId, { syncStatus: "local-only" });
-    await enqueueSyncOp("UPSERT_REPORT", reportClientId);
-    if (isOnline) syncNow();
+  // Expanded state: default all expanded if <=3 projects, else first only
+  const [expandedProjects, setExpandedProjects] = useState<Set<string> | null>(null);
+
+  const effectiveExpanded = useMemo(() => {
+    if (expandedProjects !== null) return expandedProjects;
+    if (grouped.length === 0) return new Set<string>();
+    if (grouped.length <= 3) return new Set(grouped.map((g) => g.projectId));
+    return new Set([grouped[0].projectId]);
+  }, [expandedProjects, grouped]);
+
+  // Collect report IDs from expanded projects for thumbnail loading
+  const visibleReportIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const group of grouped) {
+      if (effectiveExpanded.has(group.projectId)) {
+        for (const dateGroup of group.dates) {
+          for (const report of dateGroup.reports) {
+            ids.push(report.clientId);
+          }
+        }
+      }
+    }
+    return ids;
+  }, [grouped, effectiveExpanded]);
+
+  const thumbnails = useReportThumbnails(visibleReportIds);
+
+  function toggleProject(projectId: string) {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev ?? effectiveExpanded);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
   }
 
   if (reports === undefined) {
@@ -227,60 +227,16 @@ export function ReportsPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-2">
-          {reports.map((report) => {
-            const { name: projectName, code: projectCode } = resolveProject(report.projectId, projects);
-            const photoCount = photoCounts?.[report.clientId] ?? 0;
-
-            return (
-              <Link
-                to={`/reports/${report.clientId}`}
-                key={report.clientId}
-                className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-3 shadow-sm transition hover:shadow-md ${STATUS_BORDER[report.syncStatus]}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-gray-900">{projectName}</span>
-                    {projectCode && (
-                      <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[11px] font-medium text-blue-600">
-                        {projectCode}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <SyncStatusBadge status={report.syncStatus} />
-                    {report.syncStatus === "error" && (
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRetry(report.clientId); }}
-                        className="rounded-md bg-red-50 p-1 text-red-600 transition hover:bg-red-100"
-                        title="Повторить"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <p className="mt-0.5 text-xs text-gray-400">{formatDate(report.dateTime)}</p>
-
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {report.workTypes && report.workTypes.length > 0 && <MetadataChip label="Работы" value={report.workTypes.join(", ")} />}
-                  {report.contractor && <MetadataChip label="Подрядчик" value={report.contractor} />}
-                  {report.ownForces && <MetadataChip label="Собств. силы" value={report.ownForces} />}
-                  {photoCount > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-                      </svg>
-                      {photoCount}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
+        <div className="space-y-3">
+          {grouped.map((group) => (
+            <ProjectSection
+              key={group.projectId}
+              group={group}
+              expanded={effectiveExpanded.has(group.projectId)}
+              onToggle={() => toggleProject(group.projectId)}
+              thumbnails={thumbnails}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -308,14 +264,5 @@ function FilterChip({
     >
       {label}
     </button>
-  );
-}
-
-function MetadataChip({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 text-xs">
-      <span className="text-gray-400">{label}</span>
-      <span className="font-medium text-gray-700">{value}</span>
-    </span>
   );
 }
