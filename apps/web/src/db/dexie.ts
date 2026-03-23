@@ -16,6 +16,7 @@ export interface LocalReport {
   userId: string;
   scopeProfileId: string;
   syncStatus: LocalSyncStatus;
+  projectName?: string;
   createdAt: Date;
   updatedAt: Date;
 }

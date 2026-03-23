@@ -167,7 +167,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
 
       let query = fastify.supabase
         .from("reports")
-        .select("*, photos(*)")
+        .select("*, photos(*), projects(name, code)")
         .eq("sync_status", "SYNCED");
 
       // Worker sees all reports in assigned projects; admin sees all.
@@ -195,9 +195,12 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       const reports = slice.map((r) => {
         const photos = (r.photos as Array<Record<string, unknown>>)
           .filter((p) => p.upload_status === "UPLOADED");
-        const { photos: _, ...reportFields } = r;
+        const project = r.projects as { name: string; code: string } | null;
+        const { photos: _, projects: _p, ...reportFields } = r;
         return {
           ...snakeToCamel(reportFields as Record<string, unknown>),
+          projectName: project?.name ?? null,
+          projectCode: project?.code ?? null,
           photos: snakeToCamelArray(photos),
         };
       });

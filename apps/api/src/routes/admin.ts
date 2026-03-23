@@ -9,6 +9,7 @@ import {
   updateUserProjectsSchema,
   updateUserProfileSchema,
   updateAdminUserSchema,
+  bulkDeleteReportsSchema,
 } from "@stroyfoto/shared";
 import { snakeToCamel, snakeToCamelArray, camelToSnake } from "../utils/case-transform.js";
 import { invalidateProfileCache } from "../utils/get-profile.js";
@@ -390,6 +391,79 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       page,
       limit,
     };
+  });
+
+  // ============================================================
+  // BULK DELETE REPORTS
+  // ============================================================
+
+  const REPORT_BATCH_SIZE = 100;
+  const R2_DELETE_CHUNK_SIZE = 1000;
+
+  function chunks<T>(arr: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) result.push(arr.slice(i, i + size));
+    return result;
+  }
+
+  // DELETE /api/admin/reports/bulk — delete all reports or reports by project
+  fastify.delete("/api/admin/reports/bulk", async (request, reply) => {
+    const parsed = bulkDeleteReportsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request body", details: parsed.error.flatten() });
+    }
+
+    const { projectId } = parsed.data;
+    let totalDeletedReports = 0;
+    let totalDeletedPhotos = 0;
+
+    while (true) {
+      // Fetch a batch of report IDs
+      let query = fastify.supabase
+        .from("reports")
+        .select("id")
+        .limit(REPORT_BATCH_SIZE);
+
+      if (projectId) {
+        query = query.eq("project_id", projectId);
+      }
+
+      const { data: reports, error: reportsError } = await query;
+      if (reportsError) throw reportsError;
+      if (!reports || reports.length === 0) break;
+
+      const reportIds = reports.map((r) => r.id);
+
+      // Fetch photos for these reports
+      const { data: photos, error: photosError } = await fastify.supabase
+        .from("photos")
+        .select("id, object_key")
+        .in("report_id", reportIds);
+
+      if (photosError) throw photosError;
+
+      // Delete files from R2
+      if (photos && photos.length > 0) {
+        const objectKeys = photos.map((p) => p.object_key).filter(Boolean);
+        for (const chunk of chunks(objectKeys, R2_DELETE_CHUNK_SIZE)) {
+          try {
+            await fastify.r2.deleteObjects(chunk);
+          } catch (e) {
+            request.log.warn({ error: e, count: chunk.length }, "R2 batch delete partially failed");
+          }
+        }
+
+        // Delete photo records
+        await fastify.supabase.from("photos").delete().in("report_id", reportIds);
+        totalDeletedPhotos += photos.length;
+      }
+
+      // Delete report records
+      await fastify.supabase.from("reports").delete().in("id", reportIds);
+      totalDeletedReports += reportIds.length;
+    }
+
+    return { deleted: { reports: totalDeletedReports, photos: totalDeletedPhotos } };
   });
 
   // --- Dictionary CRUD ---

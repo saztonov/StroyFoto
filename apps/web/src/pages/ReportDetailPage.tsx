@@ -7,6 +7,7 @@ import { PhotoLightbox } from "../components/PhotoLightbox";
 import { getValidToken } from "../api/token-helper";
 import { deleteReportFull } from "../db/report-utils";
 import { useOnline } from "../hooks/use-online";
+import { useAuth } from "../auth/auth-context";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -24,6 +25,8 @@ export function ReportDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
   const isOnline = useOnline();
+  const { user } = useAuth();
+  const profileId = user?.userId ?? "";
 
   const report = useLiveQuery(
     () => (clientId ? db.reports.get(clientId) : undefined),
@@ -35,7 +38,12 @@ export function ReportDetailPage() {
     [clientId],
   );
 
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
+  const projects = useLiveQuery(
+    () => profileId
+      ? db.projects.where("scopeProfileId").equals(profileId).toArray()
+      : db.projects.toArray(),
+    [profileId],
+  );
 
   // Photo URLs management — use ref to persist URLs across re-renders
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
@@ -116,7 +124,11 @@ export function ReportDetailPage() {
   }, [photos, photoUrls]);
 
   const projectName = useMemo(() => {
-    if (!report || !projects) return report?.projectId ?? "";
+    if (!report) return "";
+    // 1. Try denormalized name from report (always available after pull)
+    if (report.projectName) return report.projectName;
+    // 2. Fallback to projects lookup from reference data
+    if (!projects) return report.projectId;
     const project = projects.find((p) => p.id === report.projectId || p.code === report.projectId);
     return project?.name ?? report.projectId;
   }, [report, projects]);

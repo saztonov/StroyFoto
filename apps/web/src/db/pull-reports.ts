@@ -76,6 +76,7 @@ export async function pullRemoteReports(
           userId: (sr.userId as string) ?? "",
           scopeProfileId: profileId,
           syncStatus: "synced" as const,
+          projectName: (sr.projectName as string) ?? "",
           createdAt: sr.createdAt ? new Date(sr.createdAt as string) : new Date(),
           updatedAt: sr.updatedAt ? new Date(sr.updatedAt as string) : new Date(),
         };

@@ -5,4 +5,5 @@ export * from "./schemas/sync";
 export * from "./schemas/user";
 export * from "./schemas/dictionary";
 export * from "./schemas/upload";
+export * from "./schemas/admin";
 export * from "./constants";
