@@ -52,20 +52,20 @@ export function DictionaryFormModal({ title, fields, initialValues, onSave, onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+        className="mx-4 w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {fields.map((field) => (
             <div key={field.key}>
-              <label className="mb-1 block text-sm font-medium text-gray-700">{field.label}</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">{field.label}</label>
               {field.type === "select" ? (
                 <select
                   value={(values[field.key] as string) ?? ""}
                   onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 >
                   {field.nullable && <option value="">— Не выбрано —</option>}
                   {field.options?.map((opt) => (
@@ -78,21 +78,21 @@ export function DictionaryFormModal({ title, fields, initialValues, onSave, onCl
                   required={field.required !== false}
                   value={(values[field.key] as string) ?? ""}
                   onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2.5 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 />
               )}
             </div>
           ))}
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+            <div className="rounded-lg bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
           )}
 
           <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 transition hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Отмена
             </button>

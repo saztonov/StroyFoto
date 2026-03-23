@@ -112,11 +112,11 @@ export function ReportsPage() {
   return (
     <div className="px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">Отчёты</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Отчёты</h2>
         <div className="flex gap-2">
           <button
             onClick={() => setShowFilters((v) => !v)}
-            className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+            className="rounded-lg bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 transition hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             Фильтры
           </button>
@@ -124,7 +124,7 @@ export function ReportsPage() {
             <button
               onClick={() => syncNow()}
               disabled={isSyncing}
-              className="rounded-lg bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-200 disabled:opacity-50"
+              className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 transition hover:bg-blue-200 dark:hover:bg-blue-800/40 disabled:opacity-50"
             >
               {isSyncing ? "Синхр..." : "Обновить"}
             </button>
@@ -134,10 +134,10 @@ export function ReportsPage() {
 
       {/* Filters panel */}
       {showFilters && (
-        <div className="mb-4 space-y-3 rounded-xl border border-gray-200 bg-white p-3">
+        <div className="mb-4 space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
           {/* Status chips */}
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-500">Статус</p>
+            <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Статус</p>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip
                 label="Все"
@@ -158,21 +158,21 @@ export function ReportsPage() {
           {/* Date range */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="mb-1 text-xs font-medium text-gray-500">С</p>
+              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">С</p>
               <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
               />
             </div>
             <div>
-              <p className="mb-1 text-xs font-medium text-gray-500">По</p>
+              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">По</p>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
               />
             </div>
           </div>
@@ -180,11 +180,11 @@ export function ReportsPage() {
           {/* Project filter */}
           {projects && projects.length > 0 && (
             <div>
-              <p className="mb-1 text-xs font-medium text-gray-500">Проект</p>
+              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Проект</p>
               <select
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm"
               >
                 <option value="">Все проекты</option>
                 {projects.map((p) => (
@@ -204,7 +204,7 @@ export function ReportsPage() {
               setDateTo("");
               setProjectFilter("");
             }}
-            className="text-xs text-blue-600 hover:underline"
+            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
           >
             Сбросить фильтры
           </button>
@@ -213,12 +213,12 @@ export function ReportsPage() {
 
       {reports.length === 0 ? (
         <div className="mt-16 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-            <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
+            <svg className="h-8 w-8 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
             </svg>
           </div>
-          <p className="text-gray-500">Нет отчётов. Создайте первый!</p>
+          <p className="text-gray-500 dark:text-gray-400">Нет отчётов. Создайте первый!</p>
           <Link
             to="/reports/new"
             className="mt-4 inline-block rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700"
@@ -259,7 +259,7 @@ function FilterChip({
       className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
         active
           ? "bg-blue-600 text-white"
-          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
       }`}
     >
       {label}

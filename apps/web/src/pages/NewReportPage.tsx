@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, type FormEvent } from "react";
+import { useState, useMemo, useCallback, useRef, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
@@ -29,6 +29,14 @@ export function NewReportPage() {
   const [contractor, setContractor] = useState("");
   const [ownForces, setOwnForces] = useState("");
   const [description, setDescription] = useState("");
+  const descRef = useRef<HTMLTextAreaElement>(null);
+
+  function autoResizeDesc() {
+    const el = descRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }
   const [photos, setPhotos] = useState<ProcessedPhoto[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
@@ -256,16 +264,16 @@ export function NewReportPage() {
 
   return (
     <div className="px-4 py-4">
-      <h2 className="mb-4 text-xl font-bold text-gray-900">Новый отчёт</h2>
+      <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">Новый отчёт</h2>
 
       {toast && (
-        <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+        <div className="mb-4 rounded-lg bg-green-50 dark:bg-green-900/30 px-4 py-3 text-sm font-medium text-green-700 dark:text-green-300">
           {toast}
         </div>
       )}
 
       {lastSavedAt && !toast && (
-        <div className="mb-3 text-xs text-gray-400">
+        <div className="mb-3 text-xs text-gray-400 dark:text-gray-500">
           Черновик сохранён {lastSavedAt.toLocaleTimeString("ru-RU")}
         </div>
       )}
@@ -336,11 +344,15 @@ export function NewReportPage() {
 
         <Field label="Описание">
           <textarea
+            ref={descRef}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              autoResizeDesc();
+            }}
             placeholder="Дополнительное описание (необязательно)"
-            rows={3}
-            className="input-field resize-none"
+            rows={2}
+            className="input-field resize-none overflow-hidden"
           />
         </Field>
 
@@ -355,7 +367,7 @@ export function NewReportPage() {
         </Field>
 
         {error && (
-          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {error}
           </div>
         )}
@@ -379,11 +391,21 @@ export function NewReportPage() {
           font-size: 1rem;
           transition: all 150ms;
           background: white;
+          color: inherit;
         }
         .input-field:focus {
           outline: none;
           border-color: #3b82f6;
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+        :root.dark .input-field {
+          background: #1f2937;
+          border-color: #4b5563;
+          color: #f3f4f6;
+        }
+        :root.dark .input-field:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
         }
       `}</style>
     </div>
@@ -401,7 +423,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">
+      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
         {label}
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </label>

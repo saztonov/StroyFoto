@@ -69,13 +69,13 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
   }
 
   if (loading) {
-    return <div className="py-8 text-center text-gray-500">Загрузка...</div>;
+    return <div className="py-8 text-center text-gray-500 dark:text-gray-400">Загрузка...</div>;
   }
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
         <button
           onClick={() => setModal({ mode: "create" })}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
@@ -84,45 +84,45 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                <th key={col.key} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                   {col.label}
                 </th>
               ))}
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Статус
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Действия
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 bg-white">
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                   Нет записей
                 </td>
               </tr>
             ) : (
               items.map((item) => (
-                <tr key={item.id as string} className={!(item.isActive as boolean) ? "bg-gray-50 opacity-60" : ""}>
+                <tr key={item.id as string} className={!(item.isActive as boolean) ? "bg-gray-50 dark:bg-gray-900 opacity-60" : ""}>
                   {columns.map((col) => (
-                    <td key={col.key} className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
+                    <td key={col.key} className="whitespace-nowrap px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                       {col.render ? col.render(item[col.key], item) : String(item[col.key] ?? "")}
                     </td>
                   ))}
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {item.isActive ? (
-                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                      <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/40 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
                         Активен
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                      <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
                         Неактивен
                       </span>
                     )}
@@ -130,21 +130,21 @@ export function DictionaryManager({ type, title, columns, formFields }: Dictiona
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
                     <button
                       onClick={() => setModal({ mode: "edit", item })}
-                      className="mr-2 text-blue-600 hover:text-blue-800"
+                      className="mr-2 text-blue-600 dark:text-blue-400 hover:text-blue-800"
                     >
                       Изменить
                     </button>
                     {item.isActive ? (
                       <button
                         onClick={() => handleDelete(item.id as string)}
-                        className="text-red-600 hover:text-red-800"
+                        className="text-red-600 dark:text-red-400 hover:text-red-800"
                       >
                         Архивировать
                       </button>
                     ) : (
                       <button
                         onClick={() => handleRestore(item.id as string)}
-                        className="text-green-600 hover:text-green-800"
+                        className="text-green-600 dark:text-green-400 hover:text-green-800"
                       >
                         Восстановить
                       </button>

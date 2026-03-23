@@ -151,13 +151,13 @@ export function FilterableMultiSelect({
     <div ref={containerRef} className="relative">
       {/* Selected chips + input */}
       <div
-        className="flex min-h-[46px] flex-wrap items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 py-2 transition focus-within:border-blue-500 focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.15)]"
+        className="flex min-h-[46px] flex-wrap items-center gap-1.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 transition focus-within:border-blue-500 focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.15)]"
         onClick={() => inputRef.current?.focus()}
       >
         {selectedLabels.map((item) => (
           <span
             key={item.value}
-            className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-sm font-medium text-blue-700"
+            className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 text-sm font-medium text-blue-700 dark:text-blue-300"
           >
             {item.label}
             <button
@@ -166,7 +166,7 @@ export function FilterableMultiSelect({
                 e.stopPropagation();
                 removeValue(item.value);
               }}
-              className="ml-0.5 text-blue-400 hover:text-blue-600"
+              className="ml-0.5 text-blue-400 dark:text-blue-300 hover:text-blue-600 dark:hover:text-blue-400"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -182,7 +182,7 @@ export function FilterableMultiSelect({
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={values.length === 0 ? placeholder : ""}
-          className="min-w-[80px] flex-1 border-none bg-transparent text-sm outline-none"
+          className="min-w-[80px] flex-1 border-none bg-transparent text-sm outline-none dark:text-gray-100"
           autoComplete="off"
         />
       </div>
@@ -203,7 +203,7 @@ export function FilterableMultiSelect({
       {isOpen && totalItems > 0 && (
         <ul
           ref={listRef}
-          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-1 shadow-lg"
         >
           {filtered.map((opt, idx) => (
             <li
@@ -215,8 +215,8 @@ export function FilterableMultiSelect({
               onMouseEnter={() => setHighlightIndex(idx)}
               className={`cursor-pointer px-3 py-2 text-sm ${
                 idx === highlightIndex
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-gray-700 hover:bg-gray-50"
+                  ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                  : "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
               }`}
             >
               {opt.label}
@@ -229,10 +229,10 @@ export function FilterableMultiSelect({
                 handleCreateNew();
               }}
               onMouseEnter={() => setHighlightIndex(filtered.length)}
-              className={`cursor-pointer border-t border-gray-100 px-3 py-2 text-sm ${
+              className={`cursor-pointer border-t border-gray-100 dark:border-gray-700 px-3 py-2 text-sm ${
                 highlightIndex === filtered.length
-                  ? "bg-green-50 text-green-700"
-                  : "text-green-600 hover:bg-green-50"
+                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30"
               }`}
             >
               {isCreating ? "Создание..." : `Создать "${trimmedQuery}"`}
@@ -242,7 +242,7 @@ export function FilterableMultiSelect({
       )}
 
       {isOpen && query && filtered.length === 0 && !canCreate && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-center text-sm text-gray-400 shadow-lg">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-3 text-center text-sm text-gray-400 dark:text-gray-500 shadow-lg">
           Ничего не найдено
         </div>
       )}

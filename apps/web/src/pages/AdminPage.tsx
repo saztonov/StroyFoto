@@ -77,13 +77,13 @@ export function AdminPage() {
   if (user?.role !== "ADMIN") {
     return (
       <div className="flex flex-col items-center justify-center px-4 py-20">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-          <svg className="h-8 w-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40">
+          <svg className="h-8 w-8 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
           </svg>
         </div>
-        <h2 className="text-lg font-bold text-gray-900">Доступ запрещён</h2>
-        <p className="mt-1 text-sm text-gray-500">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Доступ запрещён</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Эта страница доступна только администраторам.
         </p>
       </div>
@@ -93,7 +93,7 @@ export function AdminPage() {
   if (!isOnline) {
     return (
       <div className="px-4 py-20 text-center">
-        <p className="text-gray-500">
+        <p className="text-gray-500 dark:text-gray-400">
           Панель администратора доступна только при наличии подключения к сети.
         </p>
       </div>
@@ -111,14 +111,14 @@ export function AdminPage() {
   if (error) {
     return (
       <div className="px-4 py-4">
-        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>
       </div>
     );
   }
 
   return (
     <div className="px-4 py-4">
-      <h2 className="mb-4 text-xl font-bold text-gray-900">Администрирование</h2>
+      <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">Администрирование</h2>
 
       {/* Tabs */}
       <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
@@ -129,7 +129,7 @@ export function AdminPage() {
             className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
               activeTab === tab.key
                 ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             }`}
           >
             {tab.label}
@@ -143,12 +143,12 @@ export function AdminPage() {
           {/* Stats cards */}
           {stats && (
             <div className="mb-6 grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <p className="text-sm text-gray-500">Всего отчётов</p>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Всего отчётов</p>
                 <p className="mt-1 text-2xl font-bold text-blue-600">{stats.totalReports}</p>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <p className="text-sm text-gray-500">Всего фото</p>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Всего фото</p>
                 <p className="mt-1 text-2xl font-bold text-purple-600">{stats.totalPhotos}</p>
               </div>
             </div>
@@ -157,17 +157,17 @@ export function AdminPage() {
           {/* Reports by project */}
           {stats && stats.reportsByProject.length > 0 && (
             <div className="mb-6">
-              <h3 className="mb-3 text-sm font-semibold text-gray-700">Отчёты по проектам</h3>
+              <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Отчёты по проектам</h3>
               <div className="space-y-2">
                 {stats.reportsByProject.map((item) => (
                   <div
                     key={item.projectId}
-                    className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3"
+                    className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3"
                   >
-                    <span className="text-sm font-medium text-gray-700">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
                       {item.projectName ?? item.projectId}
                     </span>
-                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700">
+                    <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-300">
                       {item.count}
                     </span>
                   </div>
@@ -180,49 +180,49 @@ export function AdminPage() {
 
       {activeTab === "users" && (
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-gray-700">
+          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
             Пользователи ({users.length})
           </h3>
 
           {users.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="border-b border-gray-200 bg-gray-50">
+                  <thead className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                     <tr>
-                      <th className="px-4 py-3 font-medium text-gray-500">Имя</th>
-                      <th className="px-4 py-3 font-medium text-gray-500">Email</th>
-                      <th className="px-4 py-3 font-medium text-gray-500">Роль</th>
-                      <th className="px-4 py-3 font-medium text-gray-500">Статус</th>
-                      <th className="px-4 py-3 font-medium text-gray-500">Проекты</th>
-                      <th className="px-4 py-3 font-medium text-gray-500"></th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Имя</th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Email</th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Роль</th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Статус</th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Проекты</th>
+                      <th className="px-4 py-3 font-medium text-gray-500 dark:text-gray-400"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {users.map((u) => (
-                      <tr key={u.id} className={!u.isActive ? "bg-gray-50 opacity-60" : ""}>
-                        <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
+                      <tr key={u.id} className={!u.isActive ? "bg-gray-50 dark:bg-gray-900 opacity-60" : ""}>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                           {u.fullName}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                        <td className="whitespace-nowrap px-4 py-3 text-gray-600 dark:text-gray-300">
                           {u.email}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
                           <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                             u.role === "ADMIN"
-                              ? u.id === user?.userId ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"
-                              : "bg-gray-100 text-gray-600"
+                              ? u.id === user?.userId ? "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" : "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300"
+                              : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
                           }`}>
                             {u.role === "ADMIN" ? (u.id === user?.userId ? "Админ (вы)" : "Админ") : "Работник"}
                           </span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
                           {u.isActive ? (
-                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                            <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/40 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
                               Активен
                             </span>
                           ) : (
-                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
                               Заблокирован
                             </span>
                           )}
@@ -230,7 +230,7 @@ export function AdminPage() {
                         <td className="whitespace-nowrap px-4 py-3">
                           <button
                             onClick={() => setProjectsModalUser(u)}
-                            className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 transition"
+                            className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
                           >
                             {u.assignedProjectIds.length > 0
                               ? `${u.assignedProjectIds.length} проект(ов)`
@@ -240,7 +240,7 @@ export function AdminPage() {
                         <td className="whitespace-nowrap px-4 py-3">
                           <button
                             onClick={() => setEditModalUser(u)}
-                            className="text-sm text-blue-600 hover:text-blue-800"
+                            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800"
                           >
                             Изменить
                           </button>
@@ -252,7 +252,7 @@ export function AdminPage() {
               </div>
             </div>
           ) : (
-            <p className="text-center text-sm text-gray-400">Нет данных</p>
+            <p className="text-center text-sm text-gray-400 dark:text-gray-500">Нет данных</p>
           )}
         </div>
       )}

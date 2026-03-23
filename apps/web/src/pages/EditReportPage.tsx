@@ -49,6 +49,14 @@ export function EditReportPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+
+  function autoResizeDesc() {
+    const el = descRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }
 
   // Pre-fill form from existing report
   useEffect(() => {
@@ -62,6 +70,11 @@ export function EditReportPage() {
       setLoaded(true);
     }
   }, [report, loaded]);
+
+  // Auto-resize description after data is loaded
+  useEffect(() => {
+    if (loaded) autoResizeDesc();
+  }, [loaded]);
 
   // Reference data from Dexie
   const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -339,7 +352,7 @@ export function EditReportPage() {
   if (!report) {
     return (
       <div className="px-4 py-20 text-center">
-        <p className="text-gray-500">Отчёт не найден</p>
+        <p className="text-gray-500 dark:text-gray-400">Отчёт не найден</p>
         <Link to="/reports" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
           Вернуться к отчётам
         </Link>
@@ -356,11 +369,11 @@ export function EditReportPage() {
           </svg>
           Назад
         </Link>
-        <h2 className="text-xl font-bold text-gray-900">Редактирование</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Редактирование</h2>
       </div>
 
       {toast && (
-        <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+        <div className="mb-4 rounded-lg bg-green-50 dark:bg-green-900/30 px-4 py-3 text-sm font-medium text-green-700 dark:text-green-300">
           {toast}
         </div>
       )}
@@ -431,11 +444,15 @@ export function EditReportPage() {
 
         <Field label="Описание">
           <textarea
+            ref={descRef}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              autoResizeDesc();
+            }}
             placeholder="Дополнительное описание (необязательно)"
-            rows={3}
-            className="input-field resize-none"
+            rows={2}
+            className="input-field resize-none overflow-hidden"
           />
         </Field>
 
@@ -450,8 +467,8 @@ export function EditReportPage() {
                     {url ? (
                       <img src={url} alt={photo.fileName} className="aspect-square w-full rounded-lg object-cover" />
                     ) : (
-                      <div className="flex aspect-square items-center justify-center rounded-lg bg-gray-100">
-                        <span className="text-xs text-gray-400">Фото</span>
+                      <div className="flex aspect-square items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
+                        <span className="text-xs text-gray-400 dark:text-gray-500">Фото</span>
                       </div>
                     )}
                     <button
@@ -482,7 +499,7 @@ export function EditReportPage() {
         </Field>
 
         {error && (
-          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {error}
           </div>
         )}
@@ -505,11 +522,21 @@ export function EditReportPage() {
           font-size: 1rem;
           transition: all 150ms;
           background: white;
+          color: inherit;
         }
         .input-field:focus {
           outline: none;
           border-color: #3b82f6;
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+        :root.dark .input-field {
+          background: #1f2937;
+          border-color: #4b5563;
+          color: #f3f4f6;
+        }
+        :root.dark .input-field:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
         }
       `}</style>
     </div>
@@ -527,7 +554,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">
+      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
         {label}
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </label>

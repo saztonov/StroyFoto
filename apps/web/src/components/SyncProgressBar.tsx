@@ -9,13 +9,13 @@ export function SyncProgressBar({ total, completed, currentOp }: SyncProgressBar
 
   return (
     <div className="space-y-1.5">
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-200">
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-600">
         <div
           className="h-full rounded-full bg-blue-600 transition-all duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>
           {completed} из {total}
           {currentOp ? ` — ${currentOp}` : ""}
