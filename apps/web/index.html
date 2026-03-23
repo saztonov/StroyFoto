@@ -9,8 +9,11 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>СтройФото</title>
+    <script>
+      (function(){try{var t=localStorage.getItem("sf-theme");var d=t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme:dark)").matches);if(d)document.documentElement.classList.add("dark")}catch(e){}})();
+    </script>
   </head>
-  <body class="bg-gray-50 text-gray-900 antialiased">
+  <body class="bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

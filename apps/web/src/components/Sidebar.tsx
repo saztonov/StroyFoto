@@ -42,7 +42,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       {/* Sidebar panel */}
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-full w-64 flex-col bg-white shadow-xl transition-transform duration-300 ease-in-out ${
+        className={`fixed left-0 top-0 z-50 flex h-full w-64 flex-col bg-white shadow-xl transition-transform duration-300 ease-in-out dark:bg-gray-800 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         role="dialog"
@@ -50,11 +50,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         aria-label="Навигационное меню"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <span className="text-lg font-bold text-gray-800">Меню</span>
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <span className="text-lg font-bold text-gray-800 dark:text-gray-100">Меню</span>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+            className="rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
             aria-label="Закрыть меню"
           >
             <XMarkIcon className="h-6 w-6" />
@@ -90,8 +90,8 @@ function SidebarLink({
       className={({ isActive }) =>
         `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
           isActive
-            ? "bg-blue-50 text-blue-600"
-            : "text-gray-700 hover:bg-gray-100"
+            ? "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+            : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
         }`
       }
     >

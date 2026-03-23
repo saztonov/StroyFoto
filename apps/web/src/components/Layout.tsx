@@ -14,15 +14,15 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-900">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Top bar */}
-      <header className="sticky top-0 z-30 flex items-center justify-between bg-blue-600 px-4 py-3 text-white shadow-md">
+      <header className="sticky top-0 z-30 flex items-center justify-between bg-blue-600 px-4 py-3 text-white shadow-md dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded-md p-1 transition hover:bg-blue-700"
+            className="rounded-md p-1 transition hover:bg-blue-700 dark:hover:bg-gray-700"
             aria-label="Открыть меню"
           >
             <HamburgerIcon className="h-6 w-6" />
@@ -37,7 +37,7 @@ export function Layout() {
           <span className="text-sm opacity-90">{user?.fullName}</span>
           <button
             onClick={logout}
-            className="rounded-md bg-blue-700 px-3 py-1 text-sm transition hover:bg-blue-800"
+            className="rounded-md bg-blue-700 px-3 py-1 text-sm transition hover:bg-blue-800 dark:bg-gray-700 dark:hover:bg-gray-600"
           >
             Выйти
           </button>
@@ -53,7 +53,7 @@ export function Layout() {
       </main>
 
       {/* Bottom navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-gray-200 bg-white py-2 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-gray-200 bg-white py-2 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:border-gray-700 dark:bg-gray-800">
         <NavItem to="/reports" label="Отчёты" icon={ReportsIcon} />
         <NavItem to="/reports/new" label="Новый" icon={PlusIcon} />
         <NavItem to="/sync" label="Синхр." icon={SyncIcon} badge={pendingCount > 0 ? pendingCount : undefined} />
@@ -81,7 +81,7 @@ function NavItem({
       to={to}
       className={({ isActive }) =>
         `relative flex flex-col items-center gap-0.5 px-3 py-1 text-xs transition ${
-          isActive ? "text-blue-600" : "text-gray-500"
+          isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
         }`
       }
     >
