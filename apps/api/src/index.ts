@@ -36,7 +36,10 @@ async function start() {
   });
 
   // Register CORS
-  await fastify.register(cors, { origin: true });
+  await fastify.register(cors, {
+    origin: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  });
 
   // Register sensible (httpErrors helper)
   await fastify.register(sensible);
