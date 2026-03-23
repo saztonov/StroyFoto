@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalPhoto } from "../db/dexie";
+import { fetchAndCacheThumbnails } from "../lib/thumbnail-fetcher";
+import { useOnline } from "./use-online";
 
 const MAX_THUMBNAILS = 4;
 
@@ -12,6 +14,7 @@ export interface ReportPhotoInfo {
 export function useReportThumbnails(
   reportClientIds: string[],
 ): Map<string, ReportPhotoInfo> {
+  const isOnline = useOnline();
   const urlsRef = useRef<string[]>([]);
   const [result, setResult] = useState<Map<string, ReportPhotoInfo>>(new Map());
 
@@ -65,7 +68,15 @@ export function useReportThumbnails(
     }
 
     setResult(newResult);
-  }, [photos, reportClientIds]);
+
+    // Lazy-fetch thumbnails from server for synced photos without local blobs
+    if (isOnline) {
+      const needsFetch = photos.filter(
+        (p) => p.serverId && !(p.thumbnail?.size) && !(p.blob?.size),
+      );
+      if (needsFetch.length > 0) fetchAndCacheThumbnails(needsFetch);
+    }
+  }, [photos, reportClientIds, isOnline]);
 
   // Cleanup on unmount
   useEffect(() => {
