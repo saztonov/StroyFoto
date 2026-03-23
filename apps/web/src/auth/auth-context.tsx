@@ -110,10 +110,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let initDone = false;
+
     // Restore session
     async function init() {
       // First check Dexie for offline-cached profile
       const cached = await db.authSession.get(AUTH_SESSION_KEY);
+
+      // Show cached UI immediately while we verify with the server
+      if (cached) {
+        setUser(cached);
+        setLoading(false);
+      }
 
       // Check Supabase session
       const { data: { session } } = await supabase.auth.getSession();
@@ -130,9 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(null);
           }
         } catch {
-          // Offline — use cached profile
-          if (cached) {
-            setUser(cached);
+          // Offline — keep cached profile (already set above)
+          if (!cached) {
+            setUser(null);
           }
         }
       } else if (cached) {
@@ -141,7 +149,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       }
 
-      setLoading(false);
+      if (!cached) {
+        setLoading(false);
+      }
+      initDone = true;
     }
 
     init();
@@ -152,6 +163,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await db.authSession.delete(AUTH_SESSION_KEY);
         setUser(null);
       } else if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
+        // Skip if init() already handled this session — avoids duplicate profile fetch
+        if (!initDone && event !== "TOKEN_REFRESHED") return;
         try {
           const profile = await fetchAndCacheProfileDeduped(session.access_token, session);
           setUser(profile);

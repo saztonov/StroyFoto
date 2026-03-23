@@ -22,6 +22,16 @@ export async function pullRemoteReports(
   const savedCursor = await db.syncMeta.get("lastPullCursor");
   let cursor: string | null = savedCursor?.value ?? null;
 
+  // Build sets of existing local identifiers once before the loop
+  const localReports = await db.reports.toArray();
+  const localClientIds = new Set(localReports.map((r) => r.clientId));
+  const localServerIds = new Set(
+    localReports.map((r) => r.serverId).filter(Boolean),
+  );
+
+  const localPhotos = await db.photos.toArray();
+  const localPhotoClientIds = new Set(localPhotos.map((p) => p.clientId));
+
   while (hasMore) {
     const params = new URLSearchParams({ limit: "50" });
     if (cursor) params.set("cursor", cursor);
@@ -48,16 +58,6 @@ export async function pullRemoteReports(
     } = await res.json();
 
     if (!body.reports || body.reports.length === 0) break;
-
-    // Build sets of existing local identifiers for dedup
-    const localReports = await db.reports.toArray();
-    const localClientIds = new Set(localReports.map((r) => r.clientId));
-    const localServerIds = new Set(
-      localReports.map((r) => r.serverId).filter(Boolean),
-    );
-
-    const localPhotos = await db.photos.toArray();
-    const localPhotoClientIds = new Set(localPhotos.map((p) => p.clientId));
 
     for (const sr of body.reports) {
       try {

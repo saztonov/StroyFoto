@@ -7,7 +7,6 @@ export async function syncReferenceData(
   token: string,
   apiUrl: string,
 ): Promise<void> {
-  let currentToken = token;
   const profileId = await getCurrentProfileId();
 
   const endpoints = [
@@ -17,7 +16,8 @@ export async function syncReferenceData(
     { key: "ownForces", table: db.ownForces },
   ] as const;
 
-  for (const { key, table } of endpoints) {
+  // Fetch all endpoints in parallel
+  await Promise.all(endpoints.map(async ({ key, table }) => {
     try {
       const syncState = await db.syncState.get(key);
 
@@ -32,31 +32,30 @@ export async function syncReferenceData(
       // Skip fetch if data was synced recently (within TTL) AND table has scoped data
       if (syncState?.lastSyncedAt) {
         const elapsed = Date.now() - syncState.lastSyncedAt.getTime();
-        if (elapsed < REFERENCE_DATA_TTL_MS && scopedCount > 0) continue;
+        if (elapsed < REFERENCE_DATA_TTL_MS && scopedCount > 0) return;
       }
 
       // Always do full fetch (not incremental) to ensure clean scope
       const url = `${apiUrl}/api/reference/${key}`;
 
       let res = await fetch(url, {
-        headers: { Authorization: `Bearer ${currentToken}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.status === 403) {
         supabase.auth.signOut().catch(() => {});
-        return; // Terminal — stop all reference sync
+        return;
       }
 
       if (res.status === 401) {
         const newToken = await handleAuthError();
-        if (!newToken) return; // Session expired — stop all reference sync
-        currentToken = newToken;
+        if (!newToken) return;
         res = await fetch(url, {
-          headers: { Authorization: `Bearer ${currentToken}` },
+          headers: { Authorization: `Bearer ${newToken}` },
         });
       }
 
-      if (!res.ok) continue;
+      if (!res.ok) return;
 
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -86,7 +85,7 @@ export async function syncReferenceData(
     } catch {
       // silently fail — use cached data
     }
-  }
+  }));
 }
 
 /** Check if any reference data table has stale cache (older than TTL) */

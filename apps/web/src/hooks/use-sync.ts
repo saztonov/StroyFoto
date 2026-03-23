@@ -16,6 +16,7 @@ import { useOnline } from "./use-online";
 import { getValidToken } from "../api/token-helper";
 
 const MIN_SYNC_INTERVAL_MS = 30_000; // 30 seconds between auto-syncs
+const SYNC_COOLDOWN_MS = 5_000; // 5 seconds cooldown between any syncNow calls
 
 // Module-level lock shared across all useSync() instances
 let _syncLock = false;
@@ -80,6 +81,7 @@ export function useSync() {
   // Core sync function
   const syncNow = useCallback(async () => {
     if (!isAuthenticated || _syncLock || !isOnline) return;
+    if (Date.now() - _lastSyncTs < SYNC_COOLDOWN_MS) return;
 
     const token = await getValidToken();
     if (!token) return;
