@@ -111,7 +111,6 @@ export async function processQueue(
   );
 
   if (entries.length === 0) {
-    console.log("[sync:queue] No actionable entries");
     return { synced: 0, failed: 0 };
   }
 

@@ -17,6 +17,10 @@ import { getValidToken } from "../api/token-helper";
 
 const MIN_SYNC_INTERVAL_MS = 30_000; // 30 seconds between auto-syncs
 
+// Module-level lock shared across all useSync() instances
+let _syncLock = false;
+let _lastSyncTs = 0;
+
 export function useSync() {
   const { isAuthenticated } = useAuth();
   const isOnline = useOnline();
@@ -26,8 +30,6 @@ export function useSync() {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   const prevOnline = useRef(isOnline);
-  const syncLock = useRef(false);
-  const lastSyncTs = useRef(0);
 
   // Reactive queries from Dexie
   const pendingCount =
@@ -77,12 +79,12 @@ export function useSync() {
 
   // Core sync function
   const syncNow = useCallback(async () => {
-    if (!isAuthenticated || syncLock.current || !isOnline) return;
+    if (!isAuthenticated || _syncLock || !isOnline) return;
 
     const token = await getValidToken();
     if (!token) return;
 
-    syncLock.current = true;
+    _syncLock = true;
     setIsSyncing(true);
     setProgress(null);
 
@@ -106,14 +108,14 @@ export function useSync() {
         // Pull sync is non-critical
       }
       setLastResult(result);
-      lastSyncTs.current = Date.now();
+      _lastSyncTs = Date.now();
 
       const time = await getLastSyncTime();
       setLastSyncTime(time);
 
       return result;
     } finally {
-      syncLock.current = false;
+      _syncLock = false;
       setIsSyncing(false);
       setProgress(null);
     }
@@ -137,8 +139,8 @@ export function useSync() {
 
   // Auto-sync helper (respects interval)
   const autoSync = useCallback(() => {
-    if (!isOnline || !isAuthenticated || syncLock.current) return;
-    if (Date.now() - lastSyncTs.current < MIN_SYNC_INTERVAL_MS) return;
+    if (!isOnline || !isAuthenticated || _syncLock) return;
+    if (Date.now() - _lastSyncTs < MIN_SYNC_INTERVAL_MS) return;
     syncNow();
   }, [isOnline, isAuthenticated, syncNow]);
 

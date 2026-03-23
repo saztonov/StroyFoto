@@ -5,6 +5,9 @@ import { handleAuthError } from "../api/token-helper";
  * Pull reports from server into Dexie (IndexedDB) using cursor-based /api/sync/pull.
  * Upserts existing reports (not just inserts new ones).
  * Photo metadata inserted with empty blobs (detail page fetches on-demand).
+ *
+ * Uses a saved cursor for incremental pulls — only fetches reports
+ * updated since the last successful pull.
  */
 export async function pullRemoteReports(
   token: string,
@@ -13,8 +16,11 @@ export async function pullRemoteReports(
   let currentToken = token;
   const profileId = await getCurrentProfileId();
   let pulled = 0;
-  let cursor: string | null = null;
   let hasMore = true;
+
+  // Resume from last saved cursor for incremental sync
+  const savedCursor = await db.syncMeta.get("lastPullCursor");
+  let cursor: string | null = savedCursor?.value ?? null;
 
   while (hasMore) {
     const params = new URLSearchParams({ limit: "50" });
@@ -128,6 +134,11 @@ export async function pullRemoteReports(
       } catch {
         // Skip individual report errors, continue with next
       }
+    }
+
+    // Save cursor progress after each page so we can resume on interruption
+    if (body.nextCursor) {
+      await db.syncMeta.put({ key: "lastPullCursor", value: body.nextCursor });
     }
 
     cursor = body.nextCursor;
