@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiFetch } from "../../api/client";
+import { db } from "../../db/dexie";
 
 interface BulkDeleteConfirmModalProps {
   mode: "all" | "project";
@@ -41,6 +42,24 @@ export function BulkDeleteConfirmModal({
           body: JSON.stringify(body),
         },
       );
+
+      // Clear local IndexedDB cache so offline-first UI reflects the deletion
+      if (mode === "all") {
+        await db.reports.clear();
+        await db.photos.clear();
+        await db.syncQueue.clear();
+        await db.syncMeta.clear();
+      } else if (projectId) {
+        const localReports = await db.reports.where("projectId").equals(projectId).toArray();
+        const reportClientIds = localReports.map((r) => r.clientId);
+        if (reportClientIds.length > 0) {
+          await db.photos.where("reportClientId").anyOf(reportClientIds).delete();
+          await db.reports.where("projectId").equals(projectId).delete();
+        }
+        // Reset sync cursor so next pull re-fetches from scratch
+        await db.syncMeta.delete("lastPullCursor");
+      }
+
       onDeleted(result.deleted);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка удаления");
