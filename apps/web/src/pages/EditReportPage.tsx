@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, type FormEvent } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, type FormEvent } from "react";
 import { useNavigate, useParams, Link } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
