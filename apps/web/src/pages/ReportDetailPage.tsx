@@ -44,23 +44,28 @@ export function ReportDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const loadPhoto = useCallback(async (photo: LocalPhoto) => {
-    // Already have a URL for this photo
-    if (urlsRef.current.has(photo.clientId)) return;
     // Already loading
     if (loadingRef.current.has(photo.clientId)) return;
 
-    if (photo.blob && photo.blob.size > 0) {
+    const hasFullBlob = photo.blob && photo.blob.size > 0;
+
+    // Full-size blob available locally — use it directly
+    if (hasFullBlob) {
+      if (urlsRef.current.has(photo.clientId)) return;
       const url = URL.createObjectURL(photo.blob);
       urlsRef.current.set(photo.clientId, url);
       setPhotoUrls(new Map(urlsRef.current));
       return;
     }
-    if (photo.thumbnail && photo.thumbnail.size > 0) {
+
+    // Show thumbnail as temporary preview while fetching full image
+    if (photo.thumbnail && photo.thumbnail.size > 0 && !urlsRef.current.has(photo.clientId)) {
       const url = URL.createObjectURL(photo.thumbnail);
       urlsRef.current.set(photo.clientId, url);
       setPhotoUrls(new Map(urlsRef.current));
-      return;
     }
+
+    // Fetch full-size image from server (replaces thumbnail if shown)
     if (photo.serverId) {
       loadingRef.current.add(photo.clientId);
       try {
@@ -71,13 +76,14 @@ export function ReportDetailPage() {
         });
         if (res.ok) {
           const blob = await res.blob();
-          // Memory-only: do NOT write blob back to IndexedDB
+          const prevUrl = urlsRef.current.get(photo.clientId);
+          if (prevUrl) URL.revokeObjectURL(prevUrl);
           const url = URL.createObjectURL(blob);
           urlsRef.current.set(photo.clientId, url);
           setPhotoUrls(new Map(urlsRef.current));
         }
       } catch {
-        // skip failed photos — will show placeholder
+        // keep thumbnail if fetch fails
       } finally {
         loadingRef.current.delete(photo.clientId);
       }
