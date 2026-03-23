@@ -22,6 +22,39 @@ const profileRoutes: FastifyPluginAsync = async (fastify) => {
     return snakeToCamel(profile as Record<string, unknown>);
   });
 
+  // GET /api/profile/stats — user's projects, report count, photo count
+  fastify.get("/api/profile/stats", async (request, reply) => {
+    const user = request.user as AuthUser;
+
+    const [reportsRes, photosRes, projectsRes] = await Promise.all([
+      fastify.supabase
+        .from("reports")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.profileId),
+      fastify.supabase
+        .from("photos")
+        .select("*, reports!inner(user_id)", { count: "exact", head: true })
+        .eq("reports.user_id", user.profileId),
+      user.role === "ADMIN"
+        ? Promise.resolve({ data: [] })
+        : fastify.supabase
+            .from("user_projects")
+            .select("projects(id, name)")
+            .eq("user_id", user.profileId),
+    ]);
+
+    const projects =
+      user.role === "ADMIN"
+        ? []
+        : (projectsRes.data ?? []).map((row: Record<string, unknown>) => row.projects);
+
+    return {
+      reportCount: reportsRes.count ?? 0,
+      photoCount: photosRes.count ?? 0,
+      projects,
+    };
+  });
+
   // PUT /api/profile — update current user's profile (fullName only)
   fastify.put("/api/profile", async (request, reply) => {
     const user = request.user as AuthUser;

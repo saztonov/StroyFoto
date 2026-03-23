@@ -1,6 +1,26 @@
+import { useEffect, useState } from "react";
 import { useTheme, type Theme } from "../hooks/use-theme";
+import { useAuth } from "../auth/auth-context";
+import { useOnline } from "../hooks/use-online";
+import { apiFetch } from "../api/client";
+import { db } from "../db/dexie";
 
-const options: { value: Theme; label: string; icon: React.ReactNode }[] = [
+interface ProfileData {
+  id: string;
+  email: string;
+  role: "ADMIN" | "WORKER";
+  fullName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface StatsData {
+  reportCount: number;
+  photoCount: number;
+  projects: { id: string; name: string }[];
+}
+
+const themeOptions: { value: Theme; label: string; icon: React.ReactNode }[] = [
   {
     value: "light",
     label: "Светлая",
@@ -30,19 +50,189 @@ const options: { value: Theme; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
+const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
 export function SettingsPage() {
   const { theme, setTheme } = useTheme();
+  const { user, refreshUser } = useAuth();
+  const isOnline = useOnline();
+
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [stats, setStats] = useState<StatsData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const [editingName, setEditingName] = useState(user?.fullName ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    setLoading(true);
+    Promise.all([
+      apiFetch<ProfileData>("/api/profile"),
+      apiFetch<StatsData>("/api/profile/stats"),
+    ])
+      .then(([p, s]) => {
+        setProfile(p);
+        setStats(s);
+        setEditingName(p.fullName);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [isOnline]);
+
+  async function handleSaveName() {
+    const trimmed = editingName.trim();
+    if (!trimmed || trimmed === (profile?.fullName ?? user?.fullName)) return;
+    setSaving(true);
+    setSaveSuccess(false);
+    try {
+      const updated = await apiFetch<ProfileData>("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({ fullName: trimmed }),
+      });
+      setProfile(updated);
+      setEditingName(updated.fullName);
+      await db.authSession.update("current", { fullName: updated.fullName });
+      await refreshUser();
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const roleName = user?.role === "ADMIN" ? "Администратор" : "Работник";
+  const nameChanged = editingName.trim() !== (profile?.fullName ?? user?.fullName ?? "");
 
   return (
-    <div className="mx-auto max-w-3xl p-4">
-      <h2 className="mb-6 text-xl font-bold text-gray-800 dark:text-gray-100">Настройки</h2>
+    <div className="mx-auto max-w-3xl space-y-6 p-4">
+      <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">Настройки</h2>
 
+      {/* Account section */}
+      <section>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Аккаунт
+        </h3>
+        <div className="space-y-4 rounded-xl bg-gray-100 p-4 dark:bg-gray-800">
+          {/* Full name (editable) */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">ФИО</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+              />
+              <button
+                onClick={handleSaveName}
+                disabled={!nameChanged || saving || !isOnline}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
+              >
+                {saving ? "..." : saveSuccess ? "\u2713" : "Сохранить"}
+              </button>
+            </div>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Email</label>
+            <p className="text-sm text-gray-800 dark:text-gray-200">{user?.email}</p>
+          </div>
+
+          {/* Role */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Роль</label>
+            <span
+              className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                user?.role === "ADMIN"
+                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                  : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+              }`}
+            >
+              {roleName}
+            </span>
+          </div>
+
+          {/* Registration date */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              Дата регистрации
+            </label>
+            {loading ? (
+              <p className="text-sm text-gray-400">Загрузка...</p>
+            ) : profile?.createdAt ? (
+              <p className="text-sm text-gray-800 dark:text-gray-200">
+                {dateFormatter.format(new Date(profile.createdAt))}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400">{isOnline ? "—" : "Нет подключения"}</p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Projects section */}
+      <section>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Мои проекты
+        </h3>
+        <div className="rounded-xl bg-gray-100 p-4 dark:bg-gray-800">
+          {loading ? (
+            <p className="text-sm text-gray-400">Загрузка...</p>
+          ) : !isOnline && !stats ? (
+            <p className="text-sm text-gray-400">Нет подключения к серверу</p>
+          ) : user?.role === "ADMIN" ? (
+            <p className="text-sm text-gray-600 dark:text-gray-300">Все проекты (администратор)</p>
+          ) : stats && stats.projects.length > 0 ? (
+            <ul className="space-y-1">
+              {stats.projects.map((p) => (
+                <li key={p.id} className="text-sm text-gray-800 dark:text-gray-200">
+                  {p.name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400">Нет назначенных проектов</p>
+          )}
+        </div>
+      </section>
+
+      {/* Stats section */}
+      <section>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Статистика
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-gray-100 p-4 text-center dark:bg-gray-800">
+            <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+              {loading ? "..." : stats ? stats.reportCount : "—"}
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Отчётов</p>
+          </div>
+          <div className="rounded-xl bg-gray-100 p-4 text-center dark:bg-gray-800">
+            <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+              {loading ? "..." : stats ? stats.photoCount : "—"}
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Фотографий</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Theme section */}
       <section>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           Тема оформления
         </h3>
         <div className="flex gap-2 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">
-          {options.map((opt) => {
+          {themeOptions.map((opt) => {
             const active = theme === opt.value;
             return (
               <button

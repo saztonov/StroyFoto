@@ -16,6 +16,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
+  refreshUser: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -165,6 +166,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const cached = await db.authSession.get(AUTH_SESSION_KEY);
+    if (cached) setUser(cached);
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -218,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token: null, // Token is managed by Supabase client, use supabase.auth.getSession()
         isAuthenticated: user !== null,
         loading,
+        refreshUser,
         login,
         register,
         logout,
