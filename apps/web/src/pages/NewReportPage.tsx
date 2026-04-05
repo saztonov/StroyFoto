@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, type FormEvent } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
@@ -6,11 +6,13 @@ import { db } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
 import { useAuth } from "../auth/auth-context";
 import { useAutosave } from "../hooks/use-autosave";
-import { PhotoCapture, type ProcessedPhoto } from "../components/PhotoCapture";
+import { PhotoCapture } from "../components/PhotoCapture";
 import { processPhoto } from "../lib/image-processing";
 import { FilterableSelect } from "../components/FilterableSelect";
 import { FilterableMultiSelect } from "../components/FilterableMultiSelect";
 import { createLocalDictionaryItem } from "../db/dictionary-helpers";
+
+const DRAFT_ID_KEY = "newReportDraftId";
 
 function toLocalDateTimeString(date: Date): string {
   const offset = date.getTimezoneOffset();
@@ -22,7 +24,14 @@ export function NewReportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [clientId] = useState(() => crypto.randomUUID());
+  const [clientId] = useState(() => {
+    const stored = sessionStorage.getItem(DRAFT_ID_KEY);
+    if (stored) return stored;
+    const id = crypto.randomUUID();
+    sessionStorage.setItem(DRAFT_ID_KEY, id);
+    return id;
+  });
+
   const [projectId, setProjectId] = useState("");
   const [dateTime, setDateTime] = useState(toLocalDateTimeString(new Date()));
   const [workTypes, setWorkTypes] = useState<string[]>([]);
@@ -37,11 +46,19 @@ export function NewReportPage() {
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
   }
-  const [photos, setPhotos] = useState<ProcessedPhoto[]>([]);
+
+  // Photos are stored directly in IndexedDB to survive tab suspension on mobile
+  const draftPhotos = useLiveQuery(
+    () => db.photos.where("reportClientId").equals(clientId).toArray(),
+    [clientId],
+  );
+  const photos = draftPhotos ?? [];
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
 
   // Reference data from Dexie
   const projects = useLiveQuery(() => db.projects.toArray(), []);
@@ -91,6 +108,24 @@ export function NewReportPage() {
     await createLocalDictionaryItem("ownForces", name, scopeProfileId);
   }, [scopeProfileId]);
 
+  // Restore draft text fields from Dexie (survives tab suspension on mobile)
+  const existingDraft = useLiveQuery(
+    () => db.reports.get(clientId),
+    [clientId],
+  );
+
+  useEffect(() => {
+    if (existingDraft && existingDraft.syncStatus === "draft" && !draftRestored) {
+      setProjectId(existingDraft.projectId);
+      setDateTime(toLocalDateTimeString(existingDraft.dateTime));
+      setWorkTypes(existingDraft.workTypes);
+      setContractor(existingDraft.contractor);
+      setOwnForces(existingDraft.ownForces);
+      setDescription(existingDraft.description);
+      setDraftRestored(true);
+    }
+  }, [existingDraft, draftRestored]);
+
   // Autosave draft
   const draftData = useMemo(() => {
     if (!user) return null;
@@ -108,9 +143,10 @@ export function NewReportPage() {
 
   const { lastSavedAt } = useAutosave(clientId, draftData);
 
-  // Photo handling
+  // Photo handling — save to IndexedDB immediately so they survive tab suspension
   const handleAddPhotos = useCallback(
     async (files: File[]) => {
+      if (!user) return;
       setIsProcessing(true);
       setError("");
 
@@ -127,15 +163,7 @@ export function NewReportPage() {
         }
 
         const existingHashes = new Set(photos.map((p) => p.hash).filter(Boolean));
-        const dbPhotos = await db.photos
-          .where("reportClientId")
-          .equals(clientId)
-          .toArray();
-        for (const p of dbPhotos) {
-          if (p.hash) existingHashes.add(p.hash);
-        }
 
-        const results: ProcessedPhoto[] = [];
         const errors: string[] = [];
 
         for (const file of filesToProcess) {
@@ -148,23 +176,27 @@ export function NewReportPage() {
             }
 
             existingHashes.add(processed.hash);
-            results.push({
-              clientId: crypto.randomUUID(),
+
+            const photoClientId = crypto.randomUUID();
+            await db.photos.put({
+              clientId: photoClientId,
+              reportClientId: clientId,
               blob: processed.blob,
               thumbnail: processed.thumbnail,
               mimeType: processed.mimeType,
               fileName: file.name,
               size: processed.size,
               hash: processed.hash,
+              localStatus: "ready",
+              syncStatus: "pending",
+              scopeProfileId: user.userId,
+              createdAt: new Date(),
             });
           } catch (err) {
             errors.push(err instanceof Error ? err.message : `${file.name}: ошибка обработки`);
           }
         }
 
-        if (results.length > 0) {
-          setPhotos((prev) => [...prev, ...results]);
-        }
         if (errors.length > 0) {
           setError(errors.join("; "));
         }
@@ -172,11 +204,11 @@ export function NewReportPage() {
         setIsProcessing(false);
       }
     },
-    [photos, clientId],
+    [photos, clientId, user],
   );
 
-  const handleRemovePhoto = useCallback((photoClientId: string) => {
-    setPhotos((prev) => prev.filter((p) => p.clientId !== photoClientId));
+  const handleRemovePhoto = useCallback(async (photoClientId: string) => {
+    await db.photos.delete(photoClientId);
   }, []);
 
   // Submit
@@ -227,20 +259,17 @@ export function NewReportPage() {
 
       await enqueueSyncOp("UPSERT_REPORT", clientId);
 
-      for (const photo of photos) {
-        await db.photos.add({
-          clientId: photo.clientId,
-          reportClientId: clientId,
-          blob: photo.blob,
-          thumbnail: photo.thumbnail,
-          mimeType: photo.mimeType,
-          fileName: photo.fileName,
-          size: photo.size,
-          hash: photo.hash,
+      // Photos are already saved to IndexedDB (persisted immediately on add).
+      // Just enqueue sync operations for each.
+      const currentPhotos = await db.photos
+        .where("reportClientId")
+        .equals(clientId)
+        .toArray();
+
+      for (const photo of currentPhotos) {
+        await db.photos.update(photo.clientId, {
           localStatus: "ready",
           syncStatus: "pending",
-          scopeProfileId: user.userId,
-          createdAt: now,
         });
         await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
       }
@@ -248,6 +277,7 @@ export function NewReportPage() {
       // Always enqueue finalization (handles both with and without photos)
       await enqueueSyncOp("FINALIZE_REPORT", clientId);
 
+      sessionStorage.removeItem(DRAFT_ID_KEY);
       showToast("Сохранено на устройстве");
       setTimeout(() => navigate("/reports"), 800);
     } catch (err) {
@@ -358,7 +388,15 @@ export function NewReportPage() {
 
         <Field label={`Фото (${photos.length}/${MAX_PHOTOS_PER_REPORT})`}>
           <PhotoCapture
-            photos={photos}
+            photos={photos.map((p) => ({
+              clientId: p.clientId,
+              blob: p.blob,
+              thumbnail: p.thumbnail ?? p.blob,
+              mimeType: p.mimeType,
+              fileName: p.fileName,
+              size: p.size ?? p.blob.size,
+              hash: p.hash ?? "",
+            }))}
             onAdd={handleAddPhotos}
             onRemove={handleRemovePhoto}
             isProcessing={isProcessing}

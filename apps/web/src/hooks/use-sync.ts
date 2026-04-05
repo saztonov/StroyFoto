@@ -17,6 +17,7 @@ import { getValidToken } from "../api/token-helper";
 
 const MIN_SYNC_INTERVAL_MS = 30_000; // 30 seconds between auto-syncs
 const SYNC_COOLDOWN_MS = 5_000; // 5 seconds cooldown between any syncNow calls
+const PERIODIC_RETRY_MS = 60_000; // 60 seconds periodic retry when pending items exist
 
 // Module-level lock shared across all useSync() instances
 let _syncLock = false;
@@ -83,14 +84,17 @@ export function useSync() {
     if (!isAuthenticated || _syncLock || !isOnline) return;
     if (Date.now() - _lastSyncTs < SYNC_COOLDOWN_MS) return;
 
-    const token = await getValidToken();
-    if (!token) return;
-
     _syncLock = true;
     setIsSyncing(true);
     setProgress(null);
 
     try {
+      const token = await getValidToken();
+      if (!token) {
+        console.warn("[sync] No valid token available, skipping sync");
+        return;
+      }
+
       const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
       // 1. Sync reference data first (non-blocking if fails)
@@ -116,6 +120,8 @@ export function useSync() {
       setLastSyncTime(time);
 
       return result;
+    } catch (err) {
+      console.error("[sync] syncNow error:", err);
     } finally {
       _syncLock = false;
       setIsSyncing(false);
@@ -179,6 +185,18 @@ export function useSync() {
     window.addEventListener("sw-sync-trigger", onSwSync);
     return () => window.removeEventListener("sw-sync-trigger", onSwSync);
   }, [autoSync]);
+
+  // Trigger 5b: Periodic retry — when there are pending/failed items, retry every 60s
+  useEffect(() => {
+    if (!isOnline || !isAuthenticated) return;
+    if (pendingCount === 0 && failedCount === 0) return;
+
+    const timer = setInterval(() => {
+      autoSync();
+    }, PERIODIC_RETRY_MS);
+
+    return () => clearInterval(timer);
+  }, [isOnline, isAuthenticated, pendingCount, failedCount, autoSync]);
 
   // Trigger 6: Reference data invalidated (e.g. after admin CRUD)
   useEffect(() => {

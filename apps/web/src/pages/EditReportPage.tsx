@@ -5,7 +5,7 @@ import { createReportSchema, MAX_PHOTOS_PER_REPORT } from "@stroyfoto/shared";
 import { db, type LocalPhoto } from "../db/dexie";
 import { enqueueSyncOp } from "../db/sync-queue";
 import { useAuth } from "../auth/auth-context";
-import { PhotoCapture, type ProcessedPhoto } from "../components/PhotoCapture";
+import { PhotoCapture } from "../components/PhotoCapture";
 import { processPhoto } from "../lib/image-processing";
 import { FilterableSelect } from "../components/FilterableSelect";
 import { FilterableMultiSelect } from "../components/FilterableMultiSelect";
@@ -42,7 +42,6 @@ export function EditReportPage() {
   const [contractor, setContractor] = useState("");
   const [ownForces, setOwnForces] = useState("");
   const [description, setDescription] = useState("");
-  const [newPhotos, setNewPhotos] = useState<ProcessedPhoto[]>([]);
   const [removedPhotoIds, setRemovedPhotoIds] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
@@ -120,9 +119,10 @@ export function EditReportPage() {
     await createLocalDictionaryItem("ownForces", name, scopeProfileId);
   }, [scopeProfileId]);
 
-  // Total photos = existing (minus removed) + new
+  // All photos from Dexie (includes both original and newly added).
+  // Removed photos are filtered out visually and deleted on submit.
   const keptExisting = (existingPhotos ?? []).filter((p) => !removedPhotoIds.has(p.clientId));
-  const totalPhotos = keptExisting.length + newPhotos.length;
+  const totalPhotos = keptExisting.length;
 
   // Photo URLs for existing photos
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
@@ -191,6 +191,7 @@ export function EditReportPage() {
 
   const handleAddPhotos = useCallback(
     async (files: File[]) => {
+      if (!user || !clientId) return;
       setIsProcessing(true);
       setError("");
 
@@ -202,12 +203,10 @@ export function EditReportPage() {
         }
 
         const filesToProcess = files.slice(0, remaining);
-        const existingHashes = new Set([
-          ...newPhotos.map((p) => p.hash).filter(Boolean),
-          ...keptExisting.map((p) => p.hash).filter(Boolean),
-        ]);
+        const existingHashes = new Set(
+          keptExisting.map((p) => p.hash).filter(Boolean),
+        );
 
-        const results: ProcessedPhoto[] = [];
         const errors: string[] = [];
 
         for (const file of filesToProcess) {
@@ -218,35 +217,37 @@ export function EditReportPage() {
               continue;
             }
             existingHashes.add(processed.hash);
-            results.push({
-              clientId: crypto.randomUUID(),
+
+            const photoClientId = crypto.randomUUID();
+            await db.photos.put({
+              clientId: photoClientId,
+              reportClientId: clientId,
               blob: processed.blob,
               thumbnail: processed.thumbnail,
               mimeType: processed.mimeType,
               fileName: file.name,
               size: processed.size,
               hash: processed.hash,
+              localStatus: "ready",
+              syncStatus: "pending",
+              scopeProfileId: user.userId,
+              createdAt: new Date(),
             });
           } catch (err) {
             errors.push(err instanceof Error ? err.message : `${file.name}: ошибка`);
           }
         }
 
-        if (results.length > 0) setNewPhotos((prev) => [...prev, ...results]);
         if (errors.length > 0) setError(errors.join("; "));
       } finally {
         setIsProcessing(false);
       }
     },
-    [totalPhotos, newPhotos, keptExisting],
+    [totalPhotos, keptExisting, clientId, user],
   );
 
   const handleRemoveExistingPhoto = useCallback((photoClientId: string) => {
     setRemovedPhotoIds((prev) => new Set(prev).add(photoClientId));
-  }, []);
-
-  const handleRemoveNewPhoto = useCallback((photoClientId: string) => {
-    setNewPhotos((prev) => prev.filter((p) => p.clientId !== photoClientId));
   }, []);
 
   async function handleSubmit(e: FormEvent) {
@@ -302,23 +303,21 @@ export function EditReportPage() {
         await db.photos.delete(photoId);
       }
 
-      // Add new photos
-      for (const photo of newPhotos) {
-        await db.photos.add({
-          clientId: photo.clientId,
-          reportClientId: clientId,
-          blob: photo.blob,
-          thumbnail: photo.thumbnail,
-          mimeType: photo.mimeType,
-          fileName: photo.fileName,
-          size: photo.size,
-          hash: photo.hash,
-          localStatus: "ready",
-          syncStatus: "pending",
-          scopeProfileId: user.userId,
-          createdAt: now,
-        });
-        await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
+      // Photos are already saved to IndexedDB (persisted immediately on add).
+      // Enqueue sync for any unsynced photos.
+      const currentPhotos = await db.photos
+        .where("reportClientId")
+        .equals(clientId)
+        .toArray();
+
+      for (const photo of currentPhotos) {
+        if (photo.syncStatus !== "synced") {
+          await db.photos.update(photo.clientId, {
+            localStatus: "ready",
+            syncStatus: "pending",
+          });
+          await enqueueSyncOp("UPLOAD_PHOTO", photo.clientId);
+        }
       }
 
       // Re-enqueue report sync
@@ -456,9 +455,9 @@ export function EditReportPage() {
           />
         </Field>
 
-        {/* Existing photos */}
+        {/* All attached photos */}
         {keptExisting.length > 0 && (
-          <Field label={`Существующие фото (${keptExisting.length})`}>
+          <Field label={`Фото (${keptExisting.length})`}>
             <div className="grid grid-cols-4 gap-2">
               {keptExisting.map((photo) => {
                 const url = photoUrls.get(photo.clientId);
@@ -487,12 +486,12 @@ export function EditReportPage() {
           </Field>
         )}
 
-        {/* New photos */}
+        {/* Add new photos */}
         <Field label={`Добавить фото (всего: ${totalPhotos}/${MAX_PHOTOS_PER_REPORT})`}>
           <PhotoCapture
-            photos={newPhotos}
+            photos={[]}
             onAdd={handleAddPhotos}
-            onRemove={handleRemoveNewPhoto}
+            onRemove={() => {}}
             isProcessing={isProcessing}
             disabled={totalPhotos >= MAX_PHOTOS_PER_REPORT}
           />

@@ -40,7 +40,11 @@ export async function compressImage(
   canvas.width = w;
   canvas.height = h;
 
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Не удалось создать контекст canvas (недостаточно памяти)");
+  }
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
 
@@ -59,7 +63,12 @@ export async function compressImage(
     canvas.width = w;
     canvas.height = h;
     const bitmap2 = await createImageBitmap(file);
-    ctx.drawImage(bitmap2, 0, 0, w, h);
+    const ctx2 = canvas.getContext("2d");
+    if (!ctx2) {
+      bitmap2.close();
+      throw new Error("Не удалось создать контекст canvas (недостаточно памяти)");
+    }
+    ctx2.drawImage(bitmap2, 0, 0, w, h);
     bitmap2.close();
     blob = await canvasToBlob(canvas, IMAGE_QUALITY_MIN);
   }
@@ -81,7 +90,11 @@ export async function generateThumbnail(
   canvas.width = w;
   canvas.height = h;
 
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Не удалось создать контекст canvas для превью");
+  }
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
 

@@ -96,6 +96,21 @@ export async function processQueue(
   const now = new Date();
   const profileId = await getCurrentProfileId();
 
+  // Recover stuck in-progress entries (e.g. browser closed mid-sync)
+  const stuckEntries = await db.syncQueue
+    .where("status")
+    .equals("in-progress")
+    .toArray();
+  if (stuckEntries.length > 0) {
+    console.log("[sync:queue] Resetting", stuckEntries.length, "stuck in-progress entries");
+    for (const entry of stuckEntries) {
+      await db.syncQueue.update(entry.id!, {
+        status: "pending",
+        updatedAt: now,
+      });
+    }
+  }
+
   // Get all actionable entries (scoped to current user)
   const allEntries = (await db.syncQueue
     .where("status")
