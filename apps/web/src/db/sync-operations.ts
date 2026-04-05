@@ -112,12 +112,17 @@ export async function executeUpsertReport(
 
   if (!result || result.status !== "ok") {
     console.error("[sync:upsert] Result not ok:", result);
-    // Data format errors (e.g. invalid UUID) are not retryable
-    const isDataError = result?.message?.includes("invalid input syntax") || result?.message?.includes("violates foreign key");
+    const msg = result?.message ?? "";
+    const isNonRetryable =
+      msg.includes("invalid input syntax") ||
+      msg.includes("violates foreign key") ||
+      msg.includes("нет доступа") ||
+      msg.includes("Invalid report payload") ||
+      msg.includes("Unsupported operation");
     return {
       success: false,
-      retryable: !isDataError,
-      error: result?.message ?? "Sync error",
+      retryable: !isNonRetryable,
+      error: msg || "Sync error",
     };
   }
 
@@ -159,12 +164,24 @@ export async function executeUploadPhoto(
   if (!report?.serverId) {
     console.warn("[sync:photo] Parent report has no serverId. reportClientId:", photo.reportClientId, "syncStatus:", report?.syncStatus);
 
-    // Auto-repair: if report claims to be synced but has no serverId, re-queue it
+    // Check if report upsert already failed with a non-retryable error
+    const existingUpsertEntries = await db.syncQueue
+      .where("entityClientId")
+      .equals(photo.reportClientId)
+      .toArray();
+    const failedUpsert = existingUpsertEntries.find(
+      (e) => e.operationType === "UPSERT_REPORT" && e.status === "failed" && e.retryCount > 0,
+    );
+    if (failedUpsert) {
+      console.warn("[sync:photo] Parent report upsert already failed:", failedUpsert.lastError);
+      return { success: false, retryable: false, error: `Ошибка отчёта: ${failedUpsert.lastError}` };
+    }
+
+    // Auto-repair: if report has no serverId and no failed upsert, re-queue it
     if (report && (report.syncStatus === "synced" || report.syncStatus === "local-only" || report.syncStatus === "queued" || report.syncStatus === "error")) {
       console.log("[sync:photo] Auto-repair: re-queuing UPSERT_REPORT for", photo.reportClientId);
       await db.reports.update(photo.reportClientId, { syncStatus: "local-only" });
 
-      // Import dynamically to avoid circular dependency
       const { enqueueSyncOp } = await import("./sync-queue");
       await enqueueSyncOp("UPSERT_REPORT", photo.reportClientId);
     }

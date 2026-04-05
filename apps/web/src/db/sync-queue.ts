@@ -27,23 +27,35 @@ export async function enqueueSyncOp(
   entityClientId: string,
   metadata?: Record<string, string>,
 ): Promise<void> {
-  // Deduplicate: skip if a pending entry already exists for this op + entity
-  const existing = await db.syncQueue
-    .where("[operationType+entityClientId+status]")
-    .equals([operationType, entityClientId, "pending"])
-    .first();
+  // Deduplicate: skip if an active entry already exists for this op + entity.
+  // Check all non-done statuses to prevent duplicate entries from auto-repair loops.
+  const all = await db.syncQueue
+    .where("entityClientId")
+    .equals(entityClientId)
+    .toArray();
+  const activeEntry = all.find(
+    (e) =>
+      e.operationType === operationType &&
+      (e.status === "pending" || e.status === "in-progress"),
+  );
+  if (activeEntry) return;
 
-  // Fallback dedup for browsers that don't support compound index queries
-  if (!existing) {
-    const all = await db.syncQueue
-      .where("entityClientId")
-      .equals(entityClientId)
-      .toArray();
-    const dup = all.find(
-      (e) => e.operationType === operationType && e.status === "pending",
-    );
-    if (dup) return;
-  } else {
+  // If a failed entry exists for the same op, reset it to pending instead of creating a new one
+  const failedEntry = all.find(
+    (e) => e.operationType === operationType && e.status === "failed",
+  );
+  if (failedEntry) {
+    await db.syncQueue.update(failedEntry.id!, {
+      status: "pending",
+      retryCount: 0,
+      nextRetryAt: null,
+      lastError: null,
+      idempotencyKey: crypto.randomUUID(),
+      updatedAt: new Date(),
+    });
+    if (operationType === "UPSERT_REPORT") {
+      await db.reports.update(entityClientId, { syncStatus: "queued" });
+    }
     return;
   }
 
