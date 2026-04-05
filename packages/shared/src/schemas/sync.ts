@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { createReportSchema, reportSchema } from "./report";
-import { photoSchema } from "./photo";
+import { createReportSchema, reportSchema } from "./report.js";
+import { photoSchema } from "./photo.js";
 
 // --- Legacy batch sync (kept for backward compat) ---
 
