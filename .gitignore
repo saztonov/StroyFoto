@@ -12,3 +12,5 @@ apps/api/prisma/migrations/
 
 # PWA generated
 apps/web/dev-dist/
+.env.production
+deploy-stroyfoto.tar.gz
