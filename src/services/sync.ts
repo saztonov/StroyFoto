@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { getDB, type SyncOp } from '@/lib/db'
 import { updateReportStatus } from '@/services/localReports'
+import { markPhotoSynced, uploadPhoto } from '@/services/photos'
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 
@@ -50,13 +51,20 @@ function backoffMs(attempts: number) {
 }
 
 async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }> {
-  if (op.kind === 'photo') {
-    // Фото пока не выгружаем — ждём presign endpoint. Считаем "сделано", чтобы
-    // не крутить очередь, но саму запись фото оставляем со статусом pending_upload.
-    return { done: true }
-  }
-
   const db = await getDB()
+
+  if (op.kind === 'photo') {
+    const photo = await db.get('photos', op.entityId)
+    if (!photo) return { done: true }
+    if (photo.syncStatus === 'synced') return { done: true }
+    try {
+      const { r2Key } = await uploadPhoto(photo)
+      await markPhotoSynced(photo.id, r2Key)
+      return { done: true }
+    } catch (e) {
+      return { done: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
 
   if (op.kind === 'report') {
     const report = await db.get('reports', op.entityId)
@@ -150,6 +158,25 @@ async function tick() {
 
 export function triggerSync() {
   void tick()
+  // Дополнительно просим браузер дёрнуть нас, когда снова будет сеть.
+  void registerBackgroundSync()
+}
+
+/**
+ * Регистрирует одноразовый Background Sync, если API поддерживается.
+ * Это лишь подсказка браузеру: основной механизм синхронизации — наш
+ * interval-loop + событийные триггеры. Никогда не полагаемся только на SW.
+ */
+export async function registerBackgroundSync(): Promise<void> {
+  try {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const reg = await navigator.serviceWorker.ready
+    const sync = (reg as unknown as { sync?: { register: (tag: string) => Promise<void> } }).sync
+    if (!sync) return
+    await sync.register('stroyfoto-sync')
+  } catch {
+    // Background Sync недоступен — это нормально, fallback уже работает.
+  }
 }
 
 function handleOnline() {

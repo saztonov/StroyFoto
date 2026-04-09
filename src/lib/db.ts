@@ -26,6 +26,7 @@ export interface LocalPhoto {
   takenAt: string | null
   order: number
   syncStatus: SyncStatus
+  r2Key?: string | null
 }
 
 export interface LocalPlanMark {
@@ -46,6 +47,26 @@ export interface SyncOp {
   attempts: number
   nextAttemptAt: number
   lastError: string | null
+}
+
+export type RetentionMode = 'all' | 'from_date' | 'none'
+
+export interface RetentionSetting {
+  mode: RetentionMode
+  fromDate?: string // ISO yyyy-mm-dd
+}
+
+export interface DeviceSettingRecord {
+  key: string
+  value: unknown
+}
+
+export type CatalogKey = 'projects' | 'work_types' | 'performers' | 'plans'
+
+export interface CatalogRecord {
+  key: CatalogKey
+  payload: unknown
+  updatedAt: number
 }
 
 interface StroyFotoDB extends DBSchema {
@@ -72,29 +93,44 @@ interface StroyFotoDB extends DBSchema {
     value: SyncOp
     indexes: { by_next: number }
   }
+  device_settings: {
+    key: string
+    value: DeviceSettingRecord
+  }
+  catalogs: {
+    key: CatalogKey
+    value: CatalogRecord
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
 
 export function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<StroyFotoDB>('stroyfoto', 1, {
-      upgrade(db) {
-        const reports = db.createObjectStore('reports', { keyPath: 'id' })
-        reports.createIndex('by_status', 'syncStatus')
-        reports.createIndex('by_created', 'createdAt')
+    dbPromise = openDB<StroyFotoDB>('stroyfoto', 2, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const reports = db.createObjectStore('reports', { keyPath: 'id' })
+          reports.createIndex('by_status', 'syncStatus')
+          reports.createIndex('by_created', 'createdAt')
 
-        const photos = db.createObjectStore('photos', { keyPath: 'id' })
-        photos.createIndex('by_report', 'reportId')
+          const photos = db.createObjectStore('photos', { keyPath: 'id' })
+          photos.createIndex('by_report', 'reportId')
 
-        db.createObjectStore('plan_marks', { keyPath: 'reportId' })
-        db.createObjectStore('plans_cache', { keyPath: 'id' })
+          db.createObjectStore('plan_marks', { keyPath: 'reportId' })
+          db.createObjectStore('plans_cache', { keyPath: 'id' })
 
-        const queue = db.createObjectStore('sync_queue', {
-          keyPath: 'id',
-          autoIncrement: true,
-        })
-        queue.createIndex('by_next', 'nextAttemptAt')
+          const queue = db.createObjectStore('sync_queue', {
+            keyPath: 'id',
+            autoIncrement: true,
+          })
+          queue.createIndex('by_next', 'nextAttemptAt')
+        }
+
+        if (oldVersion < 2) {
+          db.createObjectStore('device_settings', { keyPath: 'key' })
+          db.createObjectStore('catalogs', { keyPath: 'key' })
+        }
       },
     })
   }

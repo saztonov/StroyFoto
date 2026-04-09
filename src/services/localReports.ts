@@ -102,6 +102,19 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     await queue.add(markOp)
   }
 
+  // Photo ops ставим после report/mark — они выгрузятся, когда presign будет готов.
+  // Идемпотентность обеспечивается стабильным photo.id (UUID, client-generated).
+  for (const p of input.photos) {
+    const photoOp: SyncOp = {
+      kind: 'photo',
+      entityId: p.id,
+      attempts: 0,
+      nextAttemptAt: nowMs + 200,
+      lastError: null,
+    }
+    await queue.add(photoOp)
+  }
+
   await tx.done
   return report
 }

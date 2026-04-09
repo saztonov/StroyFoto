@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
+import { getDB, type CatalogKey } from '@/lib/db'
 
 export interface PlanRow {
   id: string
@@ -12,21 +13,57 @@ export interface PlanRow {
   created_at: string
 }
 
-const CACHE_PREFIX = 'stroyfoto:cache:'
+const LEGACY_CACHE_PREFIX = 'stroyfoto:cache:'
+let legacyMigrated = false
 
-function readCache<T>(key: string): T | null {
+// Кэш справочников теперь живёт в IndexedDB (store `catalogs`), а не в
+// localStorage — это даёт офлайн-доступ без размерных ограничений и единую
+// точку истины. Сигнатуры readCache/writeCache сохранены для совместимости
+// с вызовами ниже; они асинхронные.
+
+async function readCache<T>(key: CatalogKey): Promise<T | null> {
   try {
-    const raw = localStorage.getItem(CACHE_PREFIX + key)
-    return raw ? (JSON.parse(raw) as T) : null
+    await migrateLegacyCacheOnce()
+    const db = await getDB()
+    const rec = await db.get('catalogs', key)
+    return (rec?.payload as T) ?? null
   } catch {
     return null
   }
 }
-function writeCache<T>(key: string, data: T) {
+
+async function writeCache<T>(key: CatalogKey, data: T): Promise<void> {
   try {
-    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(data))
+    const db = await getDB()
+    await db.put('catalogs', { key, payload: data, updatedAt: Date.now() })
   } catch {
     // ignore quota
+  }
+}
+
+async function migrateLegacyCacheOnce(): Promise<void> {
+  if (legacyMigrated) return
+  legacyMigrated = true
+  if (typeof localStorage === 'undefined') return
+  const keys: CatalogKey[] = ['projects', 'work_types', 'performers', 'plans']
+  try {
+    const db = await getDB()
+    for (const key of keys) {
+      const raw = localStorage.getItem(LEGACY_CACHE_PREFIX + key)
+      if (!raw) continue
+      try {
+        const payload = JSON.parse(raw)
+        const existing = await db.get('catalogs', key)
+        if (!existing) {
+          await db.put('catalogs', { key, payload, updatedAt: Date.now() })
+        }
+      } catch {
+        // ignore
+      }
+      localStorage.removeItem(LEGACY_CACHE_PREFIX + key)
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -36,12 +73,12 @@ export async function loadProjectsForUser(): Promise<Project[]> {
     .select('id,name,description,created_by,created_at,updated_at')
     .order('name', { ascending: true })
   if (error) {
-    const cached = readCache<Project[]>('projects')
+    const cached = await readCache<Project[]>('projects')
     if (cached) return cached
     throw error
   }
   const list = (data ?? []) as Project[]
-  writeCache('projects', list)
+  await writeCache('projects', list)
   return list
 }
 
@@ -52,12 +89,12 @@ export async function loadWorkTypes(): Promise<WorkType[]> {
     .eq('is_active', true)
     .order('name', { ascending: true })
   if (error) {
-    const cached = readCache<WorkType[]>('work_types')
+    const cached = await readCache<WorkType[]>('work_types')
     if (cached) return cached
     throw error
   }
   const list = (data ?? []) as WorkType[]
-  writeCache('work_types', list)
+  await writeCache('work_types', list)
   return list
 }
 
@@ -90,12 +127,12 @@ export async function loadPerformers(): Promise<Performer[]> {
     .eq('is_active', true)
     .order('name', { ascending: true })
   if (error) {
-    const cached = readCache<Performer[]>('performers')
+    const cached = await readCache<Performer[]>('performers')
     if (cached) return cached
     throw error
   }
   const list = (data ?? []) as Performer[]
-  writeCache('performers', list)
+  await writeCache('performers', list)
   return list
 }
 
@@ -105,6 +142,14 @@ export async function loadPlansForProject(projectId: string): Promise<PlanRow[]>
     .select('id,project_id,name,r2_key,page_count,created_at')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as PlanRow[]
+  if (error) {
+    const cached = await readCache<Record<string, PlanRow[]>>('plans')
+    if (cached?.[projectId]) return cached[projectId]
+    throw error
+  }
+  const list = (data ?? []) as PlanRow[]
+  const cached = (await readCache<Record<string, PlanRow[]>>('plans')) ?? {}
+  cached[projectId] = list
+  await writeCache('plans', cached)
+  return list
 }

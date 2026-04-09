@@ -11,3 +11,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>,
 )
+
+// Регистрация service worker для PWA. SW отвечает только за статические
+// ассеты + Background Sync wake-up — бизнес-данные синхронизируются нашим
+// собственным циклом в src/services/sync.ts.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  void import('virtual:pwa-register').then(({ registerSW }) => {
+    registerSW({ immediate: true })
+  })
+}
