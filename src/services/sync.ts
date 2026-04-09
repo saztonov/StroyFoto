@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { getDB, type SyncOp } from '@/lib/db'
 import { updateReportStatus } from '@/services/localReports'
 import { markPhotoSynced, uploadPhoto } from '@/services/photos'
+import { applyRetention } from '@/services/retention'
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 
@@ -153,6 +154,10 @@ async function tick() {
   } finally {
     running = false
     await refreshPending()
+    // После каждого цикла применяем device-level retention. Важно: эта функция
+    // удаляет ТОЛЬКО synced-записи и пропускает отчёты с pending_upload фото,
+    // так что несинхронизированные данные никогда не будут потеряны.
+    void applyRetention().catch(() => undefined)
   }
 }
 

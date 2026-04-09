@@ -41,6 +41,46 @@ export const auth = {
   statusUpdated: 'Статус обновлён',
 } as const
 
+export const reportsList = {
+  filterProject: 'Проект',
+  filterProjectAll: 'Все проекты',
+  filterDateRange: 'Период',
+  filterWorkType: 'Поиск по виду работ',
+  filterReset: 'Сбросить',
+  remoteTag: 'С сервера',
+  emptyLocal: 'Локальных отчётов пока нет',
+  emptyFiltered: 'По выбранным фильтрам ничего не найдено',
+} as const
+
+export const reportDetails = {
+  title: 'Отчёт',
+  sectionMeta: 'Информация',
+  sectionPhotos: 'Фотографии',
+  sectionPlan: 'План и точка',
+  project: 'Проект',
+  workType: 'Вид работ',
+  performer: 'Исполнитель',
+  description: 'Описание',
+  takenAt: 'Дата съёмки',
+  createdAt: 'Создан',
+  author: 'Автор',
+  syncStatus: 'Статус синхронизации',
+  noPhotos: 'Фотографий нет',
+  noMark: 'План или точка не указаны',
+  planOffline: 'План доступен офлайн',
+  pageLabel: 'Страница',
+  point: 'Точка',
+  photoUnavailable: 'Фото недоступно',
+  loading: 'Загрузка отчёта…',
+  notFound: 'Отчёт не найден',
+  offlineWarning:
+    'Этот отчёт не сохранён на этом устройстве. Подключитесь к интернету, чтобы открыть его, или измените настройки локального хранения.',
+  remoteOnlyInfo:
+    'Этот отчёт открыт с сервера и не хранится на этом устройстве согласно вашим настройкам локального хранения.',
+  performerContractor: 'Подрядчик',
+  performerOwn: 'Собственные силы',
+} as const
+
 export const emptyStates = {
   soon: 'Раздел будет реализован на следующем шаге',
   noReports: 'Отчётов пока нет',
