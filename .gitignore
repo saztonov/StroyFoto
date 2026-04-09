@@ -36,9 +36,9 @@ dev-dist
 .DS_Store
 Thumbs.db
 
-# Env (локальные оверрайды — не коммитим; .env.production оставляем)
+# Env — не коммитим
 .env
 .env.local
+.env.production
 .env.*.local
 !.env.example
-!.env.production
