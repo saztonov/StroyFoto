@@ -1,0 +1,16 @@
+name = "stroyfoto-signer"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+
+# Все секреты ставятся через `wrangler secret put <NAME>` — НЕ хранить в этом файле:
+#   SUPABASE_URL              публичный URL Supabase-проекта (для JWKS и REST)
+#   SUPABASE_ANON_KEY         публичный anon JWT (apikey header для PostgREST)
+#   R2_ACCOUNT_ID             Cloudflare account id (для endpoint'а R2)
+#   R2_ACCESS_KEY_ID          R2 access key (роль: object read/write на bucket)
+#   R2_SECRET_ACCESS_KEY      R2 secret key
+#   R2_BUCKET                 имя приватного bucket'а (например, stroyfoto)
+#   ALLOWED_ORIGINS           CSV списка origin'ов фронта, например:
+#                             https://stroyfoto.example.com,http://localhost:5173
+
+# Дополнительная защита: route на собственном домене (опционально)
+# routes = [{ pattern = "signer.stroyfoto.example.com/*", custom_domain = true }]

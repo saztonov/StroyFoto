@@ -58,8 +58,8 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
     if (!photo) return { done: true }
     if (photo.syncStatus === 'synced') return { done: true }
     try {
-      const { r2Key } = await uploadPhoto(photo)
-      await markPhotoSynced(photo.id, r2Key)
+      const { r2Key, thumbR2Key } = await uploadPhoto(photo)
+      await markPhotoSynced(photo.id, r2Key, thumbR2Key)
       return { done: true }
     } catch (e) {
       return { done: false, error: e instanceof Error ? e.message : String(e) }

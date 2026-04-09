@@ -27,6 +27,7 @@ export interface LocalPhoto {
   order: number
   syncStatus: SyncStatus
   r2Key?: string | null
+  thumbR2Key?: string | null
 }
 
 export interface LocalPlanMark {

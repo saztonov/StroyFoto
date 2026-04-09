@@ -39,7 +39,7 @@ npm run preview
 | -------------------------- | ------------------------------------------- | ----------- |
 | `VITE_SUPABASE_URL`        | URL проекта Supabase                        | да          |
 | `VITE_SUPABASE_ANON_KEY`   | Публичный anon-ключ Supabase                | да          |
-| `VITE_PRESIGN_URL`         | Edge-функция для presigned URL к R2         | позже       |
+| `VITE_PRESIGN_URL`         | URL Cloudflare Worker (`worker/`) для presigned R2 | да   |
 
 `.env.production` уже содержит публичные ключи для staging-проекта Supabase и коммитится в репозиторий намеренно (anon-ключ публичный по дизайну).
 
@@ -91,6 +91,42 @@ where id = (select id from auth.users where email = 'admin@example.com');
 - **performers** — читает любой активный пользователь; пишет только админ.
 - **reports** — читать может админ или активный пользователь, состоящий в проекте; вставка только если `author_id = auth.uid()` и пользователь состоит в `project_id`; редактирование/удаление — только админ (MVP).
 - **report_plan_marks / report_photos** — доступ наследуется от родительского отчёта; вставка разрешена автору отчёта.
+
+## Cloudflare R2 signer
+
+Bucket R2 приватный. Фронтенд **никогда** не получает ни service_role
+Supabase, ни ключи R2 — для подписи короткоживущих URL используется
+минимальный доверенный Cloudflare Worker `worker/`.
+
+Схема:
+
+```
+Browser/PWA  ── Bearer JWT ──►  Worker /sign  ──►  SigV4 presign
+                                 verify JWT (Supabase JWKS)
+                                 проверка прав через PostgREST + RLS
+                                 (никакого service_role)
+                                 ◄─── { url, method, headers, expiresAt }
+Browser  ── PUT/GET ──►  Cloudflare R2 (приватный bucket)
+```
+
+Object keys (детерминированные, client-generated UUID):
+
+```
+photos/{reportId}/{photoId}.jpg
+photos/{reportId}/{photoId}-thumb.jpg
+plans/{projectId}/{planId}.pdf
+```
+
+Деплой и переменные — `worker/README.md`. После деплоя Worker'а пропишите его
+URL во фронтендовый `.env`:
+
+```
+VITE_PRESIGN_URL=https://stroyfoto-signer.<account>.workers.dev
+```
+
+CORS на R2 bucket настройте на тот же origin фронтенда (см. `worker/README.md`).
+Supabase должен быть переключён на асимметричную подпись JWT (Project Settings
+→ API → JWT Signing Keys), иначе Worker не сможет проверять токены через JWKS.
 
 ## Структура проекта
 
