@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
-import { signInWithEmail } from '@/services/auth'
-import { actions, auth, errors } from '@/shared/i18n/ru'
+import { mapAuthError, signInWithEmail } from '@/services/auth'
+import { actions, auth } from '@/shared/i18n/ru'
 
 interface FormValues {
   email: string
@@ -21,8 +21,7 @@ export function LoginPage() {
       await signInWithEmail(values.email, values.password)
       navigate('/reports', { replace: true })
     } catch (e) {
-      const message = e instanceof Error ? e.message : errors.generic
-      setError(message.toLowerCase().includes('invalid') ? errors.invalidCredentials : message)
+      setError(mapAuthError(e))
     } finally {
       setLoading(false)
     }

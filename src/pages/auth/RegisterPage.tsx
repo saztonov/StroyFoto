@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
-import { signUpWithEmail } from '@/services/auth'
-import { actions, auth, errors } from '@/shared/i18n/ru'
+import { Alert, Button, Card, Flex, Form, Input, Result, Typography } from 'antd'
+import { mapAuthError, signUpWithEmail } from '@/services/auth'
+import { actions, auth } from '@/shared/i18n/ru'
 
 interface FormValues {
   fullName: string
@@ -14,25 +14,42 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false)
 
   const handleSubmit = async (values: FormValues) => {
     setError(null)
     setLoading(true)
     try {
       const result = await signUpWithEmail(values.email, values.password, values.fullName)
-      // Если Supabase настроен на подтверждение email — session придёт позже,
-      // но каркас корректно отправит пользователя на /pending-activation.
       if (result.session) {
+        // Email-confirm выключен — сразу авторизованы, идём ждать активации.
         navigate('/pending-activation', { replace: true })
       } else {
-        navigate('/login', { replace: true })
+        // Email-confirm включён — нужна явная инструкция, не молчаливый редирект.
+        setNeedsEmailConfirm(true)
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : errors.signUpFailed
-      setError(message)
+      setError(mapAuthError(e))
     } finally {
       setLoading(false)
     }
+  }
+
+  if (needsEmailConfirm) {
+    return (
+      <Card>
+        <Result
+          status="success"
+          title={auth.registerSuccessTitle}
+          subTitle={auth.checkEmail}
+          extra={
+            <Button type="primary" onClick={() => navigate('/login', { replace: true })}>
+              {auth.goToLogin}
+            </Button>
+          }
+        />
+      </Card>
+    )
   }
 
   return (
