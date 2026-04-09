@@ -54,7 +54,7 @@ export function DesktopLayout() {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        breakpoint="lg"
+        breakpoint="md"
         width={232}
       >
         <Flex

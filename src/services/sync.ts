@@ -9,10 +9,11 @@ export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 interface SyncSnapshot {
   state: SyncState
   pending: number
+  failed: number
   lastError: string | null
 }
 
-let snapshot: SyncSnapshot = { state: 'idle', pending: 0, lastError: null }
+let snapshot: SyncSnapshot = { state: 'idle', pending: 0, failed: 0, lastError: null }
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -41,9 +42,10 @@ async function refreshPending() {
   const db = await getDB()
   const all = await db.getAll('reports')
   const pending = all.filter(
-    (r) => r.syncStatus === 'pending' || r.syncStatus === 'failed' || r.syncStatus === 'syncing',
+    (r) => r.syncStatus === 'pending' || r.syncStatus === 'syncing',
   ).length
-  setSnapshot({ pending })
+  const failed = all.filter((r) => r.syncStatus === 'failed').length
+  setSnapshot({ pending, failed })
 }
 
 function backoffMs(attempts: number) {
@@ -201,7 +203,14 @@ export function startSyncLoop() {
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
   document.addEventListener('visibilitychange', handleVisibility)
-  timer = setInterval(triggerSync, 30_000)
+  // На скрытой вкладке/в фоне опрашиваем реже — экономим батарею мобильного устройства.
+  const scheduleTick = () => {
+    if (timer) clearInterval(timer)
+    const interval = typeof document !== 'undefined' && document.hidden ? 120_000 : 30_000
+    timer = setInterval(triggerSync, interval)
+  }
+  scheduleTick()
+  document.addEventListener('visibilitychange', scheduleTick)
   void refreshPending()
   triggerSync()
 }

@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Button,
+  Col,
   DatePicker,
   Empty,
   Flex,
   Input,
-  List,
+  Row,
   Select,
+  Skeleton,
   Space,
   Tag,
   Typography,
@@ -32,19 +34,74 @@ const STATUS_LABEL: Record<SyncStatus, { text: string; color: string }> = {
   pending_upload: { text: 'Фото ждут загрузки', color: 'purple' },
 }
 
+interface ReportCardItemProps {
+  report: ReportCard
+  projectName: string
+  workTypeName: string | null
+  onOpen: (id: string) => void
+}
+
+const ReportCardItem = memo(function ReportCardItem({
+  report,
+  projectName,
+  workTypeName,
+  onOpen,
+}: ReportCardItemProps) {
+  const s = STATUS_LABEL[report.syncStatus]
+  return (
+    <div
+      onClick={() => onOpen(report.id)}
+      style={{
+        cursor: 'pointer',
+        padding: 12,
+        borderRadius: 8,
+        border: '1px solid var(--ant-color-border-secondary, rgba(0,0,0,0.06))',
+        background: 'var(--ant-color-bg-container, #fff)',
+        height: '100%',
+      }}
+    >
+      <Space size={8} wrap>
+        <Badge status={report.syncStatus === 'synced' ? 'success' : 'processing'} />
+        <Typography.Text strong>{projectName}</Typography.Text>
+        <Typography.Text type="secondary">
+          {dayjs(report.createdAt).format('DD.MM.YYYY HH:mm')}
+        </Typography.Text>
+      </Space>
+      <div style={{ marginTop: 6 }}>
+        <Space size={8} wrap>
+          <Tag color={s.color}>{s.text}</Tag>
+          {report.remoteOnly && <Tag color="default">{reportsList.remoteTag}</Tag>}
+          {workTypeName && (
+            <Typography.Text type="secondary">{workTypeName}</Typography.Text>
+          )}
+          {report.description && (
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: 240 }}>
+              {report.description}
+            </Typography.Text>
+          )}
+        </Space>
+      </div>
+    </div>
+  )
+})
+
 export function ReportsListPage() {
   const navigate = useNavigate()
   const [reports, setReports] = useState<ReportCard[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [projectId, setProjectId] = useState<string | null>(null)
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [workTypeQuery, setWorkTypeQuery] = useState('')
 
-  const reload = () => {
-    void loadMergedReports().then(setReports)
-  }
+  const reload = useCallback(() => {
+    void loadMergedReports().then((r) => {
+      setReports(r)
+      setLoading(false)
+    })
+  }, [])
 
   useEffect(() => {
     reload()
@@ -54,7 +111,9 @@ export function ReportsListPage() {
     return () => {
       unsub()
     }
-  }, [])
+  }, [reload])
+
+  const openReport = useCallback((id: string) => navigate(`/reports/${id}`), [navigate])
 
   const projectsById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -132,57 +191,27 @@ export function ReportsListPage() {
         )}
       </Flex>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 6 }} />
+      ) : filtered.length === 0 ? (
         <Empty
           description={
             reports.length === 0 ? reportsList.emptyLocal : reportsList.emptyFiltered
           }
         />
       ) : (
-        <List
-          dataSource={filtered}
-          renderItem={(r) => {
-            const s = STATUS_LABEL[r.syncStatus]
-            const project = projectsById.get(r.projectId)
-            const workType = workTypesById.get(r.workTypeId)
-            return (
-              <List.Item
-                style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/reports/${r.id}`)}
-              >
-                <List.Item.Meta
-                  title={
-                    <Space size={8} wrap>
-                      <Badge
-                        status={r.syncStatus === 'synced' ? 'success' : 'processing'}
-                      />
-                      <Typography.Text strong>
-                        {project?.name ?? '—'}
-                      </Typography.Text>
-                      <Typography.Text type="secondary">
-                        {dayjs(r.createdAt).format('DD.MM.YYYY HH:mm')}
-                      </Typography.Text>
-                    </Space>
-                  }
-                  description={
-                    <Space size={8} wrap>
-                      <Tag color={s.color}>{s.text}</Tag>
-                      {r.remoteOnly && <Tag color="default">{reportsList.remoteTag}</Tag>}
-                      {workType && (
-                        <Typography.Text type="secondary">{workType.name}</Typography.Text>
-                      )}
-                      {r.description && (
-                        <Typography.Text type="secondary" ellipsis style={{ maxWidth: 240 }}>
-                          {r.description}
-                        </Typography.Text>
-                      )}
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )
-          }}
-        />
+        <Row gutter={[12, 12]}>
+          {filtered.map((r) => (
+            <Col key={r.id} xs={24} sm={12} xl={8}>
+              <ReportCardItem
+                report={r}
+                projectName={projectsById.get(r.projectId)?.name ?? '—'}
+                workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
+                onOpen={openReport}
+              />
+            </Col>
+          ))}
+        </Row>
       )}
     </>
   )

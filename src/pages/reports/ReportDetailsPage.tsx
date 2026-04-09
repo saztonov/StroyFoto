@@ -24,7 +24,6 @@ import {
   type ReportCard,
   type RemoteReportFull,
   type RemoteReportPhoto,
-  type RemoteReportMark,
 } from '@/services/reports'
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'

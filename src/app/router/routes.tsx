@@ -1,4 +1,7 @@
+import { lazy, Suspense } from 'react'
+import type { ReactNode } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { Skeleton } from 'antd'
 import { RequireActive, RequireAdmin, RequireAuth, RequireGuest } from '@/app/router/guards'
 import { AppShell } from '@/app/layouts/AppShell'
 import { AuthLayout } from '@/app/layouts/AuthLayout'
@@ -8,15 +11,36 @@ import { RegisterPage } from '@/pages/auth/RegisterPage'
 import { PendingActivationPage } from '@/pages/auth/PendingActivationPage'
 
 import { ReportsListPage } from '@/pages/reports/ReportsListPage'
-import { NewReportPage } from '@/pages/reports/NewReportPage'
-import { ReportDetailsPage } from '@/pages/reports/ReportDetailsPage'
-import { PlansPage } from '@/pages/plans/PlansPage'
-import { SettingsPage } from '@/pages/settings/SettingsPage'
 
-import { UsersPage } from '@/pages/admin/UsersPage'
-import { ProjectsPage } from '@/pages/admin/ProjectsPage'
-import { WorkTypesPage } from '@/pages/admin/WorkTypesPage'
-import { PerformersPage } from '@/pages/admin/PerformersPage'
+// Тяжёлые страницы — отдельные чанки. Снижает initial bundle и ускоряет первый рендер.
+const NewReportPage = lazy(() =>
+  import('@/pages/reports/NewReportPage').then((m) => ({ default: m.NewReportPage })),
+)
+const ReportDetailsPage = lazy(() =>
+  import('@/pages/reports/ReportDetailsPage').then((m) => ({ default: m.ReportDetailsPage })),
+)
+const PlansPage = lazy(() =>
+  import('@/pages/plans/PlansPage').then((m) => ({ default: m.PlansPage })),
+)
+const SettingsPage = lazy(() =>
+  import('@/pages/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+)
+const UsersPage = lazy(() =>
+  import('@/pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })),
+)
+const ProjectsPage = lazy(() =>
+  import('@/pages/admin/ProjectsPage').then((m) => ({ default: m.ProjectsPage })),
+)
+const WorkTypesPage = lazy(() =>
+  import('@/pages/admin/WorkTypesPage').then((m) => ({ default: m.WorkTypesPage })),
+)
+const PerformersPage = lazy(() =>
+  import('@/pages/admin/PerformersPage').then((m) => ({ default: m.PerformersPage })),
+)
+
+function lazyPage(node: ReactNode) {
+  return <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>{node}</Suspense>
+}
 
 export const router = createBrowserRouter([
   // Гостевые маршруты (если уже вошёл — редирект на /reports)
@@ -56,19 +80,19 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to="/reports" replace /> },
               { path: '/reports', element: <ReportsListPage /> },
-              { path: '/reports/new', element: <NewReportPage /> },
-              { path: '/reports/:id', element: <ReportDetailsPage /> },
-              { path: '/plans', element: <PlansPage /> },
-              { path: '/settings', element: <SettingsPage /> },
+              { path: '/reports/new', element: lazyPage(<NewReportPage />) },
+              { path: '/reports/:id', element: lazyPage(<ReportDetailsPage />) },
+              { path: '/plans', element: lazyPage(<PlansPage />) },
+              { path: '/settings', element: lazyPage(<SettingsPage />) },
 
               // Админская ветка — дополнительная проверка роли
               {
                 element: <RequireAdmin />,
                 children: [
-                  { path: '/admin/users', element: <UsersPage /> },
-                  { path: '/admin/projects', element: <ProjectsPage /> },
-                  { path: '/admin/work-types', element: <WorkTypesPage /> },
-                  { path: '/admin/performers', element: <PerformersPage /> },
+                  { path: '/admin/users', element: lazyPage(<UsersPage />) },
+                  { path: '/admin/projects', element: lazyPage(<ProjectsPage />) },
+                  { path: '/admin/work-types', element: lazyPage(<WorkTypesPage />) },
+                  { path: '/admin/performers', element: lazyPage(<PerformersPage />) },
                 ],
               },
             ],

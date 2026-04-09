@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Button, Flex, Spin, Typography, message } from 'antd'
-import { CameraOutlined, DeleteOutlined, PictureOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CameraOutlined,
+  DeleteOutlined,
+  PictureOutlined,
+} from '@ant-design/icons'
 import imageCompression from 'browser-image-compression'
 import { v4 as uuid } from 'uuid'
+import { platform } from '@/lib/platform'
 
 export interface DraftPhoto {
   id: string
@@ -32,41 +39,89 @@ async function readDimensions(blob: Blob): Promise<{ width: number; height: numb
   }
 }
 
-export function PhotoPicker({ value, onChange }: Props) {
-  const cameraRef = useRef<HTMLInputElement>(null)
-  const galleryRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [previews, setPreviews] = useState<Record<string, string>>({})
+interface PhotoTileProps {
+  photo: DraftPhoto
+  url: string
+  index: number
+  total: number
+  onMove: (idx: number, delta: number) => void
+  onRemove: (id: string) => void
+}
 
-  useEffect(() => {
-    const next: Record<string, string> = {}
-    for (const p of value) {
-      next[p.id] = previews[p.id] ?? URL.createObjectURL(p.thumbBlob)
-    }
-    // Освобождаем URL-ы удалённых элементов.
-    for (const id of Object.keys(previews)) {
-      if (!next[id]) URL.revokeObjectURL(previews[id])
-    }
-    setPreviews(next)
-    return () => {
-      // unmount cleanup происходит в отдельном эффекте ниже
-    }
+const PhotoTile = memo(function PhotoTile({
+  photo,
+  url,
+  index,
+  total,
+  onMove,
+  onRemove,
+}: PhotoTileProps) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        aspectRatio: '1 / 1',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'rgba(0,0,0,0.04)',
+      }}
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+      <Flex gap={4} style={{ position: 'absolute', left: 4, bottom: 4 }}>
+        <Button
+          size="small"
+          icon={<ArrowUpOutlined />}
+          onClick={() => onMove(index, -1)}
+          disabled={index === 0}
+        />
+        <Button
+          size="small"
+          icon={<ArrowDownOutlined />}
+          onClick={() => onMove(index, 1)}
+          disabled={index === total - 1}
+        />
+      </Flex>
+      <Button
+        size="small"
+        danger
+        icon={<DeleteOutlined />}
+        onClick={() => onRemove(photo.id)}
+        style={{ position: 'absolute', top: 4, right: 4 }}
+      />
+    </div>
+  )
+})
+
+export function PhotoPicker({ value, onChange }: Props) {
+  const [busy, setBusy] = useState(false)
+
+  // Стабильная карта id → object URL. URL живёт ровно столько, сколько фото в value.
+  const previews = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of value) map.set(p.id, URL.createObjectURL(p.thumbBlob))
+    return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   useEffect(() => {
     return () => {
-      for (const url of Object.values(previews)) URL.revokeObjectURL(url)
+      for (const url of previews.values()) URL.revokeObjectURL(url)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [previews])
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return
     setBusy(true)
     try {
       const added: DraftPhoto[] = []
-      for (const file of Array.from(files)) {
+      // Последовательная обработка: щадим CPU мобильного устройства.
+      for (const file of files) {
         try {
           const compressed = await imageCompression(file, {
             maxSizeMB: 1.5,
@@ -97,9 +152,16 @@ export function PhotoPicker({ value, onChange }: Props) {
       if (added.length > 0) onChange([...value, ...added])
     } finally {
       setBusy(false)
-      if (cameraRef.current) cameraRef.current.value = ''
-      if (galleryRef.current) galleryRef.current.value = ''
     }
+  }
+
+  const takePhoto = async () => {
+    const files = await platform.camera.takePhoto()
+    await handleFiles(files)
+  }
+  const pickGallery = async () => {
+    const files = await platform.camera.pickFromGallery()
+    await handleFiles(files)
   }
 
   const removeAt = (id: string) => onChange(value.filter((p) => p.id !== id))
@@ -114,18 +176,10 @@ export function PhotoPicker({ value, onChange }: Props) {
   return (
     <Flex vertical gap={12}>
       <Flex gap={8} wrap="wrap">
-        <Button
-          icon={<CameraOutlined />}
-          onClick={() => cameraRef.current?.click()}
-          disabled={busy}
-        >
+        <Button icon={<CameraOutlined />} onClick={() => void takePhoto()} disabled={busy}>
           Снять фото
         </Button>
-        <Button
-          icon={<PictureOutlined />}
-          onClick={() => galleryRef.current?.click()}
-          disabled={busy}
-        >
+        <Button icon={<PictureOutlined />} onClick={() => void pickGallery()} disabled={busy}>
           Из галереи
         </Button>
         {busy ? (
@@ -136,75 +190,28 @@ export function PhotoPicker({ value, onChange }: Props) {
         ) : null}
       </Flex>
 
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style={{ display: 'none' }}
-        onChange={(e) => void handleFiles(e.target.files)}
-      />
-      <input
-        ref={galleryRef}
-        type="file"
-        accept="image/*"
-        multiple
-        style={{ display: 'none' }}
-        onChange={(e) => void handleFiles(e.target.files)}
-      />
-
       {value.length === 0 ? (
         <Typography.Text type="secondary">Фотографии ещё не добавлены</Typography.Text>
       ) : (
-        <Flex gap={8} wrap="wrap">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+            gap: 8,
+          }}
+        >
           {value.map((p, idx) => (
-            <div
+            <PhotoTile
               key={p.id}
-              style={{
-                position: 'relative',
-                width: 110,
-                height: 110,
-                borderRadius: 8,
-                overflow: 'hidden',
-                background: 'rgba(0,0,0,0.04)',
-              }}
-            >
-              <img
-                src={previews[p.id]}
-                alt=""
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-              <Flex
-                gap={4}
-                style={{
-                  position: 'absolute',
-                  left: 4,
-                  bottom: 4,
-                }}
-              >
-                <Button
-                  size="small"
-                  icon={<ArrowUpOutlined />}
-                  onClick={() => move(idx, -1)}
-                  disabled={idx === 0}
-                />
-                <Button
-                  size="small"
-                  icon={<ArrowDownOutlined />}
-                  onClick={() => move(idx, 1)}
-                  disabled={idx === value.length - 1}
-                />
-              </Flex>
-              <Button
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => removeAt(p.id)}
-                style={{ position: 'absolute', top: 4, right: 4 }}
-              />
-            </div>
+              photo={p}
+              url={previews.get(p.id) ?? ''}
+              index={idx}
+              total={value.length}
+              onMove={move}
+              onRemove={removeAt}
+            />
           ))}
-        </Flex>
+        </div>
       )}
     </Flex>
   )

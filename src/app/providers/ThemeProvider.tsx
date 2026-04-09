@@ -53,9 +53,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = effective
-    const meta = document.querySelector('meta[name="theme-color"]')
-    if (meta) {
-      meta.setAttribute('content', effective === 'dark' ? '#141414' : '#1677ff')
+    // Обновляем оба meta theme-color (light/dark), чтобы не было «шва» между splash и app shell.
+    const metas = document.querySelectorAll('meta[name="theme-color"]')
+    const lightColor = '#ffffff'
+    const darkColor = '#141414'
+    if (metas.length === 0) {
+      const m = document.createElement('meta')
+      m.name = 'theme-color'
+      m.content = effective === 'dark' ? darkColor : lightColor
+      document.head.appendChild(m)
+    } else {
+      metas.forEach((meta) => {
+        const media = meta.getAttribute('media')
+        if (media?.includes('dark')) meta.setAttribute('content', darkColor)
+        else if (media?.includes('light')) meta.setAttribute('content', lightColor)
+        else meta.setAttribute('content', effective === 'dark' ? darkColor : lightColor)
+      })
     }
   }, [effective])
 

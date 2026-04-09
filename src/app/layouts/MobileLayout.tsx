@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LogoutOutlined, MenuOutlined } from '@ant-design/icons'
-import { Button, Divider, Drawer, Flex, Layout, Menu, Typography } from 'antd'
+import { Badge, Button, Divider, Drawer, Flex, Layout, Menu, Typography } from 'antd'
+import { getSyncSnapshot, subscribeSync } from '@/services/sync'
 import type { MenuProps } from 'antd'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { SyncBanner } from '@/shared/ui/SyncBanner'
@@ -54,6 +55,13 @@ export function MobileLayout() {
   }, [isAdmin, navigate])
 
   const tabBarItems = primaryNav
+
+  const syncSnap = useSyncExternalStore(
+    (cb) => subscribeSync(cb) as unknown as () => void,
+    getSyncSnapshot,
+    getSyncSnapshot,
+  )
+  const pendingTotal = syncSnap.pending + syncSnap.failed
 
   return (
     <Layout style={{ minHeight: '100dvh' }}>
@@ -127,7 +135,15 @@ export function MobileLayout() {
                 padding: 8,
               }}
             >
-              <span style={{ fontSize: 20 }}>{item.icon}</span>
+              <span style={{ fontSize: 20 }}>
+                {item.key === 'reports' && pendingTotal > 0 ? (
+                  <Badge count={pendingTotal} size="small" offset={[2, -2]}>
+                    {item.icon}
+                  </Badge>
+                ) : (
+                  item.icon
+                )}
+              </span>
               <span>{item.label}</span>
             </button>
           )
