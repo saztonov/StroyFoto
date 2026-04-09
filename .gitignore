@@ -1,1 +1,44 @@
-.env.production
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+
+# Build output
+dist
+dist-ssr
+build
+*.local
+*.tsbuildinfo
+
+# PWA generated
+dev-dist
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (локальные оверрайды — не коммитим; .env.production оставляем)
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production
