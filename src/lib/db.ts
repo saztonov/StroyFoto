@@ -189,12 +189,12 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 82
+const DB_VERSION = 83
 
 export function getDB() {
   if (!dbPromise) {
     dbPromise = openDB<StroyFotoDB>('stroyfoto', DB_VERSION, {
-      upgrade(db, oldVersion, _newVersion, tx) {
+      upgrade(db, oldVersion, newVersion, tx) {
         // v1 stores
         const reportsNew = ensureStore(db, 'reports', { keyPath: 'id' }, tx)
         if (reportsNew) {
@@ -254,6 +254,33 @@ export function getDB() {
             return migrate(next)
           })
         }
+
+        // Диагностика keyPath критических stores — помогает быстро подтвердить,
+        // что схема восстановилась после ветки mismatch в ensureStore.
+        try {
+          const critical = ['reports', 'photos', 'plan_marks', 'sync_queue']
+          const parts = critical.map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (name) => `${name}.keyPath=${JSON.stringify(tx.objectStore(name as any).keyPath)}`,
+          )
+          console.info(`[idb upgrade] oldVersion=${oldVersion} newVersion=${newVersion} ${parts.join(' ')}`)
+        } catch (e) {
+          console.warn('[idb upgrade] diagnostic failed:', e)
+        }
+      },
+      blocked(currentVersion, blockedVersion) {
+        console.warn(
+          `[idb] upgrade blocked: другая вкладка держит БД на версии ${currentVersion}, ` +
+            `новая версия ${blockedVersion}. Закройте другие вкладки приложения.`,
+        )
+      },
+      blocking(currentVersion, blockedVersion) {
+        console.warn(
+          `[idb] this tab is blocking upgrade (current=${currentVersion}, blocked=${blockedVersion}); closing connection`,
+        )
+        // Закрываем текущее соединение, чтобы другая вкладка могла завершить upgrade.
+        void dbPromise?.then((db) => db.close())
+        dbPromise = null
       },
     })
   }

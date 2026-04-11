@@ -10,7 +10,7 @@ import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
 
 export function SettingsPage() {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { profile, user } = useAuth()
   const [mode, setMode] = useState<RetentionMode>('all')
   const [fromDate, setFromDate] = useState<Dayjs | null>(null)
@@ -22,6 +22,31 @@ export function SettingsPage() {
       if (r.fromDate) setFromDate(dayjs(r.fromDate))
     })
   }, [])
+
+  function handleResetLocalDb() {
+    modal.confirm({
+      title: 'Сбросить локальную базу данных?',
+      content:
+        'Будут удалены ВСЕ локальные данные, включая несинхронизированные отчёты и фото. ' +
+        'Восстановить их будет невозможно. Используйте эту операцию, только если приложение сообщает о повреждении локальной базы.',
+      okText: 'Удалить и перезагрузить',
+      cancelText: 'Отмена',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const req = indexedDB.deleteDatabase('stroyfoto')
+            req.onsuccess = () => resolve()
+            req.onerror = () => reject(req.error ?? new Error('deleteDatabase failed'))
+            req.onblocked = () => reject(new Error('Удаление заблокировано — закройте другие вкладки приложения.'))
+          })
+          location.reload()
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : 'Не удалось сбросить локальную базу')
+        }
+      },
+    })
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -111,6 +136,18 @@ export function SettingsPage() {
               style={{ alignSelf: 'flex-start' }}
             >
               Сохранить
+            </Button>
+          </Flex>
+        </Card>
+
+        <Card title="Обслуживание">
+          <Flex vertical gap={12}>
+            <Typography.Text type="secondary">
+              Если приложение сообщает о повреждении локальной базы данных и не даёт создавать отчёты,
+              выполните сброс. Перед сбросом убедитесь, что несинхронизированных отчётов нет — они будут потеряны.
+            </Typography.Text>
+            <Button danger onClick={handleResetLocalDb} style={{ alignSelf: 'flex-start' }}>
+              Сбросить локальную базу
             </Button>
           </Flex>
         </Card>

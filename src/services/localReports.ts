@@ -40,6 +40,8 @@ export interface DraftReportInput {
  * хранилищ упадёт — транзакция откатится целиком.
  */
 export async function saveDraftReport(input: DraftReportInput): Promise<LocalReport> {
+  if (!input.id) throw new Error('saveDraftReport: отсутствует id отчёта')
+
   const db = await getDB()
   const now = new Date().toISOString()
 
@@ -65,12 +67,21 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   try {
     await tx.objectStore('reports').put(report)
   } catch (e) {
+    // DataError «did not yield a value» = keyPath store'а не соответствует схеме
+    // (обычно — остаток сломанной локальной БД). Сообщаем пользователю человеческим текстом.
+    if (e instanceof DOMException && e.name === 'DataError') {
+      throw new Error(
+        'Локальная база данных в несогласованном состоянии (store "reports" повреждён). ' +
+          'Откройте Настройки → «Сбросить локальную базу», либо закройте все вкладки приложения и попробуйте снова.',
+      )
+    }
     throw new Error(`IDB put reports failed (id=${String(report.id)}): ${e instanceof Error ? e.message : e}`)
   }
 
   const photosStore = tx.objectStore('photos')
   for (let i = 0; i < input.photos.length; i++) {
     const p = input.photos[i]
+    if (!p.id) throw new Error(`saveDraftReport: фото[${i}] без id`)
     const photo: LocalPhoto = {
       id: p.id,
       reportId: input.id,
