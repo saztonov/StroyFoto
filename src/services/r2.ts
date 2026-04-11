@@ -24,16 +24,25 @@ export interface PresignResponse {
  * Запрашивает у Supabase Edge Function `sign` presigned URL для R2.
  * Никаких R2-секретов на клиенте — функция валидирует JWT и проверяет права
  * через supabase-js + RLS, после чего подписывает короткоживущий URL.
- * Authorization-заголовок и apikey добавляет сам supabase-js.
+ *
+ * Authorization передаём явно: @supabase/supabase-js v2 из коробки не всегда
+ * прокидывает актуальный access_token в FunctionsClient после входа/refresh'а —
+ * поэтому gateway с verify_jwt=true отдаёт 401 ещё до запуска функции (в логах
+ * такие запросы видны с execution_id=null). Явная передача токена обходит эту
+ * проблему и одновременно гарантирует, что мы используем именно свежий токен.
  */
 export async function requestPresigned(req: PresignRequest): Promise<PresignResponse> {
   const { data: sessionData } = await supabase.auth.getSession()
-  if (!sessionData.session?.access_token) {
+  const accessToken = sessionData.session?.access_token
+  if (!accessToken) {
     throw new Error('Нет активной сессии Supabase для запроса presigned URL')
   }
 
   const { data, error } = await supabase.functions.invoke<PresignResponse>('sign', {
     body: req,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   if (error) {
     // FunctionsHttpError содержит response — попытаемся вытащить JSON-сообщение,
