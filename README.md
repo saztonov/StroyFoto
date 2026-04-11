@@ -10,7 +10,7 @@
 - **Supabase** (Auth + Postgres, напрямую из браузера)
 - **vite-plugin-pwa** (manifest + service worker, installable PWA)
 
-Отдельного backend-API нет. Вся логика во фронтенде; файлы планируется хранить в приватном Cloudflare R2 через тонкую edge-функцию, которая будет выдавать presigned URL (добавится отдельным шагом).
+Отдельного backend-API нет. Вся логика во фронтенде; файлы лежат в приватном Cloudflare R2, а короткоживущие presigned URL выдаёт Supabase Edge Function [supabase/functions/sign/](supabase/functions/sign/). Все R2-секреты хранятся в Supabase и никогда не попадают в клиент.
 
 ## Быстрый старт
 
@@ -35,18 +35,16 @@ npm run preview
 
 ### Переменные окружения
 
-| Переменная                 | Назначение                                  | Обязательна                 |
-| -------------------------- | ------------------------------------------- | --------------------------- |
-| `VITE_SUPABASE_URL`        | URL проекта Supabase                        | да                          |
-| `VITE_SUPABASE_ANON_KEY`   | Публичный anon-ключ Supabase                | да                          |
-| `VITE_PRESIGN_URL`         | URL Cloudflare Worker (`worker/`) для presigned R2 | да в PROD, опционально в DEV |
+| Переменная               | Назначение                   | Обязательна |
+| ------------------------ | ---------------------------- | ----------- |
+| `VITE_SUPABASE_URL`      | URL проекта Supabase         | да          |
+| `VITE_SUPABASE_ANON_KEY` | Публичный anon-ключ Supabase | да          |
 
-Валидация в [src/shared/config/env.ts](src/shared/config/env.ts):
-Supabase-ключи обязательны всегда, `VITE_PRESIGN_URL` обязателен в
-production-сборке (`npm run build`) — приложение упадёт на старте, если он
-пуст. В `npm run dev` допустимо оставить его пустым: UI PlanMarkPicker
-покажет заглушку, загрузка фото будет отключена, всё остальное работает.
-Пример значения: `https://stroyfoto-signer.example.workers.dev` (без `/` в конце).
+Валидация в [src/shared/config/env.ts](src/shared/config/env.ts). Для R2
+никаких дополнительных `VITE_*`-переменных не нужно: URL Edge Function
+`sign` собирается из `VITE_SUPABASE_URL` внутри
+`supabase.functions.invoke`, а все R2-секреты хранятся в Supabase
+(см. секцию «Cloudflare R2 signer»).
 
 `.env.production` уже содержит публичные ключи для staging-проекта Supabase
 и коммитится в репозиторий намеренно (anon-ключ публичный по дизайну).
@@ -109,17 +107,19 @@ where id = (select id from auth.users where email = 'admin@example.com');
 ## Cloudflare R2 signer
 
 Bucket R2 приватный. Фронтенд **никогда** не получает ни service_role
-Supabase, ни ключи R2 — для подписи короткоживущих URL используется
-минимальный доверенный Cloudflare Worker `worker/`.
+Supabase, ни ключи R2 — подпись короткоживущих presigned URL делает
+**Supabase Edge Function** [supabase/functions/sign/](supabase/functions/sign/).
+Отдельный Cloudflare Worker больше не нужен.
 
 Схема:
 
 ```
-Browser/PWA  ── Bearer JWT ──►  Worker /sign  ──►  SigV4 presign
-                                 verify JWT (Supabase JWKS)
-                                 проверка прав через PostgREST + RLS
-                                 (никакого service_role)
-                                 ◄─── { url, method, headers, expiresAt }
+Browser/PWA  ── supabase.functions.invoke('sign') ──►  Edge Function sign
+                                                        verify JWT (Supabase Gateway)
+                                                        supabase.auth.getUser()
+                                                        RLS-проверки через supabase-js
+                                                        SigV4 presign (aws4fetch)
+                                                        ◄─── { url, method, headers, expiresAt }
 Browser  ── PUT/GET ──►  Cloudflare R2 (приватный bucket)
 ```
 
@@ -131,16 +131,55 @@ photos/{reportId}/{photoId}-thumb.jpg
 plans/{projectId}/{planId}.pdf
 ```
 
-Деплой и переменные — `worker/README.md`. После деплоя Worker'а пропишите его
-URL во фронтендовый `.env`:
+### Деплой Edge Function
 
-```
-VITE_PRESIGN_URL=https://stroyfoto-signer.<account>.workers.dev
+```bash
+# 1. Залогиниться в Supabase CLI и привязать проект
+supabase login
+supabase link --project-ref <your-project-ref>
+
+# 2. Положить секреты R2 (один раз). SUPABASE_URL / SUPABASE_ANON_KEY
+#    задавать НЕ нужно — их Supabase инжектит сам. Префикс SUPABASE_
+#    зарезервирован.
+supabase secrets set \
+  R2_ACCOUNT_ID=xxxxxxxx \
+  R2_ACCESS_KEY_ID=xxxxxxxx \
+  R2_SECRET_ACCESS_KEY=xxxxxxxx \
+  R2_BUCKET=stroyfoto \
+  ALLOWED_ORIGINS=https://stroyfoto.app,http://localhost:5173
+
+# 3. Задеплоить функцию
+supabase functions deploy sign
 ```
 
-CORS на R2 bucket настройте на тот же origin фронтенда (см. `worker/README.md`).
-Supabase должен быть переключён на асимметричную подпись JWT (Project Settings
-→ API → JWT Signing Keys), иначе Worker не сможет проверять токены через JWKS.
+После этого клиент автоматически начнёт ходить в
+`${VITE_SUPABASE_URL}/functions/v1/sign` — дополнительной настройки не
+требуется.
+
+### Локальный запуск функции
+
+```bash
+supabase functions serve sign
+# + в ./supabase/.env.local положить R2_* и ALLOWED_ORIGINS
+```
+
+### CORS на R2
+
+CORS на R2 bucket настройте на тот же origin фронтенда (для PUT/GET
+напрямую в `*.r2.cloudflarestorage.com` из браузера). Минимальный
+пример правил R2 CORS:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://stroyfoto.app", "http://localhost:5173"],
+    "AllowedMethods": ["GET", "PUT"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
 
 ## Структура проекта
 
@@ -155,8 +194,10 @@ src/
 ├── shared/         # ui (SyncBanner, ThemeToggle), hooks, i18n, config
 ├── lib/            # интеграции: supabase.ts, db.ts (IndexedDB), platform/ (CameraAdapter)
 └── services/       # auth, sync, photos, localReports, retention, r2, catalogs, deviceSettings
-supabase/schema.sql  # единый SQL-скрипт: схема, триггеры, RLS, RPC
-worker/              # Cloudflare Worker-подписант R2 (JWT verify + RLS-делегация, свой package.json/tsconfig)
+supabase/
+├── schema.sql       # единый SQL-скрипт: схема, триггеры, RLS, RPC
+├── config.toml      # конфиг Supabase CLI (секция [functions.sign])
+└── functions/sign/  # Edge Function: presigned R2 URLs (SigV4 через aws4fetch)
 ```
 
 ## Маршруты
@@ -248,8 +289,6 @@ Guard'ы (`src/app/router/guards.tsx`):
   SW-handler не подключается, поэтому ретраи идут только через in-app loop
   (online-событие, visibilitychange, interval). Это сознательное MVP-решение,
   чтобы не тащить `injectManifest` ради одного эффекта.
-- **JWKS-кэш воркера** — 10 минут. Ротация JWT-ключей Supabase проявится
-  в воркере с соответствующей задержкой.
 - **R2 PUT timeout** — 60 сек на фото, 45 сек на GET. Очень большие файлы
   на медленном канале будут ретраиться с экспоненциальным backoff.
 - **Гонка дубликатов `work_types`** — если два устройства офлайн создали
@@ -355,12 +394,16 @@ Retention (локальное хранение):
 - [ ] `/settings` → «Не хранить историю локально» → после синка
       всё чистится, но ни один pending/failed отчёт не пропадает
 
-Worker (R2 signer), если задеплоен:
+Edge Function `sign` (R2 signer):
 
+- [ ] `supabase functions deploy sign` прошёл без ошибок, секреты
+      `R2_*` заданы через `supabase secrets set`
 - [ ] Фронт на dev-сервере успешно получает presigned URL и
       заливает фото в R2
-- [ ] В логах воркера видны запросы с Bearer JWT и успешные
-      presign-ответы
+- [ ] `supabase functions logs sign` показывает запросы с 200-м
+      статусом и без trace-ошибок
+- [ ] Попытка вызвать функцию без Bearer JWT возвращает 401
+- [ ] Попытка подписать `reportId`, к которому нет доступа, возвращает 403
 
 ## PWA — поведение оффлайн
 
@@ -374,5 +417,5 @@ App shell, JS/CSS, иконки и PDF.js-воркер кэшируются Work
 ## Деплой
 
 - **Frontend**: `npm run build` → `dist/` можно раздавать с любого статик-хостинга (Cloudflare Pages, Netlify, Vercel, S3+CF). Важна корректная настройка SPA-fallback на `index.html`.
-- **Worker**: `cd worker && npx wrangler deploy`. Перед деплоем заполнить `wrangler.toml` и секреты (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SUPABASE_URL`, `SUPABASE_JWKS_URL`). См. `worker/README.md`.
-- **Supabase**: `supabase db push` + bootstrap первого админа (см. выше).
+- **Edge Function `sign`**: `supabase functions deploy sign`. Перед деплоем задать секреты `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `ALLOWED_ORIGINS` через `supabase secrets set`. `SUPABASE_URL` / `SUPABASE_ANON_KEY` задавать не нужно — платформа инжектит их автоматически. См. секцию «Cloudflare R2 signer».
+- **Supabase**: применить `supabase/schema.sql` + bootstrap первого админа (см. выше).

@@ -3,7 +3,6 @@ import { Alert, Button, Flex, Select, Space, Typography } from 'antd'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { PlanRow } from '@/services/catalogs'
 import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
-import { env } from '@/shared/config/env'
 import { PdfPlanCanvas } from './PdfPlanCanvas'
 
 export interface PlanMarkValue {
@@ -67,17 +66,6 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
       cancelled = true
     }
   }, [value?.planId, plans])
-
-  if (!env.presignUrl) {
-    return (
-      <Alert
-        type="info"
-        showIcon
-        message="Планы и точки появятся после подключения R2"
-        description="Edge-функция для выдачи ссылок на приватные PDF ещё не настроена. Создавать отчёты можно без точки на плане."
-      />
-    )
-  }
 
   if (plans.length === 0) {
     return <Typography.Text type="secondary">У проекта пока нет загруженных планов</Typography.Text>

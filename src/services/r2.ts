@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase'
-import { env } from '@/shared/config/env'
 
 export type R2Op = 'put' | 'get' | 'delete'
 export type R2Kind = 'photo' | 'photo_thumb' | 'plan'
@@ -22,30 +21,42 @@ export interface PresignResponse {
 }
 
 /**
- * Запрашивает у доверенного Cloudflare Worker presigned URL для R2.
- * Никаких R2-секретов на клиенте — Worker валидирует JWT и проверяет права
- * через Supabase REST + RLS, после чего подписывает короткоживущий URL.
+ * Запрашивает у Supabase Edge Function `sign` presigned URL для R2.
+ * Никаких R2-секретов на клиенте — функция валидирует JWT и проверяет права
+ * через supabase-js + RLS, после чего подписывает короткоживущий URL.
+ * Authorization-заголовок и apikey добавляет сам supabase-js.
  */
 export async function requestPresigned(req: PresignRequest): Promise<PresignResponse> {
   const { data: sessionData } = await supabase.auth.getSession()
-  const token = sessionData.session?.access_token
-  if (!token) throw new Error('Нет активной сессии Supabase для запроса presigned URL')
-
-  const res = await fetch(`${env.presignUrl}/sign`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(req),
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`presign ${res.status}: ${text || res.statusText}`)
+  if (!sessionData.session?.access_token) {
+    throw new Error('Нет активной сессии Supabase для запроса presigned URL')
   }
 
-  return (await res.json()) as PresignResponse
+  const { data, error } = await supabase.functions.invoke<PresignResponse>('sign', {
+    body: req,
+  })
+  if (error) {
+    // FunctionsHttpError содержит response — попытаемся вытащить JSON-сообщение,
+    // чтобы пользователь видел «нет доступа к отчёту», а не голый «non-2xx».
+    const detail = await extractFunctionErrorMessage(error)
+    throw new Error(`presign: ${detail}`)
+  }
+  if (!data) throw new Error('presign: пустой ответ функции')
+  return data
+}
+
+async function extractFunctionErrorMessage(error: unknown): Promise<string> {
+  const anyErr = error as { message?: string; context?: { json?: () => Promise<unknown> } }
+  try {
+    const ctx = anyErr.context
+    if (ctx && typeof ctx.json === 'function') {
+      const body = (await ctx.json()) as { error?: string } | null
+      if (body && typeof body.error === 'string' && body.error) return body.error
+    }
+  } catch {
+    // Ignore — вернём fallback ниже.
+  }
+  return anyErr.message ?? 'unknown function error'
 }
 
 export function photoKey(reportId: string, photoId: string): string {

@@ -21,8 +21,8 @@ export interface UploadPhotoResult {
  *   - INSERT в report_photos идёт через upsert по PK, чтобы повторный sync
  *     после частичной ошибки не падал.
  *
- * Никаких секретов R2 на клиенте: пресигнинг делает доверенный Worker,
- * см. worker/.
+ * Никаких секретов R2 на клиенте: пресигнинг делает Supabase Edge Function
+ * `sign`, см. supabase/functions/sign/.
  */
 export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult> {
   if (!photo.thumbBlob) {

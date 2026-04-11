@@ -1,0 +1,9 @@
+# Supabase CLI config. `project_id` задайте командой
+# `supabase link --project-ref <your-ref>` или впишите вручную.
+project_id = ""
+
+[functions.sign]
+# Supabase сам проверит подпись JWT на входе. Внутри функции мы ещё раз
+# получаем user через supabaseClient.auth.getUser() для дополнительной
+# страховки и получения user.id для RLS-проверок.
+verify_jwt = true
