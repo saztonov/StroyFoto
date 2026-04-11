@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb'
 
 export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed' | 'pending_upload'
 
@@ -169,50 +169,63 @@ function ensureStore(
   db: IDBPDatabase<StroyFotoDB>,
   name: string,
   opts: IDBObjectStoreParameters,
+  tx?: IDBPTransaction<StroyFotoDB, (keyof StroyFotoDB)[], 'versionchange'>,
 ) {
-  if (!db.objectStoreNames.contains(name as any)) {
-    return db.createObjectStore(name as any, opts)
+  if (db.objectStoreNames.contains(name as any)) {
+    if (tx) {
+      const existing = tx.objectStore(name as any)
+      const currentKP = existing.keyPath
+      const wantKP = opts.keyPath ?? null
+      const mismatch =
+        (typeof currentKP === 'string' ? currentKP : JSON.stringify(currentKP)) !==
+        (typeof wantKP === 'string' ? wantKP : JSON.stringify(wantKP))
+      if (mismatch) {
+        db.deleteObjectStore(name as any)
+        return db.createObjectStore(name as any, opts)
+      }
+    }
+    return null
   }
-  return null
+  return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 81
+const DB_VERSION = 82
 
 export function getDB() {
   if (!dbPromise) {
     dbPromise = openDB<StroyFotoDB>('stroyfoto', DB_VERSION, {
       upgrade(db, oldVersion, _newVersion, tx) {
         // v1 stores
-        const reportsNew = ensureStore(db, 'reports', { keyPath: 'id' })
+        const reportsNew = ensureStore(db, 'reports', { keyPath: 'id' }, tx)
         if (reportsNew) {
           reportsNew.createIndex('by_status', 'syncStatus')
           reportsNew.createIndex('by_created', 'createdAt')
         }
 
-        const photosNew = ensureStore(db, 'photos', { keyPath: 'id' })
+        const photosNew = ensureStore(db, 'photos', { keyPath: 'id' }, tx)
         if (photosNew) {
           photosNew.createIndex('by_report', 'reportId')
         }
 
-        ensureStore(db, 'plan_marks', { keyPath: 'reportId' })
-        ensureStore(db, 'plans_cache', { keyPath: 'id' })
+        ensureStore(db, 'plan_marks', { keyPath: 'reportId' }, tx)
+        ensureStore(db, 'plans_cache', { keyPath: 'id' }, tx)
 
         const queueNew = ensureStore(db, 'sync_queue', {
           keyPath: 'id',
           autoIncrement: true,
-        })
+        }, tx)
         if (queueNew) {
           queueNew.createIndex('by_next', 'nextAttemptAt')
         }
 
         // v2 stores
-        ensureStore(db, 'device_settings', { keyPath: 'key' })
-        ensureStore(db, 'catalogs', { keyPath: 'key' })
+        ensureStore(db, 'device_settings', { keyPath: 'key' }, tx)
+        ensureStore(db, 'catalogs', { keyPath: 'key' }, tx)
 
         // v3 stores
-        ensureStore(db, 'work_types_local', { keyPath: 'id' })
+        ensureStore(db, 'work_types_local', { keyPath: 'id' }, tx)
 
-        const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' })
+        const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' }, tx)
         if (remoteNew) {
           remoteNew.createIndex('by_project', 'projectId')
           remoteNew.createIndex('by_created', 'createdAt')

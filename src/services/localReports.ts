@@ -57,6 +57,8 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     lastError: null,
   }
 
+  if (!input.id) throw new Error('saveDraftReport: отсутствует id отчёта')
+
   const tx = db.transaction(
     ['reports', 'photos', 'plan_marks', 'sync_queue'],
     'readwrite',
@@ -65,7 +67,9 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   await tx.objectStore('reports').put(report)
 
   const photosStore = tx.objectStore('photos')
-  for (const p of input.photos) {
+  for (let i = 0; i < input.photos.length; i++) {
+    const p = input.photos[i]
+    if (!p.id) throw new Error(`saveDraftReport: фото[${i}] без id`)
     const photo: LocalPhoto = {
       id: p.id,
       reportId: input.id,
