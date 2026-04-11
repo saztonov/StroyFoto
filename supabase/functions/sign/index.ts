@@ -5,8 +5,14 @@
 // не покидают функцию. SUPABASE_URL / SUPABASE_ANON_KEY инжектит сама
 // платформа — задавать их вручную не нужно (префикс SUPABASE_ зарезервирован).
 //
-// Проверка прав делается через supabase-js с клиентским JWT: RLS применяется
-// автоматически, поэтому тут нет никакого service_role.
+// Auth делаем ВНУТРИ функции через supabaseClient.auth.getUser(): это реальный
+// запрос к Auth API, а не локальная HMAC-проверка. Gateway-ный verify_jwt
+// НАРОЧНО выключен (см. supabase/config.toml [functions.sign]) — он ломается,
+// если проект перешёл на новые JWT signing keys или ротировал legacy-секрет.
+// Наш authenticate() проверяет и подпись, и существование пользователя, и даёт
+// user.id для RLS — это строже, чем gateway.
+//
+// Никакого service_role: права проверяются через клиентский JWT + RLS.
 //
 // Deno runtime, Web Crypto — aws4fetch работает «из коробки».
 
