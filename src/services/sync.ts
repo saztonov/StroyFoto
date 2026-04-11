@@ -168,7 +168,14 @@ async function tick() {
         next.attempts += 1
         next.lastError = result.error ?? 'unknown'
         next.nextAttemptAt = Date.now() + backoffMs(next.attempts)
-        if (next.id != null) await db.put('sync_queue', next)
+        if (next.id != null) {
+          try {
+            await db.put('sync_queue', next)
+          } catch (e) {
+            console.error('sync_queue put failed, id=', next.id, 'obj keys:', Object.keys(next), e)
+            throw e
+          }
+        }
         if (next.kind === 'report') {
           await updateReportStatus(
             next.entityId,

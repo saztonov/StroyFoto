@@ -82,5 +82,10 @@ export async function markPhotoSynced(
   photo.syncStatus = 'synced'
   photo.r2Key = r2Key
   photo.thumbR2Key = thumbR2Key
-  await db.put('photos', photo)
+  try {
+    await db.put('photos', photo)
+  } catch (e) {
+    console.error('markPhotoSynced put failed, id=', photo.id, 'keys:', Object.keys(photo), e)
+    throw e
+  }
 }

@@ -57,19 +57,20 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     lastError: null,
   }
 
-  if (!input.id) throw new Error('saveDraftReport: отсутствует id отчёта')
-
   const tx = db.transaction(
     ['reports', 'photos', 'plan_marks', 'sync_queue'],
     'readwrite',
   )
 
-  await tx.objectStore('reports').put(report)
+  try {
+    await tx.objectStore('reports').put(report)
+  } catch (e) {
+    throw new Error(`IDB put reports failed (id=${String(report.id)}): ${e instanceof Error ? e.message : e}`)
+  }
 
   const photosStore = tx.objectStore('photos')
   for (let i = 0; i < input.photos.length; i++) {
     const p = input.photos[i]
-    if (!p.id) throw new Error(`saveDraftReport: фото[${i}] без id`)
     const photo: LocalPhoto = {
       id: p.id,
       reportId: input.id,
@@ -82,7 +83,11 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       syncStatus: 'pending_upload',
       origin: 'local',
     }
-    await photosStore.put(photo)
+    try {
+      await photosStore.put(photo)
+    } catch (e) {
+      throw new Error(`IDB put photos[${i}] failed (id=${String(p.id)}): ${e instanceof Error ? e.message : e}`)
+    }
   }
 
   if (input.mark) {
@@ -94,13 +99,14 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       yNorm: input.mark.yNorm,
       syncStatus: 'pending',
     }
-    await tx.objectStore('plan_marks').put(mark)
+    try {
+      await tx.objectStore('plan_marks').put(mark)
+    } catch (e) {
+      throw new Error(`IDB put plan_marks failed (reportId=${String(input.id)}): ${e instanceof Error ? e.message : e}`)
+    }
   }
 
   const queue = tx.objectStore('sync_queue')
-  // Снимок существующих операций в очереди, чтобы не плодить дубликаты
-  // при повторном вызове saveDraftReport с тем же id (напр. retry после
-  // частичной ошибки или двойной сабмит формы в React StrictMode).
   const existing = await queue.getAll()
   const hasOp = (kind: SyncOp['kind'], entityId: string) =>
     existing.some((o) => o.kind === kind && o.entityId === entityId)
@@ -115,7 +121,11 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       nextAttemptAt: nowMs,
       lastError: null,
     }
-    await queue.add(reportOp)
+    try {
+      await queue.add(reportOp)
+    } catch (e) {
+      throw new Error(`IDB add sync_queue(report) failed: ${e instanceof Error ? e.message : e}`)
+    }
   }
   if (input.mark && !hasOp('mark', input.id)) {
     const markOp: SyncOp = {
@@ -126,11 +136,13 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       nextAttemptAt: nowMs + 100,
       lastError: null,
     }
-    await queue.add(markOp)
+    try {
+      await queue.add(markOp)
+    } catch (e) {
+      throw new Error(`IDB add sync_queue(mark) failed: ${e instanceof Error ? e.message : e}`)
+    }
   }
 
-  // Photo ops ставим после report/mark — они выгрузятся, когда presign будет готов.
-  // Идемпотентность обеспечивается стабильным photo.id (UUID, client-generated).
   for (const p of input.photos) {
     if (hasOp('photo', p.id)) continue
     const photoOp: SyncOp = {
@@ -141,7 +153,11 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       nextAttemptAt: nowMs + 200,
       lastError: null,
     }
-    await queue.add(photoOp)
+    try {
+      await queue.add(photoOp)
+    } catch (e) {
+      throw new Error(`IDB add sync_queue(photo ${p.id}) failed: ${e instanceof Error ? e.message : e}`)
+    }
   }
 
   await tx.done
@@ -175,7 +191,12 @@ export async function updateReportStatus(
   if (!r) return
   r.syncStatus = syncStatus
   r.lastError = lastError
-  await db.put('reports', r)
+  try {
+    await db.put('reports', r)
+  } catch (e) {
+    console.error('updateReportStatus put failed, id=', r.id, 'keys:', Object.keys(r), e)
+    throw e
+  }
 }
 
 export async function countPendingReports(): Promise<number> {
@@ -211,5 +232,10 @@ export async function markReportSyncedIfComplete(reportId: string): Promise<void
   if (report.syncStatus === 'synced') return
   report.syncStatus = 'synced'
   report.lastError = null
-  await db.put('reports', report)
+  try {
+    await db.put('reports', report)
+  } catch (e) {
+    console.error('markReportSyncedIfComplete put failed, id=', report.id, 'keys:', Object.keys(report), e)
+    throw e
+  }
 }

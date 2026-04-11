@@ -127,7 +127,12 @@ async function resolveAuthorNames(ids: Iterable<string>): Promise<Map<string, st
  */
 async function cacheRemoteSnapshot(snap: RemoteReportSnapshot): Promise<void> {
   const db = await getDB()
-  await db.put('remote_reports_cache', snap)
+  try {
+    await db.put('remote_reports_cache', snap)
+  } catch (e) {
+    console.error('cacheRemoteSnapshot put failed, snap.id=', snap.id, 'keys:', Object.keys(snap), e)
+    throw e
+  }
 }
 
 /**
@@ -345,7 +350,12 @@ export async function cacheRemotePhotoBlob(
     origin: 'remote',
     cachedAt: Date.now(),
   }
-  await db.put('photos', record)
+  try {
+    await db.put('photos', record)
+  } catch (e) {
+    console.error('cacheRemotePhotoBlob put failed, id=', photoId, 'keys:', Object.keys(record), e)
+    throw e
+  }
 }
 
 export async function getCachedRemotePhotoBlob(photoId: string): Promise<LocalPhoto | undefined> {
