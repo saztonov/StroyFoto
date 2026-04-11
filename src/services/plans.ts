@@ -89,6 +89,7 @@ export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
     op: 'get',
     kind: 'plan',
     key: plan.r2_key,
+    projectId: plan.project_id,
     planId: plan.id,
   })
   const blob = await getFromPresigned(presigned)
