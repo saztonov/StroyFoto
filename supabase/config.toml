@@ -1,6 +1,6 @@
 # Supabase CLI config. `project_id` задайте командой
 # `supabase link --project-ref <your-ref>` или впишите вручную.
-project_id = ""
+project_id = "ivyuguhgmcudxebtevss"
 
 [functions.sign]
 # Supabase сам проверит подпись JWT на входе. Внутри функции мы ещё раз
