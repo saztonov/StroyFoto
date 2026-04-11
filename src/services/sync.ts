@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase'
 import { getDB, type SyncOp } from '@/lib/db'
-import { updateReportStatus } from '@/services/localReports'
+import {
+  countPendingReports,
+  markReportSyncedIfComplete,
+  updateReportStatus,
+} from '@/services/localReports'
 import { markPhotoSynced, uploadPhoto } from '@/services/photos'
 import { applyRetention } from '@/services/retention'
 
@@ -39,14 +43,12 @@ let running = false
 let started = false
 
 async function refreshPending() {
+  // Агрегация: отчёт "в работе", если у него failed-статус ИЛИ есть хоть одна
+  // задача в sync_queue. countPendingReports() инкапсулирует эту логику.
   const db = await getDB()
-  const all = await db.getAll('reports')
-  // Отчёты в MVP живут в двух «активных» статусах: pending (ждёт синка)
-  // и failed (исчерпал ретраи, нужна ручная кнопка). Состояние 'syncing'
-  // не присваивается отчётам — глобальный sync-loop эмитит его только
-  // в snapshot.state, чтобы UI показать спиннер.
-  const pending = all.filter((r) => r.syncStatus === 'pending').length
-  const failed = all.filter((r) => r.syncStatus === 'failed').length
+  const reports = await db.getAll('reports')
+  const pending = await countPendingReports()
+  const failed = reports.filter((r) => r.syncStatus === 'failed').length
   setSnapshot({ pending, failed })
 }
 
@@ -61,6 +63,7 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
   if (op.kind === 'photo') {
     const photo = await db.get('photos', op.entityId)
     if (!photo) return { done: true }
+    if (photo.origin === 'remote') return { done: true }
     if (photo.syncStatus === 'synced') return { done: true }
     try {
       const { r2Key, thumbR2Key } = await uploadPhoto(photo)
@@ -88,7 +91,8 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
       { onConflict: 'id' },
     )
     if (error) return { done: false, error: error.message }
-    await updateReportStatus(report.id, 'synced')
+    // НЕ переключаем статус в 'synced' здесь — это сделает markReportSyncedIfComplete
+    // после обработки всех связанных photo/mark/work_type задач.
     return { done: true }
   }
 
@@ -105,6 +109,26 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
     if (error && !/duplicate key/i.test(error.message)) {
       return { done: false, error: error.message }
     }
+    return { done: true }
+  }
+
+  if (op.kind === 'work_type') {
+    // Локальный work_type, созданный офлайн. После появления сети вставляем
+    // его в Supabase с тем же UUID — клиент уже ссылается на этот id в отчёте.
+    // Если на сервере уже есть запись с таким name (citext unique) — Supabase
+    // вернёт 23505; это нормально, работа с дубликатами решается на клиенте
+    // через сверку по name, а мы просто помечаем операцию завершённой.
+    const local = await db.get('work_types_local', op.entityId)
+    if (!local) return { done: true }
+    const { error } = await supabase.from('work_types').upsert(
+      { id: local.id, name: local.name, is_active: true },
+      { onConflict: 'id' },
+    )
+    if (error && !/duplicate key|23505/i.test(error.message)) {
+      return { done: false, error: error.message }
+    }
+    local.syncStatus = 'synced'
+    await db.put('work_types_local', local)
     return { done: true }
   }
 
@@ -127,8 +151,9 @@ async function tick() {
       const next = all
         .filter((o) => o.nextAttemptAt <= now)
         .sort((a, b) => {
-          // report → mark → photo
-          const order = { report: 0, mark: 1, photo: 2 } as const
+          // work_type → report → mark → photo. work_type идёт первым,
+          // потому что отчёт может ссылаться на локальный work_type.id.
+          const order = { work_type: 0, report: 1, mark: 2, photo: 3 } as const
           return order[a.kind] - order[b.kind] || a.nextAttemptAt - b.nextAttemptAt
         })[0]
       if (!next) break
@@ -136,6 +161,9 @@ async function tick() {
       const result = await processOp(next)
       if (result.done) {
         if (next.id != null) await db.delete('sync_queue', next.id)
+        // После успеха проверяем, можно ли агрегированно пометить отчёт synced.
+        const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
+        if (rid) await markReportSyncedIfComplete(rid)
       } else {
         next.attempts += 1
         next.lastError = result.error ?? 'unknown'
@@ -147,6 +175,14 @@ async function tick() {
             next.attempts >= 5 ? 'failed' : 'pending',
             result.error ?? null,
           )
+        } else {
+          // Ошибка на photo/mark/work_type — отметим сам отчёт как pending
+          // с описанием ошибки, чтобы UI показал проблему и ручная кнопка
+          // могла повторно дёрнуть цикл.
+          const rid = next.reportId
+          if (rid) {
+            await updateReportStatus(rid, next.attempts >= 5 ? 'failed' : 'pending', result.error ?? null)
+          }
         }
         setSnapshot({ lastError: result.error ?? null })
         break // не долбим сеть подряд
@@ -159,33 +195,14 @@ async function tick() {
     running = false
     await refreshPending()
     // После каждого цикла применяем device-level retention. Важно: эта функция
-    // удаляет ТОЛЬКО synced-записи и пропускает отчёты с pending_upload фото,
-    // так что несинхронизированные данные никогда не будут потеряны.
+    // удаляет ТОЛЬКО synced-записи БЕЗ открытых задач в sync_queue, так что
+    // несинхронизированные данные никогда не будут потеряны.
     void applyRetention().catch(() => undefined)
   }
 }
 
 export function triggerSync() {
   void tick()
-  // Дополнительно просим браузер дёрнуть нас, когда снова будет сеть.
-  void registerBackgroundSync()
-}
-
-/**
- * Регистрирует одноразовый Background Sync, если API поддерживается.
- * Это лишь подсказка браузеру: основной механизм синхронизации — наш
- * interval-loop + событийные триггеры. Никогда не полагаемся только на SW.
- */
-export async function registerBackgroundSync(): Promise<void> {
-  try {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
-    const reg = await navigator.serviceWorker.ready
-    const sync = (reg as unknown as { sync?: { register: (tag: string) => Promise<void> } }).sync
-    if (!sync) return
-    await sync.register('stroyfoto-sync')
-  } catch {
-    // Background Sync недоступен — это нормально, fallback уже работает.
-  }
 }
 
 function handleOnline() {

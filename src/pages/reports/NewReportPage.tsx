@@ -149,14 +149,15 @@ export function NewReportPage() {
           takenAt: p.takenAt,
           order: idx,
         })),
-        mark: mark
-          ? {
-              planId: mark.planId,
-              page: mark.page,
-              xNorm: mark.xNorm,
-              yNorm: mark.yNorm,
-            }
-          : null,
+        mark:
+          mark && mark.xNorm != null && mark.yNorm != null
+            ? {
+                planId: mark.planId,
+                page: mark.page,
+                xNorm: mark.xNorm,
+                yNorm: mark.yNorm,
+              }
+            : null,
       })
       message.success('Отчёт сохранён локально. Синхронизация в фоне.')
       triggerSync()

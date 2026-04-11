@@ -92,6 +92,6 @@ export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
     planId: plan.id,
   })
   const blob = await getFromPresigned(presigned)
-  await db.put('plans_cache', { id: plan.id, blob })
+  await db.put('plans_cache', { id: plan.id, blob, cachedAt: Date.now() })
   return blob
 }

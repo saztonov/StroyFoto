@@ -1,5 +1,16 @@
 import { getDB, type LocalPhoto, type LocalPlanMark, type LocalReport, type SyncOp } from '@/lib/db'
 
+/**
+ * Проверяет, осталась ли в `sync_queue` хоть одна задача, связанная с отчётом.
+ * Используется aggregation-логикой: отчёт нельзя помечать как `synced`, пока
+ * хотя бы одна подзадача (photo/mark/work_type) ещё в очереди или в процессе.
+ */
+export async function hasPendingOpsForReport(reportId: string): Promise<boolean> {
+  const db = await getDB()
+  const ops = await db.getAllFromIndex('sync_queue', 'by_report', reportId)
+  return ops.length > 0
+}
+
 export interface DraftPhotoInput {
   id: string
   blob: Blob
@@ -65,6 +76,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       takenAt: p.takenAt,
       order: p.order,
       syncStatus: 'pending_upload',
+      origin: 'local',
     }
     await photosStore.put(photo)
   }
@@ -94,6 +106,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     const reportOp: SyncOp = {
       kind: 'report',
       entityId: input.id,
+      reportId: input.id,
       attempts: 0,
       nextAttemptAt: nowMs,
       lastError: null,
@@ -104,6 +117,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     const markOp: SyncOp = {
       kind: 'mark',
       entityId: input.id,
+      reportId: input.id,
       attempts: 0,
       nextAttemptAt: nowMs + 100,
       lastError: null,
@@ -118,6 +132,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     const photoOp: SyncOp = {
       kind: 'photo',
       entityId: p.id,
+      reportId: input.id,
       attempts: 0,
       nextAttemptAt: nowMs + 200,
       lastError: null,
@@ -161,6 +176,36 @@ export async function updateReportStatus(
 
 export async function countPendingReports(): Promise<number> {
   const db = await getDB()
-  const all = await db.getAll('reports')
-  return all.filter((r) => r.syncStatus === 'pending' || r.syncStatus === 'failed').length
+  // Агрегированный счётчик: отчёт считается "в работе", если:
+  //  - у него статус pending/failed, ИЛИ
+  //  - для него есть хотя бы одна живая задача в sync_queue (photo/mark/work_type)
+  // Это важно, потому что сам отчёт может уже быть помечен synced на сервере,
+  // но фотографии всё ещё заливаются — и UI должен это показать.
+  const [reports, queue] = await Promise.all([db.getAll('reports'), db.getAll('sync_queue')])
+  const stuck = new Set<string>()
+  for (const op of queue) {
+    const rid = op.reportId ?? (op.kind === 'report' || op.kind === 'mark' ? op.entityId : undefined)
+    if (rid) stuck.add(rid)
+  }
+  for (const r of reports) {
+    if (r.syncStatus === 'pending' || r.syncStatus === 'failed') stuck.add(r.id)
+  }
+  return stuck.size
+}
+
+/**
+ * Безопасно помечает отчёт как synced, только если в sync_queue больше нет
+ * задач, связанных с ним. Иначе оставляет статус pending с последней ошибкой.
+ * Вызывается из sync loop после успешной обработки каждой операции.
+ */
+export async function markReportSyncedIfComplete(reportId: string): Promise<void> {
+  const db = await getDB()
+  const remaining = await db.getAllFromIndex('sync_queue', 'by_report', reportId)
+  if (remaining.length > 0) return
+  const report = await db.get('reports', reportId)
+  if (!report) return
+  if (report.syncStatus === 'synced') return
+  report.syncStatus = 'synced'
+  report.lastError = null
+  await db.put('reports', report)
 }

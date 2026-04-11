@@ -35,34 +35,41 @@ npm run preview
 
 ### Переменные окружения
 
-| Переменная                 | Назначение                                  | Обязательна |
-| -------------------------- | ------------------------------------------- | ----------- |
-| `VITE_SUPABASE_URL`        | URL проекта Supabase                        | да          |
-| `VITE_SUPABASE_ANON_KEY`   | Публичный anon-ключ Supabase                | да          |
-| `VITE_PRESIGN_URL`         | URL Cloudflare Worker (`worker/`) для presigned R2 | да   |
+| Переменная                 | Назначение                                  | Обязательна                 |
+| -------------------------- | ------------------------------------------- | --------------------------- |
+| `VITE_SUPABASE_URL`        | URL проекта Supabase                        | да                          |
+| `VITE_SUPABASE_ANON_KEY`   | Публичный anon-ключ Supabase                | да                          |
+| `VITE_PRESIGN_URL`         | URL Cloudflare Worker (`worker/`) для presigned R2 | да в PROD, опционально в DEV |
 
-Все три переменные строго валидируются в [src/shared/config/env.ts](src/shared/config/env.ts)
-и бросают исключение при старте, если не заданы — так быстрее обнаружить
-кривой деплой. Пример корректного значения `VITE_PRESIGN_URL`:
-`https://stroyfoto-signer.example.workers.dev` (без завершающего слэша).
+Валидация в [src/shared/config/env.ts](src/shared/config/env.ts):
+Supabase-ключи обязательны всегда, `VITE_PRESIGN_URL` обязателен в
+production-сборке (`npm run build`) — приложение упадёт на старте, если он
+пуст. В `npm run dev` допустимо оставить его пустым: UI PlanMarkPicker
+покажет заглушку, загрузка фото будет отключена, всё остальное работает.
+Пример значения: `https://stroyfoto-signer.example.workers.dev` (без `/` в конце).
 
 `.env.production` уже содержит публичные ключи для staging-проекта Supabase
 и коммитится в репозиторий намеренно (anon-ключ публичный по дизайну).
 
 ## Supabase setup
 
-SQL-миграции лежат в `supabase/migrations/` и применяются по порядку имени файла.
+Вся схема БД лежит в одном идемпотентном скрипте
+[supabase/schema.sql](supabase/schema.sql) — это единственный SQL-артефакт,
+который нужно применить на свежем Supabase-проекте. Файл написан через
+`create ... if not exists` / `drop policy if exists ... create policy ...`,
+поэтому безопасно запускать повторно после правок RLS без пересоздания базы.
 
-### Применение миграций
+### Применение
 
-Вариант A — Supabase CLI (рекомендуется):
+Откройте Supabase Dashboard → SQL Editor → New query, вставьте содержимое
+`supabase/schema.sql` целиком и выполните. Всё создастся одной транзакцией.
+
+Альтернатива — через CLI:
 
 ```bash
 supabase link --project-ref <your-project-ref>
-supabase db push
+psql "$SUPABASE_DB_URL" -f supabase/schema.sql
 ```
-
-Вариант B — вручную через SQL Editor в Supabase Dashboard: открыть файлы из `supabase/migrations/` по порядку и выполнить.
 
 ### Что создаётся
 
@@ -71,7 +78,9 @@ supabase db push
 - Таблицы: `profiles`, `projects`, `project_memberships`, `work_types`, `performers`, `plans`, `reports`, `report_plan_marks`, `report_photos`.
 - Триггер `on_auth_user_created` на `auth.users` — автоматически создаёт строку в `profiles` при регистрации (`is_active=false`, `role='user'`).
 - Хелперы для RLS: `public.is_admin()`, `public.is_active_user()` (`security definer`, без рекурсии).
-- Полный набор RLS-политик (см. `20260409000007_rls_policies.sql`).
+- Полный набор RLS-политик (секция 7 `schema.sql`).
+- RPC `public.admin_list_profiles()` — список пользователей с email из `auth.users` для админки.
+- RPC `public.get_author_name(uuid)` — минимально-раскрытое имя автора чужого отчёта, чтобы не ослаблять RLS на `profiles`.
 
 ### Bootstrap первого администратора
 
@@ -90,13 +99,12 @@ where id = (select id from auth.users where email = 'admin@example.com');
 
 ### Ключевые правила RLS
 
-- **profiles** — пользователь видит свою строку и может править только `full_name`; админ видит и меняет всё.
-- **projects / plans** — обычный пользователь видит только проекты, в которых состоит (`project_memberships`); CRUD только у админа.
-- **project_memberships** — пользователь видит только свои членства; управляет админ.
+- **profiles** — пользователь видит свою строку и может править только `full_name`; админ видит и меняет всё. Имя автора чужого отчёта вытаскивается через `get_author_name()` RPC.
+- **projects / plans / project_memberships** — требуется активный (`is_active_user()`) пользователь, который состоит в проекте. Деактивированные пользователи с residual membership ничего не видят. CRUD только у админа.
 - **work_types** — любой активный пользователь читает и может вставить новый (для авто-добавления из формы отчёта); update/delete только у админа.
 - **performers** — читает любой активный пользователь; пишет только админ.
-- **reports** — читать может админ или активный пользователь, состоящий в проекте; вставка только если `author_id = auth.uid()` и пользователь состоит в `project_id`; редактирование/удаление — только админ (MVP).
-- **report_plan_marks / report_photos** — доступ наследуется от родительского отчёта; вставка разрешена автору отчёта.
+- **reports** — читать может админ или активный пользователь, состоящий в проекте; вставка только если `author_id = auth.uid()`, пользователь состоит в `project_id`, **и** `plan_id` (если задан) принадлежит тому же проекту; редактирование/удаление — только админ (MVP).
+- **report_plan_marks / report_photos** — доступ наследуется от родительского отчёта; вставка разрешена автору отчёта. Для `report_plan_marks` дополнительно проверяется, что `plan_id` принадлежит проекту этого отчёта (защита от подмены плана).
 
 ## Cloudflare R2 signer
 
@@ -147,8 +155,8 @@ src/
 ├── shared/         # ui (SyncBanner, ThemeToggle), hooks, i18n, config
 ├── lib/            # интеграции: supabase.ts, db.ts (IndexedDB), platform/ (CameraAdapter)
 └── services/       # auth, sync, photos, localReports, retention, r2, catalogs, deviceSettings
-supabase/migrations/  # SQL-миграции и RLS-политики
-worker/              # Cloudflare Worker-подписант R2 (JWT verify + RLS-делегация)
+supabase/schema.sql  # единый SQL-скрипт: схема, триггеры, RLS, RPC
+worker/              # Cloudflare Worker-подписант R2 (JWT verify + RLS-делегация, свой package.json/tsconfig)
 ```
 
 ## Маршруты
@@ -213,8 +221,8 @@ Guard'ы (`src/app/router/guards.tsx`):
 - Создание отчётов с фото (камера/галерея), PDF-плеер для планов, точка на плане, выбор плана и страницы.
 - Сжатие фото на клиенте через `browser-image-compression` (web worker), thumbnail для превью, последовательная обработка чтобы не душить мобильный CPU.
 - Локальное хранилище: IndexedDB через `idb` (`src/lib/db.ts`); все черновики, фото и метки сначала пишутся локально и мгновенно отображаются в UI.
-- Очередь синхронизации со статусами `pending / syncing / failed / synced / pending_upload`, exponential backoff + jitter, ретраи, идемпотентность по UUID (`src/services/sync.ts`).
-- Триггеры синхронизации: появление сети (`online`), возврат вкладки в фокус (`visibilitychange`), ручная кнопка в баннере, периодический интервал (30с активная вкладка / 120с скрытая — экономия батареи), Background Sync API как подсказка браузеру.
+- Очередь синхронизации со статусами `pending / syncing / failed / synced / pending_upload`, exponential backoff + jitter, ретраи, идемпотентность по UUID (`src/services/sync.ts`). Отчёт считается `synced` **только** когда агрегированно завершены все связанные задачи (report + mark + photo + work_type) — не раньше.
+- Триггеры синхронизации: появление сети (`online`), возврат вкладки в фокус (`visibilitychange`), ручная кнопка в баннере, периодический интервал (30с активная вкладка / 120с скрытая — экономия батареи). Background Sync API **не** используется: `vite-plugin-pwa` работает в `generateSW`-режиме без кастомного SW-handler'а, поэтому приложение честно полагается только на in-app fallback.
 - Глобальный SyncBanner: офлайн / синхронизация / pending count / failed count + кнопка «Повторить»; Badge с числом ожидающих отчётов на иконке «Отчёты» в нижней навигации.
 - Адаптивный layout: mobile-first с нижней tabbar и Drawer'ом, планшет/десктоп получают Sider (breakpoint `md`/768px), карточки отчётов в responsive Row/Col grid.
 - Светлая / тёмная / системная тема с persist в `localStorage`, синхронизация `<meta name="theme-color">` для обоих media-query вариантов.
@@ -236,20 +244,27 @@ Guard'ы (`src/app/router/guards.tsx`):
 - **Capacitor/нативный shell** ещё не подключён: интерфейс `CameraAdapter`
   (`src/lib/platform/`) готов, но реализация — только web. Будущая
   Android-обёртка не потребует переписывать UI.
-- **Background Sync API** — лишь подсказка браузеру. Основной механизм —
-  interval-loop + события (`online`, `visibilitychange`) в самом приложении.
+- **Background Sync API — не используется.** В `generateSW`-режиме кастомный
+  SW-handler не подключается, поэтому ретраи идут только через in-app loop
+  (online-событие, visibilitychange, interval). Это сознательное MVP-решение,
+  чтобы не тащить `injectManifest` ради одного эффекта.
 - **JWKS-кэш воркера** — 10 минут. Ротация JWT-ключей Supabase проявится
   в воркере с соответствующей задержкой.
 - **R2 PUT timeout** — 60 сек на фото, 45 сек на GET. Очень большие файлы
   на медленном канале будут ретраиться с экспоненциальным backoff.
-- **Валидация `work_types`** — новая запись добавляется клиентским INSERT
-  (RLS разрешает активным пользователям), без проверки уникальности имени.
-  Теоретически возможны дубликаты при гонке двух устройств — MVP-допущение.
+- **Гонка дубликатов `work_types`** — если два устройства офлайн создали
+  один и тот же новый вид работ с разными UUID, после синка в БД останутся
+  обе записи (unique только по `name` через citext, но client UUID разные).
+  Первая вставка выиграет через upsert-by-id, вторая упадёт по unique-name
+  и будет помечена synced без записи. Дубль в UI исчезнет после следующего
+  `loadWorkTypes`.
 - **Удаление справочников** — FK с `on delete restrict` защитит от ломки
   данных, но UX-сообщение об отказе в админке будет сырым (показывается
   стандартный текст ошибки PostgreSQL).
-- **Исторические данные в офлайне** — доступны только если хоть раз были
-  прокачены в онлайне (кэшируется Workbox'ом NetworkFirst + IndexedDB).
+- **Исторические данные в офлайне** — сохраняются в IDB store
+  `remote_reports_cache` при онлайн-просмотре списка/деталей. Первая
+  загрузка отчёта, которого нет локально, требует сети; на втором заходе
+  тот же отчёт (включая фото) открывается офлайн.
 
 ## Чеклист ручного тестирования перед релизом
 

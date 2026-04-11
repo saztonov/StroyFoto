@@ -25,6 +25,10 @@ export interface UploadPhotoResult {
  * см. worker/.
  */
 export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult> {
+  if (!photo.thumbBlob) {
+    throw new Error('uploadPhoto: remote-origin photo без thumbBlob нельзя загружать')
+  }
+  const thumbBlob = photo.thumbBlob
   const r2Key = photoKey(photo.reportId, photo.id)
   const thumbR2Key = photoThumbKey(photo.reportId, photo.id)
 
@@ -47,7 +51,7 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
 
   await Promise.all([
     putToPresigned(putOriginal, photo.blob),
-    putToPresigned(putThumb, photo.thumbBlob),
+    putToPresigned(putThumb, thumbBlob),
   ])
 
   const { error } = await supabase.from('report_photos').upsert(

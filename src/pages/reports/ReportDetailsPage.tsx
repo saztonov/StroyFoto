@@ -20,6 +20,9 @@ import type { LocalPhoto, SyncStatus } from '@/lib/db'
 import { getDB } from '@/lib/db'
 import { getLocalReport, getPhotosForReport } from '@/services/localReports'
 import {
+  cacheRemotePhotoBlob,
+  getCachedRemotePhotoBlob,
+  loadCachedRemoteReport,
   loadRemoteReportById,
   type ReportCard,
   type RemoteReportFull,
@@ -27,6 +30,8 @@ import {
 } from '@/services/reports'
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
+import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
+import { PdfPlanCanvas } from './components/PdfPlanCanvas'
 import { useAuth } from '@/app/providers/AuthProvider'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -73,6 +78,9 @@ export function ReportDetailsPage() {
   const [remotePhotoUrls, setRemotePhotoUrls] = useState<DisplayPhoto[]>([])
   const objectUrlsRef = useRef<string[]>([])
 
+  const [planBlob, setPlanBlob] = useState<Blob | null>(null)
+  const [planError, setPlanError] = useState<string | null>(null)
+
   // Загрузка отчёта
   useEffect(() => {
     if (!id) return
@@ -99,11 +107,12 @@ export function ReportDetailsPage() {
               description: local.description,
               takenAt: local.takenAt,
               authorId: local.authorId,
+              authorName: local.authorId === user?.id ? profile?.full_name ?? null : null,
               createdAt: local.createdAt,
               syncStatus: local.syncStatus,
               remoteOnly: false,
             },
-            localPhotos: photos,
+            localPhotos: photos.filter((p) => p.origin !== 'remote'),
             remotePhotos: null,
             mark: mark
               ? { planId: mark.planId, page: mark.page, xNorm: mark.xNorm, yNorm: mark.yNorm }
@@ -115,17 +124,22 @@ export function ReportDetailsPage() {
         }
 
         const online = typeof navigator === 'undefined' ? true : navigator.onLine
-        if (!online) {
-          if (cancelled) return
-          setOfflineUnavailable(true)
-          setLoading(false)
-          return
+        let remote: RemoteReportFull | null = null
+        if (online) {
+          try {
+            remote = await loadRemoteReportById(id)
+          } catch {
+            remote = null
+          }
         }
-
-        const remote: RemoteReportFull | null = await loadRemoteReportById(id)
+        // Фоллбэк на IDB-кэш: работает и офлайн, и при сетевой ошибке.
+        if (!remote) {
+          remote = await loadCachedRemoteReport(id)
+        }
         if (cancelled) return
         if (!remote) {
-          setError(reportDetails.notFound)
+          if (!online) setOfflineUnavailable(true)
+          else setError(reportDetails.notFound)
           setLoading(false)
           return
         }
@@ -168,26 +182,46 @@ export function ReportDetailsPage() {
     void loadPlansForProject(data.card.projectId).then(setPlans).catch(() => undefined)
   }, [data?.card.projectId])
 
-  // Проверка offline-кэша плана
+  // Проверка offline-кэша плана + подгрузка blob для read-only PDF viewer.
   useEffect(() => {
-    if (!data?.mark?.planId) {
+    const targetPlanId = data?.mark?.planId ?? data?.card.planId
+    if (!targetPlanId) {
       setPlanCachedOffline(false)
+      setPlanBlob(null)
+      setPlanError(null)
       return
     }
     let cancelled = false
     void (async () => {
       try {
         const db = await getDB()
-        const cached = await db.get('plans_cache', data.mark!.planId)
+        const cached = await db.get('plans_cache', targetPlanId)
         if (!cancelled) setPlanCachedOffline(Boolean(cached))
-      } catch {
-        if (!cancelled) setPlanCachedOffline(false)
+
+        const planRow = plans.find((p) => p.id === targetPlanId)
+        if (!planRow) {
+          // нет метаданных плана → показать только координаты, blob не грузим
+          if (!cancelled) setPlanBlob(null)
+          return
+        }
+        const planRecord: PlanRecord = {
+          id: planRow.id,
+          project_id: planRow.project_id,
+          name: planRow.name,
+          r2_key: planRow.r2_key,
+          page_count: planRow.page_count,
+          created_at: planRow.created_at,
+        }
+        const b = await downloadPlanPdf(planRecord)
+        if (!cancelled) setPlanBlob(b)
+      } catch (e) {
+        if (!cancelled) setPlanError(e instanceof Error ? e.message : String(e))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [data?.mark?.planId])
+  }, [data?.mark?.planId, data?.card.planId, plans])
 
   // Локальные фото → object URLs
   const localDisplayPhotos = useMemo<DisplayPhoto[]>(() => {
@@ -196,7 +230,8 @@ export function ReportDetailsPage() {
     for (const u of objectUrlsRef.current) URL.revokeObjectURL(u)
     objectUrlsRef.current = []
     const list = data.localPhotos.map((p) => {
-      const thumbUrl = URL.createObjectURL(p.thumbBlob)
+      // thumbBlob может быть null для remote-кэша; тогда показываем полный blob как превью.
+      const thumbUrl = URL.createObjectURL(p.thumbBlob ?? p.blob)
       const fullUrl = URL.createObjectURL(p.blob)
       objectUrlsRef.current.push(thumbUrl, fullUrl)
       return { id: p.id, thumbUrl, fullUrl }
@@ -211,18 +246,32 @@ export function ReportDetailsPage() {
     }
   }, [])
 
-  // Remote-only фото → presigned GET
+  // Remote-only фото: сначала пытаемся взять blob из IDB-кэша, иначе качаем
+  // через presigned GET, кладём в IDB (origin='remote') и делаем object URL.
+  // Такой порядок даёт honest offline: второе открытие отчёта работает без сети.
   useEffect(() => {
     if (!data?.remotePhotos) {
       setRemotePhotoUrls([])
       return
     }
     let cancelled = false
+    const createdUrls: string[] = []
     void (async () => {
       const out: DisplayPhoto[] = []
       for (const p of data.remotePhotos!) {
         try {
-          const [thumb, full] = await Promise.all([
+          const cached = await getCachedRemotePhotoBlob(p.id)
+          if (cached && cached.blob) {
+            const thumbUrl = URL.createObjectURL(cached.thumbBlob ?? cached.blob)
+            const fullUrl = URL.createObjectURL(cached.blob)
+            createdUrls.push(thumbUrl, fullUrl)
+            out.push({ id: p.id, thumbUrl, fullUrl })
+            continue
+          }
+          const online = typeof navigator === 'undefined' ? true : navigator.onLine
+          if (!online) continue
+
+          const [thumbPre, fullPre] = await Promise.all([
             requestPresigned({
               op: 'get',
               kind: 'photo_thumb',
@@ -236,12 +285,28 @@ export function ReportDetailsPage() {
               reportId: data.card.id,
             }),
           ])
-          out.push({ id: p.id, thumbUrl: thumb.url, fullUrl: full.url })
+          const [fullResp, thumbResp] = await Promise.all([
+            fetch(fullPre.url),
+            fetch(thumbPre.url),
+          ])
+          if (!fullResp.ok) throw new Error(`photo ${p.id}: ${fullResp.status}`)
+          const fullBlob = await fullResp.blob()
+          const thumbBlob = thumbResp.ok ? await thumbResp.blob() : null
+          await cacheRemotePhotoBlob(data.card.id, p.id, fullBlob, thumbBlob)
+          const thumbUrl = URL.createObjectURL(thumbBlob ?? fullBlob)
+          const fullUrl = URL.createObjectURL(fullBlob)
+          createdUrls.push(thumbUrl, fullUrl)
+          out.push({ id: p.id, thumbUrl, fullUrl })
         } catch {
           // пропускаем — будет placeholder
         }
       }
-      if (!cancelled) setRemotePhotoUrls(out)
+      if (cancelled) {
+        for (const u of createdUrls) URL.revokeObjectURL(u)
+        return
+      }
+      setRemotePhotoUrls(out)
+      objectUrlsRef.current.push(...createdUrls)
     })()
     return () => {
       cancelled = true
@@ -388,14 +453,26 @@ export function ReportDetailsPage() {
         </Card>
 
         <Card title={reportDetails.sectionPlan}>
-          {data.mark ? (
-            <Space direction="vertical" size={6}>
+          {data.card.planId || data.mark ? (
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Typography.Text strong>{plan?.name ?? '—'}</Typography.Text>
-              <Typography.Text>
-                {reportDetails.pageLabel} {data.mark.page} · {reportDetails.point}{' '}
-                {(data.mark.xNorm * 100).toFixed(1)}% × {(data.mark.yNorm * 100).toFixed(1)}%
-              </Typography.Text>
+              {data.mark && (
+                <Typography.Text>
+                  {reportDetails.pageLabel} {data.mark.page} · {reportDetails.point}{' '}
+                  {(data.mark.xNorm * 100).toFixed(1)}% × {(data.mark.yNorm * 100).toFixed(1)}%
+                </Typography.Text>
+              )}
               {planCachedOffline && <Tag color="green">{reportDetails.planOffline}</Tag>}
+              {planError && (
+                <Typography.Text type="secondary">Не удалось открыть PDF: {planError}</Typography.Text>
+              )}
+              {planBlob && (
+                <PdfPlanCanvas
+                  blob={planBlob}
+                  page={data.mark?.page ?? 1}
+                  value={data.mark ? { xNorm: data.mark.xNorm, yNorm: data.mark.yNorm } : null}
+                />
+              )}
             </Space>
           ) : (
             <Typography.Text type="secondary">{reportDetails.noMark}</Typography.Text>

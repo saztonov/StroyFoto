@@ -1,8 +1,9 @@
+import { v4 as uuid } from 'uuid'
 import { supabase } from '@/lib/supabase'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
-import { getDB, type CatalogKey } from '@/lib/db'
+import { getDB, type CatalogKey, type LocalWorkType, type SyncOp } from '@/lib/db'
 
 export interface PlanRow {
   id: string
@@ -98,26 +99,78 @@ export async function loadWorkTypes(): Promise<WorkType[]> {
   return list
 }
 
-export async function createWorkType(name: string): Promise<WorkType> {
-  const { data, error } = await supabase
-    .from('work_types')
-    .insert({ name })
-    .select('id,name,is_active,created_by,created_at')
-    .single()
-  if (error) {
-    // Если уже есть с таким именем — подтянем существующий.
-    if (/duplicate|unique/i.test(error.message)) {
-      const { data: existing, error: e2 } = await supabase
-        .from('work_types')
-        .select('id,name,is_active,created_by,created_at')
-        .eq('name', name)
-        .single()
-      if (e2) throw e2
-      return existing as WorkType
-    }
-    throw error
+/**
+ * Создаёт или «ставит в очередь» новый вид работ единым путём:
+ *  1) Если уже есть запись с таким именем (в кэше catalogs или локально) —
+ *     возвращаем её без дублей.
+ *  2) Иначе генерируем client UUID, пишем draft в `work_types_local`,
+ *     ставим задачу в sync_queue (kind='work_type'). Sync loop делает
+ *     `supabase.from('work_types').upsert({ id, name })` — с тем же UUID,
+ *     так что на всех устройствах id сойдётся после очередного loadWorkTypes.
+ *  3) Опционально возвращаем свежий объект, который UI подставляет в список.
+ *
+ * Работает одинаково в online и offline — это сознательный выбор: никакой
+ * «тихой разницы» в поведении, пользователь всегда видит одно и то же.
+ */
+export async function createOrQueueWorkType(name: string): Promise<WorkType> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Пустое название')
+
+  // 1) Проверка на дубликат в уже загруженных серверных значениях.
+  const cachedList = (await readCache<WorkType[]>('work_types')) ?? []
+  const existingServer = cachedList.find((w) => w.name.toLowerCase() === trimmed.toLowerCase())
+  if (existingServer) return existingServer
+
+  // 2) Проверка на дубликат среди локальных (ещё не засинканных) записей.
+  const db = await getDB()
+  const locals = await db.getAll('work_types_local')
+  const existingLocal = locals.find((w) => w.name.toLowerCase() === trimmed.toLowerCase())
+  if (existingLocal) {
+    return {
+      id: existingLocal.id,
+      name: existingLocal.name,
+      is_active: true,
+      created_by: null,
+      created_at: existingLocal.createdAt,
+    } as WorkType
   }
-  return data as WorkType
+
+  // 3) Новый черновик: client UUID → IDB → sync_queue.
+  const id = uuid()
+  const createdAt = new Date().toISOString()
+  const draft: LocalWorkType = {
+    id,
+    name: trimmed,
+    createdAt,
+    syncStatus: 'pending',
+  }
+
+  const tx = db.transaction(['work_types_local', 'sync_queue'], 'readwrite')
+  await tx.objectStore('work_types_local').put(draft)
+  const op: SyncOp = {
+    kind: 'work_type',
+    entityId: id,
+    attempts: 0,
+    nextAttemptAt: Date.now(),
+    lastError: null,
+  }
+  await tx.objectStore('sync_queue').add(op)
+  await tx.done
+
+  // Добавляем в catalog-кэш, чтобы сразу появился в выпадашке на всех вызовах.
+  const updatedCache = [
+    ...cachedList,
+    { id, name: trimmed, is_active: true, created_by: null, created_at: createdAt } as WorkType,
+  ]
+  await writeCache('work_types', updatedCache)
+
+  return {
+    id,
+    name: trimmed,
+    is_active: true,
+    created_by: null,
+    created_at: createdAt,
+  } as WorkType
 }
 
 export async function loadPerformers(): Promise<Performer[]> {

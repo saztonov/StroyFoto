@@ -253,9 +253,12 @@ create policy projects_select_member_or_admin on public.projects
   for select to authenticated
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.project_memberships m
-      where m.project_id = projects.id and m.user_id = auth.uid()
+    or (
+      public.is_active_user()
+      and exists (
+        select 1 from public.project_memberships m
+        where m.project_id = projects.id and m.user_id = auth.uid()
+      )
     )
   );
 
@@ -269,7 +272,10 @@ create policy projects_admin_all on public.projects
 drop policy if exists memberships_select_self_or_admin on public.project_memberships;
 create policy memberships_select_self_or_admin on public.project_memberships
   for select to authenticated
-  using (user_id = auth.uid() or public.is_admin());
+  using (
+    public.is_admin()
+    or (public.is_active_user() and user_id = auth.uid())
+  );
 
 drop policy if exists memberships_admin_all on public.project_memberships;
 create policy memberships_admin_all on public.project_memberships
@@ -312,9 +318,12 @@ create policy plans_select_member_or_admin on public.plans
   for select to authenticated
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.project_memberships m
-      where m.project_id = plans.project_id and m.user_id = auth.uid()
+    or (
+      public.is_active_user()
+      and exists (
+        select 1 from public.project_memberships m
+        where m.project_id = plans.project_id and m.user_id = auth.uid()
+      )
     )
   );
 
@@ -349,6 +358,13 @@ create policy reports_insert_member on public.reports
       select 1 from public.project_memberships m
       where m.project_id = reports.project_id and m.user_id = auth.uid()
     )
+    and (
+      plan_id is null
+      or exists (
+        select 1 from public.plans p
+        where p.id = reports.plan_id and p.project_id = reports.project_id
+      )
+    )
   );
 
 drop policy if exists reports_admin_all on public.reports;
@@ -377,8 +393,12 @@ create policy report_marks_insert on public.report_plan_marks
   with check (
     public.is_active_user()
     and exists (
-      select 1 from public.reports r
-      where r.id = report_plan_marks.report_id and r.author_id = auth.uid()
+      select 1
+      from public.reports r
+      join public.plans p on p.id = report_plan_marks.plan_id
+      where r.id = report_plan_marks.report_id
+        and r.author_id = auth.uid()
+        and p.project_id = r.project_id
     )
   );
 
@@ -446,6 +466,44 @@ $$;
 
 revoke all on function public.admin_list_profiles() from public;
 grant execute on function public.admin_list_profiles() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 9. get_author_name: ФИО автора чужого отчёта без ослабления RLS.
+--    Используется в UI карточек/деталей, когда активный участник проекта
+--    видит чужие отчёты, но политика profiles_select_self_or_admin не
+--    даёт прочитать profile автора напрямую. Функция возвращает только
+--    full_name и только если вызывающий — admin или активный член того
+--    же проекта, в котором запрашиваемый пользователь автор хотя бы
+--    одного отчёта. Это минимальный compromise: не раскрываем ничего
+--    кроме имени, и только тем, кто и так имеет право видеть отчёт.
+-- ---------------------------------------------------------------------
+create or replace function public.get_author_name(p_author_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.full_name
+  from public.profiles p
+  where p.id = p_author_id
+    and (
+      public.is_admin()
+      or (
+        public.is_active_user()
+        and exists (
+          select 1
+          from public.reports r
+          join public.project_memberships m
+            on m.project_id = r.project_id and m.user_id = auth.uid()
+          where r.author_id = p_author_id
+        )
+      )
+    );
+$$;
+
+revoke all on function public.get_author_name(uuid) from public;
+grant execute on function public.get_author_name(uuid) to authenticated;
 
 -- =====================================================================
 -- Готово. После применения:
