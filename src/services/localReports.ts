@@ -82,16 +82,25 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   }
 
   const queue = tx.objectStore('sync_queue')
+  // Снимок существующих операций в очереди, чтобы не плодить дубликаты
+  // при повторном вызове saveDraftReport с тем же id (напр. retry после
+  // частичной ошибки или двойной сабмит формы в React StrictMode).
+  const existing = await queue.getAll()
+  const hasOp = (kind: SyncOp['kind'], entityId: string) =>
+    existing.some((o) => o.kind === kind && o.entityId === entityId)
+
   const nowMs = Date.now()
-  const reportOp: SyncOp = {
-    kind: 'report',
-    entityId: input.id,
-    attempts: 0,
-    nextAttemptAt: nowMs,
-    lastError: null,
+  if (!hasOp('report', input.id)) {
+    const reportOp: SyncOp = {
+      kind: 'report',
+      entityId: input.id,
+      attempts: 0,
+      nextAttemptAt: nowMs,
+      lastError: null,
+    }
+    await queue.add(reportOp)
   }
-  await queue.add(reportOp)
-  if (input.mark) {
+  if (input.mark && !hasOp('mark', input.id)) {
     const markOp: SyncOp = {
       kind: 'mark',
       entityId: input.id,
@@ -105,6 +114,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   // Photo ops ставим после report/mark — они выгрузятся, когда presign будет готов.
   // Идемпотентность обеспечивается стабильным photo.id (UUID, client-generated).
   for (const p of input.photos) {
+    if (hasOp('photo', p.id)) continue
     const photoOp: SyncOp = {
       kind: 'photo',
       entityId: p.id,

@@ -41,9 +41,11 @@ let started = false
 async function refreshPending() {
   const db = await getDB()
   const all = await db.getAll('reports')
-  const pending = all.filter(
-    (r) => r.syncStatus === 'pending' || r.syncStatus === 'syncing',
-  ).length
+  // Отчёты в MVP живут в двух «активных» статусах: pending (ждёт синка)
+  // и failed (исчерпал ретраи, нужна ручная кнопка). Состояние 'syncing'
+  // не присваивается отчётам — глобальный sync-loop эмитит его только
+  // в snapshot.state, чтобы UI показать спиннер.
+  const pending = all.filter((r) => r.syncStatus === 'pending').length
   const failed = all.filter((r) => r.syncStatus === 'failed').length
   setSnapshot({ pending, failed })
 }

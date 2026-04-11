@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { getDB, type LocalPhoto, type SyncOp } from '@/lib/db'
+import { getDB, type LocalPhoto } from '@/lib/db'
 import {
   photoKey,
   photoThumbKey,
@@ -65,18 +65,6 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
   if (error) throw new Error(`report_photos insert: ${error.message}`)
 
   return { r2Key, thumbR2Key }
-}
-
-export async function enqueuePhotoUpload(photoId: string): Promise<void> {
-  const db = await getDB()
-  const op: SyncOp = {
-    kind: 'photo',
-    entityId: photoId,
-    attempts: 0,
-    nextAttemptAt: Date.now() + 200,
-    lastError: null,
-  }
-  await db.add('sync_queue', op)
 }
 
 export async function markPhotoSynced(

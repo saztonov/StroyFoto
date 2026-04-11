@@ -36,18 +36,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
     setProfileError(null)
+    // Резервируем слот до await'а, чтобы параллельные вызовы могли увидеть,
+    // что профиль уже запрашивается именно для этого userId.
+    loadedForUserId.current = userId
     try {
       const p = await loadProfile(userId)
       if (!mounted.current) return
+      // За время await сессия могла смениться (другой user залогинился
+      // или произошёл logout). В этом случае молча игнорируем результат.
+      if (loadedForUserId.current !== userId) return
       setProfile(p)
-      loadedForUserId.current = userId
     } catch (e) {
       if (!mounted.current) return
+      if (loadedForUserId.current !== userId) return
       setProfile(null)
       loadedForUserId.current = null
       setProfileError(mapAuthError(e))
     } finally {
-      if (mounted.current) setProfileLoading(false)
+      if (mounted.current && loadedForUserId.current === userId) {
+        setProfileLoading(false)
+      }
     }
   }, [])
 
