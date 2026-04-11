@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Flex, Radio, Space, Typography, message } from 'antd'
+import { Alert, App, Button, Card, DatePicker, Flex, Radio, Space, Typography } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
@@ -10,6 +10,7 @@ import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
 
 export function SettingsPage() {
+  const { message } = App.useApp()
   const { profile, user } = useAuth()
   const [mode, setMode] = useState<RetentionMode>('all')
   const [fromDate, setFromDate] = useState<Dayjs | null>(null)

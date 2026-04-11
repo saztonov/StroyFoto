@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react'
-import { Button, Flex, Spin, Typography, message } from 'antd'
+import { App, Button, Flex, Spin, Typography } from 'antd'
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -99,6 +99,7 @@ const PhotoTile = memo(function PhotoTile({
 })
 
 export function PhotoPicker({ value, onChange }: Props) {
+  const { message } = App.useApp()
   const [busy, setBusy] = useState(false)
 
   // Стабильная карта id → object URL. URL живёт ровно столько, сколько фото в value.

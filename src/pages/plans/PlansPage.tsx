@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, List, Select, Space, Typography, Upload, message } from 'antd'
+import { App, Button, List, Select, Space, Typography, Upload } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
 import type { UploadFile } from 'antd/es/upload/interface'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -20,6 +20,7 @@ interface ProjectOption {
 }
 
 export function PlansPage() {
+  const { message } = App.useApp()
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [projects, setProjects] = useState<ProjectOption[]>([])

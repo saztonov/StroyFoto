@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   Alert,
+  App,
   Button,
   Flex,
   Form,
@@ -11,7 +12,6 @@ import {
   Switch,
   Table,
   Tag,
-  message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -30,6 +30,7 @@ import type { AdminProfile, Role } from '@/entities/profile/types'
 import { nav } from '@/shared/i18n/ru'
 
 export function UsersPage() {
+  const { message } = App.useApp()
   const usersResource = useAdminResource<AdminProfile>(useCallback(listProfiles, []))
   const projectsResource = useAdminResource(useCallback(listProjects, []))
   const [search, setSearch] = useState('')
@@ -221,7 +222,7 @@ export function UsersPage() {
         onOk={submitEdit}
         okText="Сохранить"
         cancelText="Отмена"
-        destroyOnClose
+        forceRender
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
@@ -242,7 +243,7 @@ export function UsersPage() {
         confirmLoading={assignLoading}
         okText="Сохранить"
         cancelText="Отмена"
-        destroyOnClose
+        destroyOnHidden
       >
         {projectsResource.error ? (
           <Alert type="error" showIcon message={projectsResource.error} style={{ marginBottom: 12 }} />

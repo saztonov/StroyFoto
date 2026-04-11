@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   Alert,
+  App,
   Button,
   Flex,
   Form,
@@ -10,7 +11,6 @@ import {
   Switch,
   Table,
   Tag,
-  message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -26,6 +26,7 @@ import type { WorkType } from '@/entities/workType/types'
 import { nav } from '@/shared/i18n/ru'
 
 export function WorkTypesPage() {
+  const { message } = App.useApp()
   const { data, loading, error, refresh } = useAdminResource<WorkType>(useCallback(listWorkTypes, []))
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<WorkType | null>(null)
@@ -177,7 +178,7 @@ export function WorkTypesPage() {
         confirmLoading={saving}
         okText="Сохранить"
         cancelText="Отмена"
-        destroyOnClose
+        forceRender
       >
         <Form form={form} layout="vertical">
           <Form.Item

@@ -47,7 +47,7 @@ const ReportCardItem = memo(function ReportCardItem({
   workTypeName,
   onOpen,
 }: ReportCardItemProps) {
-  const s = STATUS_LABEL[report.syncStatus]
+  const s = STATUS_LABEL[report.syncStatus] ?? { text: report.syncStatus ?? '—', color: 'default' }
   return (
     <div
       onClick={() => onOpen(report.id)}
@@ -201,8 +201,8 @@ export function ReportsListPage() {
         />
       ) : (
         <Row gutter={[12, 12]}>
-          {filtered.map((r) => (
-            <Col key={r.id} xs={24} sm={12} xl={8}>
+          {filtered.map((r, idx) => (
+            <Col key={r.id ?? idx} xs={24} sm={12} xl={8}>
               <ReportCardItem
                 report={r}
                 projectName={projectsById.get(r.projectId)?.name ?? '—'}

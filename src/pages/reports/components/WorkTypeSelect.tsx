@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Select, Spin, message } from 'antd'
+import { App, Select, Spin } from 'antd'
 import type { SelectProps } from 'antd'
 import type { WorkType } from '@/entities/workType/types'
 import { createOrQueueWorkType } from '@/services/catalogs'
@@ -21,6 +21,7 @@ interface Props {
  * офлайн — оставит в IDB и зашедулит upsert на возвращение сети.
  */
 export function WorkTypeSelect({ options, value, onChange, onCreated, disabled }: Props) {
+  const { message } = App.useApp()
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
 

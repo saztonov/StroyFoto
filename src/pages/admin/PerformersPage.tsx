@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   Alert,
+  App,
   Button,
   Flex,
   Form,
@@ -12,7 +13,6 @@ import {
   Switch,
   Table,
   Tag,
-  message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -40,6 +40,7 @@ interface FormValues {
 }
 
 export function PerformersPage() {
+  const { message } = App.useApp()
   const { data, loading, error, refresh } = useAdminResource<Performer>(useCallback(listPerformers, []))
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
@@ -208,7 +209,7 @@ export function PerformersPage() {
         confirmLoading={saving}
         okText="Сохранить"
         cancelText="Отмена"
-        destroyOnClose
+        forceRender
       >
         <Form form={form} layout="vertical" initialValues={{ kind: 'contractor' }}>
           <Form.Item

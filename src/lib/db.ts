@@ -165,56 +165,72 @@ interface StroyFotoDB extends DBSchema {
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
 
+function ensureStore(
+  db: IDBPDatabase<StroyFotoDB>,
+  name: string,
+  opts: IDBObjectStoreParameters,
+) {
+  if (!db.objectStoreNames.contains(name as any)) {
+    return db.createObjectStore(name as any, opts)
+  }
+  return null
+}
+
+const DB_VERSION = 81
+
 export function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<StroyFotoDB>('stroyfoto', 3, {
+    dbPromise = openDB<StroyFotoDB>('stroyfoto', DB_VERSION, {
       upgrade(db, oldVersion, _newVersion, tx) {
-        if (oldVersion < 1) {
-          const reports = db.createObjectStore('reports', { keyPath: 'id' })
-          reports.createIndex('by_status', 'syncStatus')
-          reports.createIndex('by_created', 'createdAt')
-
-          const photos = db.createObjectStore('photos', { keyPath: 'id' })
-          photos.createIndex('by_report', 'reportId')
-
-          db.createObjectStore('plan_marks', { keyPath: 'reportId' })
-          db.createObjectStore('plans_cache', { keyPath: 'id' })
-
-          const queue = db.createObjectStore('sync_queue', {
-            keyPath: 'id',
-            autoIncrement: true,
-          })
-          queue.createIndex('by_next', 'nextAttemptAt')
+        // v1 stores
+        const reportsNew = ensureStore(db, 'reports', { keyPath: 'id' })
+        if (reportsNew) {
+          reportsNew.createIndex('by_status', 'syncStatus')
+          reportsNew.createIndex('by_created', 'createdAt')
         }
 
-        if (oldVersion < 2) {
-          db.createObjectStore('device_settings', { keyPath: 'key' })
-          db.createObjectStore('catalogs', { keyPath: 'key' })
+        const photosNew = ensureStore(db, 'photos', { keyPath: 'id' })
+        if (photosNew) {
+          photosNew.createIndex('by_report', 'reportId')
         }
 
-        if (oldVersion < 3) {
-          db.createObjectStore('work_types_local', { keyPath: 'id' })
+        ensureStore(db, 'plan_marks', { keyPath: 'reportId' })
+        ensureStore(db, 'plans_cache', { keyPath: 'id' })
 
-          const remote = db.createObjectStore('remote_reports_cache', { keyPath: 'id' })
-          remote.createIndex('by_project', 'projectId')
-          remote.createIndex('by_created', 'createdAt')
+        const queueNew = ensureStore(db, 'sync_queue', {
+          keyPath: 'id',
+          autoIncrement: true,
+        })
+        if (queueNew) {
+          queueNew.createIndex('by_next', 'nextAttemptAt')
+        }
 
-          // sync_queue: новый индекс by_report для быстрой проверки
-          // "есть ли незавершённые задачи у этого отчёта" (retention + aggregation)
-          const queue = tx.objectStore('sync_queue')
-          if (!queue.indexNames.contains('by_report')) {
-            queue.createIndex('by_report', 'reportId')
-          }
+        // v2 stores
+        ensureStore(db, 'device_settings', { keyPath: 'key' })
+        ensureStore(db, 'catalogs', { keyPath: 'key' })
 
-          // photos: индекс по origin для отдельной политики очистки remote-кэша
-          const photos = tx.objectStore('photos')
-          if (!photos.indexNames.contains('by_origin')) {
-            photos.createIndex('by_origin', 'origin')
-          }
+        // v3 stores
+        ensureStore(db, 'work_types_local', { keyPath: 'id' })
 
-          // Мигрируем существующие local-фото: помечаем origin='local'.
-          // Это важно, потому что applyRetention в новой версии использует
-          // origin для различения пользовательских drafts и remote-кэша.
+        const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' })
+        if (remoteNew) {
+          remoteNew.createIndex('by_project', 'projectId')
+          remoteNew.createIndex('by_created', 'createdAt')
+        }
+
+        // Ensure indexes that may be missing on pre-existing stores
+        const queue = tx.objectStore('sync_queue')
+        if (!queue.indexNames.contains('by_report')) {
+          queue.createIndex('by_report', 'reportId')
+        }
+
+        const photos = tx.objectStore('photos')
+        if (!photos.indexNames.contains('by_origin')) {
+          photos.createIndex('by_origin', 'origin')
+        }
+
+        // Migrate existing photos without origin field
+        if (oldVersion > 0 && oldVersion < DB_VERSION) {
           void photos.openCursor().then(async function migrate(cursor): Promise<void> {
             if (!cursor) return
             const v = cursor.value as LocalPhoto
