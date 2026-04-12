@@ -169,8 +169,10 @@ function ensureStore(
   db: IDBPDatabase<StroyFotoDB>,
   name: string,
   opts: IDBObjectStoreParameters,
-  tx?: IDBPTransaction<StroyFotoDB, (keyof StroyFotoDB)[], 'versionchange'>,
-) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx?: IDBPTransaction<StroyFotoDB, any, 'versionchange'>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
   if (db.objectStoreNames.contains(name as any)) {
     if (tx) {
       const existing = tx.objectStore(name as any)

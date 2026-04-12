@@ -225,9 +225,13 @@ export function ReportDetailsPage() {
           project_id: planRow.project_id,
           name: planRow.name,
           floor: planRow.floor ?? null,
+          building: planRow.building ?? null,
+          section: planRow.section ?? null,
           r2_key: planRow.r2_key,
           page_count: planRow.page_count,
+          uploaded_by: null,
           created_at: planRow.created_at,
+          updated_at: planRow.created_at,
         }
         const b = await downloadPlanPdf(planRecord)
         if (!cancelled) setPlanBlob(b)

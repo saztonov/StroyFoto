@@ -51,9 +51,13 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
           project_id: plan.project_id,
           name: plan.name,
           floor: plan.floor ?? null,
+          building: plan.building ?? null,
+          section: plan.section ?? null,
           r2_key: plan.r2_key,
           page_count: plan.page_count,
+          uploaded_by: null,
           created_at: plan.created_at,
+          updated_at: plan.created_at,
         }
         const b = await downloadPlanPdf(planRecord)
         if (!cancelled) setBlob(b)
