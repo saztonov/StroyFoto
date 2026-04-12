@@ -98,9 +98,12 @@ const PhotoTile = memo(function PhotoTile({
   )
 })
 
+const COMPRESS_CONCURRENCY = 2
+
 export function PhotoPicker({ value, onChange }: Props) {
   const { message } = App.useApp()
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
 
   // Стабильная карта id → object URL. URL живёт ровно столько, сколько фото в value.
   const previews = useMemo(() => {
@@ -119,10 +122,12 @@ export function PhotoPicker({ value, onChange }: Props) {
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return
     setBusy(true)
+    setProgress({ done: 0, total: files.length })
     try {
       const added: DraftPhoto[] = []
-      // Последовательная обработка: щадим CPU мобильного устройства.
-      for (const file of files) {
+      let done = 0
+
+      const processOne = async (file: File): Promise<DraftPhoto | null> => {
         try {
           const compressed = await imageCompression(file, {
             maxSizeMB: 1.5,
@@ -130,29 +135,49 @@ export function PhotoPicker({ value, onChange }: Props) {
             useWebWorker: true,
             initialQuality: 0.85,
           })
-          const thumb = await imageCompression(file, {
+          // Превью из уже сжатого файла — значительно быстрее, чем из оригинала.
+          const thumbFile = new File([compressed], file.name, { type: compressed.type })
+          const thumb = await imageCompression(thumbFile, {
             maxSizeMB: 0.1,
             maxWidthOrHeight: 320,
             useWebWorker: true,
             initialQuality: 0.7,
           })
           const dims = await readDimensions(compressed)
-          added.push({
+          return {
             id: uuid(),
             blob: compressed,
             thumbBlob: thumb,
             width: dims.width,
             height: dims.height,
             takenAt: file.lastModified ? new Date(file.lastModified).toISOString() : null,
-          })
+          }
         } catch (e) {
           console.error('photo compress failed', e)
           message.error(`Не удалось обработать файл: ${file.name}`)
+          return null
+        } finally {
+          done++
+          setProgress({ done, total: files.length })
         }
       }
+
+      // Параллельная обработка с ограничением конкурентности.
+      const executing = new Set<Promise<void>>()
+      for (const file of files) {
+        const p = processOne(file).then((r) => {
+          if (r) added.push(r)
+          executing.delete(p)
+        })
+        executing.add(p)
+        if (executing.size >= COMPRESS_CONCURRENCY) await Promise.race(executing)
+      }
+      await Promise.all(executing)
+
       if (added.length > 0) onChange([...value, ...added])
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -186,7 +211,9 @@ export function PhotoPicker({ value, onChange }: Props) {
         {busy ? (
           <Flex align="center" gap={8}>
             <Spin size="small" />
-            <Typography.Text type="secondary">Сжимаем фотографии…</Typography.Text>
+            <Typography.Text type="secondary">
+              Сжимаем фотографии…{progress ? ` ${progress.done}/${progress.total}` : ''}
+            </Typography.Text>
           </Flex>
         ) : null}
       </Flex>

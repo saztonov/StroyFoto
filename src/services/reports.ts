@@ -140,6 +140,9 @@ async function cacheRemoteSnapshot(snap: RemoteReportSnapshot): Promise<void> {
  * (у неё актуальный syncStatus, включая pending). При офлайне сервер заменяется
  * кэшем из `remote_reports_cache`, чтобы история всё равно открывалась.
  */
+/** Таймаут для сетевых запросов при загрузке списка отчётов (мс). */
+const FETCH_TIMEOUT_MS = 5_000
+
 export async function loadMergedReports(): Promise<ReportCard[]> {
   const local = await listLocalReports()
   const localCards = local.map(fromLocal)
@@ -149,13 +152,19 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
 
   if (online) {
     try {
-      const { data, error } = await supabase
-        .from('reports')
-        .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at')
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (error) throw error
-      const rows = (data as RemoteReportRow[] | null) ?? []
+      const fetchRemote = async () => {
+        const { data, error } = await supabase
+          .from('reports')
+          .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at')
+          .order('created_at', { ascending: false })
+          .limit(200)
+        if (error) throw error
+        return (data as RemoteReportRow[] | null) ?? []
+      }
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Remote fetch timeout')), FETCH_TIMEOUT_MS),
+      )
+      const rows = await Promise.race([fetchRemote(), timeout])
 
       // Разрешаем имена авторов одним проходом (паралельные RPC-вызовы).
       const authorNames = await resolveAuthorNames(rows.map((r) => r.author_id))

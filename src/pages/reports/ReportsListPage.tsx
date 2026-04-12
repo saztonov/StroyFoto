@@ -106,10 +106,16 @@ export function ReportsListPage() {
   const [viewMode, setViewMode] = useState<'date' | 'performer'>('date')
 
   const reload = useCallback(() => {
-    void loadMergedReports().then((r) => {
-      setReports(r)
-      setLoading(false)
-    })
+    void loadMergedReports()
+      .then((r) => {
+        setReports(r)
+      })
+      .catch((err) => {
+        console.error('loadMergedReports failed', err)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
   }, [])
 
   useEffect(() => {
