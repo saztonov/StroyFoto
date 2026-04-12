@@ -623,10 +623,12 @@ export function ReportDetailsPage() {
               {data.authorName ?? data.card.authorId}
             </Descriptions.Item>
             <Descriptions.Item label={reportDetails.syncStatus}>
-              <Tag color={status.color}>{status.text}</Tag>
-              {data.card.remoteOnly && (
-                <Tag color="default">{/* remoteTag */}С сервера</Tag>
-              )}
+              <Space size={4} wrap>
+                <Tag color={status.color}>{status.text}</Tag>
+                {data.card.remoteOnly && (
+                  <Tag color="default">{/* remoteTag */}С сервера</Tag>
+                )}
+              </Space>
             </Descriptions.Item>
           </Descriptions>
         </Card>

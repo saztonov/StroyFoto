@@ -1,233 +1,249 @@
-<role>
-Ты ведущий product/frontend инженер. Создай рабочий MVP приложения "СтройФото" как сайт + PWA.
-Не ограничивайся анализом: после краткого плана сразу вноси реальные изменения в код.
-</role>
+# СтройФото — руководство по кодовой базе
 
-<product_goal>
-"СтройФото" — это русскоязычное веб-приложение с PWA-установкой для фотоконтроля строительства.
-Референс по UX: Fieldwire, но без копирования бренда и без усложнения сверх MVP.
-</product_goal>
+Русскоязычное PWA для фотоконтроля строительства. Статус: **рабочий MVP**.
 
-<non_negotiable_constraints>
-1. Стек: Vite, React, TypeScript, Ant Design, Supabase, Cloudflare R2, PWA.
-2. Основная логика, UI, хранение черновиков, офлайн-режим и синхронизация должны жить во фронтенде.
-3. Допускается только минимальный доверенный edge-компонент для выдачи короткоживущих presigned URL к приватному R2. Не выноси туда бизнес-логику.
-4. Приложение должно быть быстрым, mobile-first, работать на телефоне, планшете и десктопе.
-5. Сразу закладывай совместимость с будущей Android APK-обёрткой (например, через Capacitor в будущем), но сейчас делай именно сайт/PWA.
-6. Все пользовательские тексты — на русском языке.
-7. Должны быть светлая и тёмная темы.
-8. Подход строго MVP: без лишних сущностей, без сложной аналитики, без необязательных enterprise-функций.
-</non_negotiable_constraints>
+## Стек
 
-<main_features>
-1. Авторизация через Supabase.
-2. Регистрация пользователей.
-3. Роли:
-   - Администратор
-   - Обычный пользователь
-4. Администратор может:
-   - активировать пользователей
-   - назначать им доступные проекты
-   - менять ФИО
-   - редактировать справочники проектов, видов работ, подрядчиков и собственных сил
-   - при необходимости менять роль пользователя
-5. Обычный пользователь может:
-   - создавать отчёты
-   - просматривать отчёты только по своим доступным проектам
-6. При создании отчёта пользователь выбирает:
-   - проект
-   - вид работ
-   - подрядчика или собственные силы
-   - описание (опционально)
-   - фотографии (с камеры или из библиотеки)
-   - строительный план/чертёж PDF, загруженный заранее
-   - точку на плане, где сделаны фотографии
-7. MVP-допущение:
-   - одна точка на плане на весь отчёт
-   - архитектура должна быть расширяема до привязки точки к каждой фотографии позже
-8. Если пользователь ввёл вид работ, которого нет в справочнике, этот вид работ должен автоматически добавляться в справочник.
-9. Должен быть справочник:
-   - проектов
-   - видов работ
-   - исполнителей, где исполнитель бывает двух типов: contractor и own_forces
-10. Пользователь должен управлять локальным хранением на устройстве:
-   - хранить фотоотчёты только начиная с выбранной даты
-   - либо не хранить историю локально вообще и открывать её только онлайн
-11. Важно:
-   - несинхронизированные отчёты и фото нельзя удалять локально до успешной синхронизации
-   - настройка локального хранения — это настройка устройства, а не серверное правило удаления данных
-</main_features>
+| Слой | Технология |
+|------|-----------|
+| Сборка | Vite 6 + TypeScript (strict) |
+| UI | React 18 + Ant Design 5 (`ru_RU`) |
+| Роутинг | React Router v6 (`createBrowserRouter`) |
+| Backend | Supabase (Auth + Postgres + RLS + Realtime) |
+| Файлы | Cloudflare R2 (приватный bucket) |
+| Presign | Supabase Edge Function `sign` (aws4fetch SigV4) |
+| Offline | IndexedDB (`idb` v8), sync queue, retention |
+| PWA | vite-plugin-pwa (autoUpdate, Workbox) |
+| Фото | browser-image-compression (Web Worker) |
+| PDF | pdfjs-dist 5.6 |
 
-<architecture>
-1. Supabase:
-   - Auth для входа/регистрации
-   - Postgres для метаданных
-   - RLS на всех пользовательских таблицах
-2. Cloudflare R2:
-   - хранение фотографий отчётов
-   - хранение PDF-планов
-   - bucket приватный
-3. Локально на устройстве:
-   - IndexedDB для черновиков, очереди синхронизации, blob-файлов фото, кэша PDF и кэша исторических данных
-4. PWA:
-   - manifest
-   - service worker
-   - app shell
-   - офлайн-доступ к уже загруженным и локально сохранённым данным
-5. Синхронизация:
-   - local-first
-   - неблокирующая UI
-   - с ретраями
-   - с идемпотентностью
-   - устойчивая к нестабильному интернету
-</architecture>
+Backend-API нет. Вся логика во фронтенде; R2-секреты хранятся только в Edge Function.
 
-<recommended_libs>
-Можно добавлять только действительно нужные библиотеки. Предпочтительно:
-- react-router-dom
-- @supabase/supabase-js
-- vite-plugin-pwa
-- idb
-- pdfjs-dist
-- браузерная библиотека для сжатия изображений
-- лёгкая библиотека для состояния только если она реально нужна
-Не добавляй тяжёлые и лишние зависимости.
-</recommended_libs>
+## Архитектура
 
-<data_model_minimum>
-Спроектируй минимум такие сущности:
-- profiles
-- projects
-- project_memberships
-- work_types
-- performers
-- plans
-- reports
-- report_plan_marks
-- report_photos
+```
+Browser/PWA
+  ├─ React UI (Ant Design)
+  ├─ React Context: AuthProvider, ThemeProvider
+  ├─ Сервисный слой (src/services/*)
+  ├─ IndexedDB (10 stores, idb)
+  │
+  ├─► Supabase Auth (JWT)
+  ├─► Supabase Postgres (RLS-защищённые таблицы)
+  ├─► Supabase Realtime (postgres_changes → invalidation)
+  ├─► Edge Function sign → presigned URL
+  └─► Cloudflare R2 (PUT/GET фото и PDF)
+```
 
-Рекомендации:
-- profiles связана с auth.users
-- performers хранит и подрядчиков, и собственные силы через поле kind
-- work_types поддерживает user-created записи
-- у всех основных сущностей должны быть created_at / updated_at где уместно
-- используй client-generated UUID для офлайн-идемпотентности
-</data_model_minimum>
+**Состояние:** React Context (Auth + Theme) + сервисный слой + IndexedDB. Redux/Zustand нет — осознанный выбор для MVP.
 
-<permission_model>
-1. Неактивный пользователь может зарегистрироваться и войти, но после входа должен видеть экран "Ожидает активации".
-2. Обычный пользователь видит только проекты, на которые назначен.
-3. Обычный пользователь может создавать и читать отчёты только по назначенным проектам.
-4. Администратор управляет пользователями, проектами, справочниками и доступами.
-5. Все ограничения должны быть продублированы в RLS-политиках.
-</permission_model>
+**Offline-first:** все мутации сначала пишутся в IndexedDB и мгновенно отображаются в UI. Фоновая очередь синхронизирует с сервером.
 
-<offline_sync_rules>
-1. Любое создание отчёта сначала сохраняется локально и мгновенно отображается в UI.
-2. Фотографии сначала сохраняются локально.
-3. Синхронизация должна идти в фоне и не тормозить интерфейс.
-4. Должна быть очередь операций со статусами вроде:
-   - pending
-   - syncing
-   - failed
-   - synced
-5. Используй retry с exponential backoff + jitter.
-6. Запускай синхронизацию:
-   - при появлении интернета
-   - при возврате приложения в активное состояние
-   - по ручной кнопке "Синхронизировать"
-   - через service worker / background sync, если доступно
-7. Если Background Sync API недоступен, приложение всё равно должно синхронизироваться через fallback-механику в самом приложении.
-8. Несинхронизированные данные никогда не очищай локально.
-9. Локальную очистку применяй только к уже синхронизированной истории и только по настройке пользователя на устройстве.
-10. Должна быть индикация статуса синхронизации на уровне отчёта и глобально.
-</offline_sync_rules>
+## Структура проекта
 
-<photo_rules>
-1. Поддержи добавление фото с камеры и из галереи.
-2. Сжимай фото на клиенте перед записью в локальное хранилище и перед загрузкой.
-3. Делай превью/thumbnail.
-4. Сохраняй корректную ориентацию изображения.
-5. Не блокируй интерфейс на долгой обработке.
-</photo_rules>
+```
+src/
+├── app/              # App.tsx, провайдеры, роутер, layouts
+│   ├── providers/    # AuthProvider.tsx, ThemeProvider.tsx
+│   ├── router/       # routes.tsx (lazy-loaded pages), guards.tsx
+│   └── layouts/      # AppShell, DesktopLayout, MobileLayout, AuthLayout
+├── pages/            # Страницы по разделам
+│   ├── auth/         # LoginPage, RegisterPage, PendingActivationPage
+│   ├── reports/      # ReportsListPage, NewReportPage, ReportDetailsPage
+│   │   └── components/  # PhotoPicker, PdfPlanCanvas, PlanMarkPicker,
+│   │                     # WorkTypeSelect, PerformerSelect, EditReportModal
+│   ├── plans/        # PlansPage + ZoomablePdfPreview
+│   ├── admin/        # UsersPage, ProjectsPage, WorkTypesPage, PerformersPage
+│   └── settings/     # SettingsPage (профиль, тема, retention, PWA install)
+├── entities/         # Доменные типы: Profile, Project, WorkType, Performer
+├── services/         # Бизнес-логика (без UI)
+│   ├── sync.ts           # Главный sync loop (30с/120с + events)
+│   ├── fullSync.ts       # Полная синхронизация (catalogs + plans + reports)
+│   ├── reconcile.ts      # Лёгкий pull после reconnect
+│   ├── invalidation.ts   # Realtime подписки + BroadcastChannel (cross-tab)
+│   ├── reports.ts        # CRUD отчётов (local + remote merge)
+│   ├── localReports.ts   # IDB-операции над черновиками
+│   ├── photos.ts         # Сжатие, IDB-хранение, статусы
+│   ├── plans.ts          # Скачивание PDF, IDB-кэш
+│   ├── r2.ts             # Presigned URL запросы к Edge Function
+│   ├── catalogs.ts       # Загрузка справочников + IDB-кэш
+│   ├── retention.ts      # Очистка старых данных по настройке
+│   ├── deviceSettings.ts # Настройки устройства в IDB
+│   ├── storageQuota.ts   # Мониторинг квоты IndexedDB
+│   ├── admin.ts          # Админские операции
+│   └── auth.ts           # signUp, login, signOut, loadProfile
+├── shared/
+│   ├── hooks/        # useAuth, useTheme, useBreakpoint, useOnlineStatus,
+│   │                 # usePwaInstall, useAdminResource
+│   ├── i18n/ru.ts    # Все строки интерфейса на русском
+│   ├── ui/           # SyncBanner, ThemeToggle, ErrorBoundary,
+│   │                 # EmptySection, PageHeader, IdbBlockedNotice,
+│   │                 # StorageWarningNotice
+│   └── config/env.ts # Валидация VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+├── lib/
+│   ├── supabase.ts   # Клиент Supabase (persistSession, storageKey: stroyfoto:auth)
+│   ├── db.ts         # IndexedDB: StroyFotoDB v84, 10 stores, getDB()
+│   └── platform/     # Абстракция камеры (готова для Capacitor)
+│       ├── index.ts
+│       └── camera.ts # Web-реализация CameraAdapter
+└── main.tsx          # Точка входа: dayjs ru, retention, PWA register
 
-<pdf_plan_rules>
-1. Пользователь может заранее загружать PDF-планы по проекту.
-2. При создании отчёта пользователь может выбрать план из доступных по проекту.
-3. Нужно отобразить PDF, выбрать страницу, поставить точку.
-4. Сохраняй координаты точки в нормализованном виде, чтобы они корректно масштабировались.
-5. Если нужный PDF уже был закэширован локально, он должен быть доступен офлайн.
-</pdf_plan_rules>
+supabase/
+├── schema.sql                # Единый SQL: таблицы, триггеры, RLS, RPC
+├── migrations/
+│   └── 20260412_realtime_and_batch_rpc.sql  # Realtime + get_author_names()
+├── config.toml               # Supabase CLI config
+└── functions/sign/index.ts   # Edge Function: presigned R2 URLs
+```
 
-<ui_ux_rules>
-1. Mobile-first.
-2. Очень быстрый сценарий создания отчёта.
-3. Минимум кликов.
-4. На мобильном — удобная нижняя навигация / компактный layout.
-5. На планшете и десктопе — адаптированный layout.
-6. Все строки интерфейса на русском.
-7. Тёмная и светлая темы.
-8. Продумай пустые состояния, skeleton/loading, offline banner, sync banner.
-</ui_ux_rules>
+## Модель данных
 
-<mvp_boundaries>
-1. В MVP обязательно:
-   - регистрация / вход
-   - ожидание активации
-   - роли
-   - справочники
-   - создание отчёта
-   - просмотр отчётов
-   - планы PDF
-   - точка на плане
-   - офлайн-черновики и фоновая синхронизация
-   - настройка локального хранения истории
-2. В MVP не обязательно:
-   - сложное редактирование отчётов после синка
-   - комментарии
-   - чат
-   - push-уведомления
-   - сложные dashboards
-   - экспорт в PDF/Excel
-</mvp_boundaries>
+### Supabase (Postgres)
 
-<security_rules>
-1. Никогда не клади service_role key или секреты R2 в клиент.
-2. Приватный доступ к R2 делай только через короткоживущие presigned URL.
-3. Проверяй доступ к проекту и данным не только в UI, но и на уровне RLS.
-4. Не делай "security by obscurity".
-</security_rules>
+| Таблица | Назначение |
+|---------|-----------|
+| `profiles` | Профили (→ auth.users), role, is_active |
+| `projects` | Проекты |
+| `project_memberships` | Назначение пользователей на проекты |
+| `work_types` | Виды работ (user-created поддерживается) |
+| `performers` | Исполнители: kind = `contractor` / `own_forces` |
+| `plans` | PDF-планы по проектам (r2_key, page_count) |
+| `reports` | Отчёты (project, work_type, performer, plan, author) |
+| `report_plan_marks` | Точки на плане (normalized xNorm/yNorm) |
+| `report_photos` | Фотографии (r2_key, thumb_r2_key) |
 
-<execution_style>
-1. Сначала быстро изучи текущий репозиторий.
-2. Потом дай компактный план реализации.
-3. Потом сразу меняй код.
-4. Не останавливайся на псевдокоде, TODO и описаниях архитектуры.
-5. Делай рабочий MVP.
-6. Если требование конфликтует с безопасностью или реальностью платформы — не игнорируй это, а предложи минимальный безопасный компромисс и реализуй его.
-7. Предпочитай простые решения.
-8. Все важные решения фиксируй в README.
-9. После выполнения каждой задачи показывай:
-   - что сделано
-   - какие файлы изменены
-   - какие допущения приняты
-   - что логично делать следующим шагом
-</execution_style>
+**RPC-функции:** `admin_list_profiles()`, `get_author_name(uuid)`, `get_author_names(uuid[])` (batch).
 
-<definition_of_done>
-Задача считается завершённой, когда:
-- проект собирается
-- основные маршруты работают
-- авторизация работает
-- роли работают
-- RLS-миграции созданы
-- админские разделы работают
-- создание отчёта работает
-- отчёт локально сохраняется без интернета
-- синхронизация возобновляется после появления сети
-- фото сжимаются
-- планы PDF работают
-- точка на плане сохраняется
-- тёмная/светлая темы работают
-- README и .env.example обновлены
-</definition_of_done>
+**RLS-хелперы:** `is_admin()`, `is_active_user()` (security definer).
+
+**Триггер:** `on_auth_user_created` → auto-create profile (is_active=false, role='user').
+
+### IndexedDB (StroyFotoDB v84)
+
+| Store | Назначение |
+|-------|-----------|
+| `reports` | Локальные черновики + sync metadata |
+| `photos` | Blob фото + thumbnail (origin: local/remote) |
+| `plan_marks` | Метки на планах |
+| `plans_cache` | Кэш PDF-файлов |
+| `sync_queue` | Очередь синхронизации (kind, attempts, nextAttemptAt) |
+| `report_mutations` | Offline edit/delete с OCC (baseUpdatedAt) |
+| `remote_reports_cache` | Снапшоты серверных отчётов для offline |
+| `work_types_local` | Офлайн-созданные виды работ |
+| `catalogs` | Кэш справочников (projects, performers, work_types) |
+| `device_settings` | Настройки устройства (retention policy) |
+
+## Синхронизация
+
+### Sync loop (`src/services/sync.ts`)
+
+- **Интервал:** 30с (активная вкладка) / 120с (фоновая)
+- **Триггеры:** `online`, `visibilitychange`, ручная кнопка, `triggerSync()`
+- **Порядок обработки:** work_type → report → mark → photo
+- **Статусы:** `pending` → `syncing` → `synced` / `failed`
+- **Backoff:** `min(60000, 2^attempts * 1000) + random(0..500)ms`
+- **Классификация ошибок:**
+  - `transient` (5xx, timeout) → retry с backoff
+  - `auth` (401, JWT expired) → refresh token + retry
+  - `permanent` (403, FK violation, validation) → mark failed
+
+### Invalidation (`src/services/invalidation.ts`)
+
+- **Supabase Realtime:** подписка на postgres_changes по 8 таблицам
+- **BroadcastChannel:** cross-tab синхронизация (`stroyfoto-invalidation`)
+- **Listeners:** `onReportsChanged`, `onCatalogsChanged`, `onPlansChanged`
+
+### Reconcile (`src/services/reconcile.ts`)
+
+Лёгкий pull после reconnect/visibility: загрузка metadata (без PDF/фото), обновление `remote_reports_cache`.
+
+### Retention (`src/services/retention.ts`)
+
+- Режимы: `all` (хранить всё), `from_date`, `none`
+- Safeguard: **никогда** не удаляет unsynchronized данные
+- Применяется после каждого sync цикла
+
+## Маршруты
+
+**Гостевые** (RequireGuest → редирект на /reports если auth):
+- `/login`, `/register`
+
+**Auth, без активации** (RequireAuth, allowInactive):
+- `/pending-activation`
+
+**Auth + Active** (RequireAuth + RequireActive):
+- `/reports` — список отчётов
+- `/reports/new` — создание отчёта (lazy)
+- `/reports/:id` — детали отчёта (lazy)
+- `/plans` — управление PDF-планами (lazy)
+- `/settings` — настройки (lazy)
+
+**Admin** (RequireAdmin):
+- `/admin/users`, `/admin/projects`, `/admin/work-types`, `/admin/performers` (все lazy)
+
+Guards: `src/app/router/guards.tsx`. Страницы: `src/app/router/routes.tsx`.
+
+## Ключевые паттерны
+
+### Offline-first
+
+Все мутации (создание отчёта, edit, delete) сначала пишутся в IDB. UUID генерируется на клиенте → идемпотентность при retry. Отчёт в UI появляется мгновенно со статусом `pending`.
+
+### OCC (Optimistic Concurrency Control)
+
+Edit/delete отчётов используют `baseUpdatedAt` — если сервер вернул 0 rows, значит кто-то изменил отчёт раньше → ConflictError.
+
+### Фото pipeline
+
+1. Камера/галерея → `platform.camera`
+2. Сжатие: max 1.5MB/2048px (main) + max 0.1MB/320px (thumb) — Web Worker
+3. Сохранение в IDB (origin: 'local', syncStatus: 'pending_upload')
+4. Sync: presigned PUT → R2 (60с timeout) → upsert `report_photos`
+5. R2 keys: `photos/{reportId}/{photoId}.jpg`, `...-thumb.jpg`
+
+### PDF pipeline
+
+1. Админ/пользователь загружает PDF → R2 (`plans/{projectId}/{planId}.pdf`)
+2. При создании отчёта: выбор плана → скачивание (presigned GET) → IDB кэш
+3. Рендер через pdfjs-dist на canvas → клик → normalized (xNorm, yNorm)
+4. Offline: PDF из `plans_cache` в IDB
+
+### Темы
+
+`ThemeProvider` → light/dark/system. Persist: `localStorage('stroyfoto:theme')`. Ant Design: `ConfigProvider` с `darkAlgorithm`/`defaultAlgorithm`. Meta `theme-color` обновляется динамически.
+
+### Responsive layout
+
+- `< 768px` → MobileLayout: header + drawer + bottom TabBar
+- `≥ 768px` → DesktopLayout: collapsible Sider + header
+
+### i18n
+
+Все строки UI на русском в `src/shared/i18n/ru.ts`. Multi-language не поддерживается (MVP).
+
+### Code splitting
+
+Все тяжёлые страницы через `React.lazy`. Vendor chunks: `vendor-antd`, `vendor-pdfjs`, `vendor-supabase`, `vendor-idb`, `vendor-image`.
+
+## Ограничения MVP
+
+- **Редактирование отчётов** — работает через EditReportModal + OCC, но только для автора и админа
+- **Одна точка на плане на отчёт** — архитектура (`report_plan_marks`) готова к per-photo marks
+- **Background Sync API не используется** — только in-app loop (generateSW без custom handler)
+- **R2 timeout:** 60с PUT / 45с GET — медленные каналы → backoff retry
+- **Дубли work_types** при офлайн-создании — дедупликация по citext unique name
+- **Список отчётов без виртуализации** — до ~500 карточек
+- **Вне scope MVP:** push-уведомления, комментарии, чат, дашборды, экспорт PDF/Excel, Capacitor shell
+
+## Правила при внесении изменений
+
+1. **Секреты:** никогда не класть service_role key или R2-секреты в клиент. Только presigned URL через Edge Function.
+2. **RLS:** каждое ограничение доступа дублировать в RLS-политиках (`supabase/schema.sql`).
+3. **Offline-first:** любая мутация сначала в IDB → sync в фоне. UI не должен блокироваться на сеть.
+4. **Русский язык:** все пользовательские строки — в `src/shared/i18n/ru.ts` и на русском.
+5. **Темы:** проверять что новый UI корректен и в light, и в dark теме.
+6. **Mobile-first:** сначала мобильный layout, потом desktop.
+7. **Зависимости:** не добавлять тяжёлые библиотеки без необходимости. Предпочитать browser API.
+8. **IndexedDB:** при добавлении нового store — инкрементировать `DB_VERSION` в `src/lib/db.ts`.
+9. **Типы:** strict TypeScript. Доменные типы — в `src/entities/`. Сервисные типы — рядом с сервисом.
+10. **Миграции:** инкрементальные SQL в `supabase/migrations/`. Основная схема — `supabase/schema.sql`.
