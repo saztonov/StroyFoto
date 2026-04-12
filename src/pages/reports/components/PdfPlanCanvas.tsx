@@ -189,7 +189,7 @@ export function PdfPlanCanvas({
           display: 'block',
           maxWidth: '100%',
           borderRadius: 6,
-          boxShadow: '0 0 0 1px rgba(0,0,0,0.08)',
+          boxShadow: '0 0 0 1px var(--ant-color-border)',
           cursor: onPick ? 'crosshair' : 'default',
           touchAction: 'manipulation',
         }}

@@ -9,6 +9,7 @@ export interface PlanRow {
   id: string
   project_id: string
   name: string
+  floor: string | null
   r2_key: string
   page_count: number | null
   created_at: string
@@ -192,7 +193,7 @@ export async function loadPerformers(): Promise<Performer[]> {
 export async function loadPlansForProject(projectId: string): Promise<PlanRow[]> {
   const { data, error } = await supabase
     .from('plans')
-    .select('id,project_id,name,r2_key,page_count,created_at')
+    .select('id,project_id,name,floor,r2_key,page_count,created_at')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
   if (error) {

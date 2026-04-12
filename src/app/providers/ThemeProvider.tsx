@@ -79,6 +79,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       <ConfigProvider
         locale={ruRU}
         theme={{
+          cssVar: true,
           algorithm: effective === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
           token: {
             colorPrimary: '#1677ff',

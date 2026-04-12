@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { App, Button, List, Select, Space, Typography, Upload } from 'antd'
+import { App, Button, Form, Input, List, Modal, Select, Space, Typography, Upload } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
 import type { UploadFile } from 'antd/es/upload/interface'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -10,6 +10,7 @@ import {
   downloadPlanPdf,
   listAllVisiblePlans,
   listPlansForProject,
+  planDisplayName,
   uploadPlanPdf,
   type PlanRecord,
 } from '@/services/plans'
@@ -28,6 +29,9 @@ export function PlansPage() {
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [form] = Form.useForm<{ floor: string; name: string }>()
 
   useEffect(() => {
     void (async () => {
@@ -62,23 +66,42 @@ export function PlansPage() {
     }
   }
 
-  async function handleUpload(file: UploadFile) {
+  function handleFileSelected(file: UploadFile) {
     if (!projectId) {
       message.warning('Выберите проект перед загрузкой PDF.')
       return false
     }
     const realFile = file as unknown as File
-    setUploading(true)
+    setPendingFile(realFile)
+    form.setFieldsValue({
+      name: realFile.name.replace(/\.pdf$/i, ''),
+      floor: '',
+    })
+    setModalOpen(true)
+    return false
+  }
+
+  async function handleModalOk() {
+    if (!pendingFile || !projectId) return
     try {
-      await uploadPlanPdf(realFile, projectId, realFile.name.replace(/\.pdf$/i, ''), null)
+      const values = await form.validateFields()
+      setModalOpen(false)
+      setUploading(true)
+      await uploadPlanPdf(pendingFile, projectId, values.name, values.floor || null, null)
       message.success('План загружен')
+      setPendingFile(null)
       await reload()
     } catch (e) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return // validation
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
       setUploading(false)
     }
-    return false // не отдавать антд встроенному uploader-у
+  }
+
+  function handleModalCancel() {
+    setModalOpen(false)
+    setPendingFile(null)
   }
 
   async function handleOpen(plan: PlanRecord) {
@@ -113,7 +136,7 @@ export function PlansPage() {
             showUploadList={false}
             disabled={uploading || !projectId}
             beforeUpload={(f) => {
-              void handleUpload(f as unknown as UploadFile)
+              handleFileSelected(f as unknown as UploadFile)
               return false
             }}
           >
@@ -148,11 +171,41 @@ export function PlansPage() {
                 </Button>,
               ]}
             >
-              <List.Item.Meta title={plan.name} description={plan.r2_key} />
+              <List.Item.Meta
+                title={planDisplayName(plan)}
+                description={new Date(plan.created_at).toLocaleDateString('ru-RU')}
+              />
             </List.Item>
           )}
         />
       </Space>
+
+      <Modal
+        title="Загрузка плана"
+        open={modalOpen}
+        onOk={handleModalOk}
+        onCancel={handleModalCancel}
+        okText="Загрузить"
+        cancelText="Отмена"
+        confirmLoading={uploading}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            name="floor"
+            label="Этаж"
+            rules={[{ required: true, message: 'Укажите этаж' }]}
+          >
+            <Input placeholder="Например: 1, -1, Кровля, Подвал" />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="Название плана"
+            rules={[{ required: true, message: 'Укажите название' }]}
+          >
+            <Input />
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   )
 }

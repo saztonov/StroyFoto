@@ -12,9 +12,14 @@ export interface PlanRecord {
   id: string
   project_id: string
   name: string
+  floor: string | null
   r2_key: string
   page_count: number | null
   created_at: string
+}
+
+export function planDisplayName(plan: Pick<PlanRecord, 'name' | 'floor'>): string {
+  return plan.floor ? `Этаж ${plan.floor} — ${plan.name}` : plan.name
 }
 
 /**
@@ -26,6 +31,7 @@ export async function uploadPlanPdf(
   file: File,
   projectId: string,
   name: string,
+  floor: string | null,
   pageCount: number | null,
 ): Promise<PlanRecord> {
   const planId = uuidv4()
@@ -47,6 +53,7 @@ export async function uploadPlanPdf(
       id: planId,
       project_id: projectId,
       name,
+      floor,
       r2_key: key,
       page_count: pageCount,
     })

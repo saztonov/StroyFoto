@@ -105,8 +105,8 @@ export function MobileLayout() {
           bottom: 0,
           height: 64,
           paddingBottom: 'env(safe-area-inset-bottom)',
-          background: 'var(--ant-color-bg-container, #fff)',
-          borderTop: '1px solid var(--ant-color-border-secondary, rgba(0,0,0,0.06))',
+          background: 'var(--ant-color-bg-container)',
+          borderTop: '1px solid var(--ant-color-border-secondary)',
           zIndex: 20,
         }}
       >
@@ -129,8 +129,8 @@ export function MobileLayout() {
                 border: 0,
                 cursor: 'pointer',
                 color: active
-                  ? 'var(--ant-color-primary, #1677ff)'
-                  : 'var(--ant-color-text-secondary, rgba(0,0,0,0.65))',
+                  ? 'var(--ant-color-primary)'
+                  : 'var(--ant-color-text-secondary)',
                 fontSize: 12,
                 padding: 8,
               }}

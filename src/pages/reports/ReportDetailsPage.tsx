@@ -30,7 +30,7 @@ import {
 } from '@/services/reports'
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
-import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
+import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
 import { useAuth } from '@/app/providers/AuthProvider'
 import type { Project } from '@/entities/project/types'
@@ -208,6 +208,7 @@ export function ReportDetailsPage() {
           id: planRow.id,
           project_id: planRow.project_id,
           name: planRow.name,
+          floor: planRow.floor ?? null,
           r2_key: planRow.r2_key,
           page_count: planRow.page_count,
           created_at: planRow.created_at,
@@ -455,7 +456,7 @@ export function ReportDetailsPage() {
         <Card title={reportDetails.sectionPlan}>
           {data.card.planId || data.mark ? (
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
-              <Typography.Text strong>{plan?.name ?? '—'}</Typography.Text>
+              <Typography.Text strong>{plan ? planDisplayName(plan) : '—'}</Typography.Text>
               {data.mark && (
                 <Typography.Text>
                   {reportDetails.pageLabel} {data.mark.page} · {reportDetails.point}{' '}

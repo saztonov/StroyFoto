@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Flex, Select, Space, Typography } from 'antd'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { PlanRow } from '@/services/catalogs'
-import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
+import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
 import { PdfPlanCanvas } from './PdfPlanCanvas'
 
 export interface PlanMarkValue {
@@ -50,6 +50,7 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
           id: plan.id,
           project_id: plan.project_id,
           name: plan.name,
+          floor: plan.floor ?? null,
           r2_key: plan.r2_key,
           page_count: plan.page_count,
           created_at: plan.created_at,
@@ -98,7 +99,7 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
         allowClear
         value={value?.planId}
         onChange={handlePlanChange}
-        options={plans.map((p) => ({ value: p.id, label: p.name }))}
+        options={plans.map((p) => ({ value: p.id, label: planDisplayName(p) }))}
       />
 
       {value?.planId && (

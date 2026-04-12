@@ -55,8 +55,8 @@ const ReportCardItem = memo(function ReportCardItem({
         cursor: 'pointer',
         padding: 12,
         borderRadius: 8,
-        border: '1px solid var(--ant-color-border-secondary, rgba(0,0,0,0.06))',
-        background: 'var(--ant-color-bg-container, #fff)',
+        border: '1px solid var(--ant-color-border-secondary)',
+        background: 'var(--ant-color-bg-container)',
         height: '100%',
       }}
     >

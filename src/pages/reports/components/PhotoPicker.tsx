@@ -63,7 +63,7 @@ const PhotoTile = memo(function PhotoTile({
         aspectRatio: '1 / 1',
         borderRadius: 8,
         overflow: 'hidden',
-        background: 'rgba(0,0,0,0.04)',
+        background: 'var(--ant-color-fill-quaternary)',
       }}
     >
       <img
