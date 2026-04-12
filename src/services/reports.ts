@@ -363,3 +363,58 @@ export async function getCachedRemotePhotoBlob(photoId: string): Promise<LocalPh
   const rec = await db.get('photos', photoId)
   return rec
 }
+
+// ---------- Edit / Delete ----------
+
+export interface ReportUpdateInput {
+  workTypeId: string
+  performerId: string
+  description: string | null
+  takenAt: string | null
+}
+
+export async function updateRemoteReport(id: string, input: ReportUpdateInput): Promise<void> {
+  const { error } = await supabase
+    .from('reports')
+    .update({
+      work_type_id: input.workTypeId,
+      performer_id: input.performerId,
+      description: input.description,
+      taken_at: input.takenAt,
+    })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteRemoteReport(id: string): Promise<void> {
+  const { error } = await supabase.from('reports').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Очищает локальные данные отчёта из IndexedDB после удаления на сервере.
+ */
+export async function purgeLocalReportData(id: string): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction(
+    ['reports', 'photos', 'plan_marks', 'sync_queue', 'remote_reports_cache'],
+    'readwrite',
+  )
+  try { await tx.objectStore('reports').delete(id) } catch { /* может не быть */ }
+  try { await tx.objectStore('remote_reports_cache').delete(id) } catch { /* может не быть */ }
+  try { await tx.objectStore('plan_marks').delete(id) } catch { /* может не быть */ }
+
+  const photosStore = tx.objectStore('photos')
+  const photoKeys = await photosStore.index('by_report').getAllKeys(id)
+  for (const key of photoKeys) {
+    await photosStore.delete(key)
+  }
+
+  const queueStore = tx.objectStore('sync_queue')
+  const queueKeys = await queueStore.index('by_report').getAllKeys(id)
+  for (const key of queueKeys) {
+    await queueStore.delete(key)
+  }
+
+  await tx.done
+}

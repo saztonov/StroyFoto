@@ -19,6 +19,10 @@ export const actions = {
   newReport: 'Новый отчёт',
   menu: 'Меню',
   back: 'Назад',
+  edit: 'Редактировать',
+  delete: 'Удалить',
+  save: 'Сохранить',
+  cancel: 'Отмена',
 } as const
 
 export const auth = {
@@ -50,6 +54,9 @@ export const reportsList = {
   remoteTag: 'С сервера',
   emptyLocal: 'Локальных отчётов пока нет',
   emptyFiltered: 'По выбранным фильтрам ничего не найдено',
+  viewByDate: 'По датам',
+  viewByPerformer: 'По исполнителям',
+  performerUnknown: 'Исполнитель не указан',
 } as const
 
 export const reportDetails = {
@@ -79,6 +86,12 @@ export const reportDetails = {
     'Этот отчёт открыт с сервера и не хранится на этом устройстве согласно вашим настройкам локального хранения.',
   performerContractor: 'Подрядчик',
   performerOwn: 'Собственные силы',
+  deleteConfirmTitle: 'Удалить отчёт?',
+  deleteConfirmContent: 'Отчёт и все связанные данные (фото, метка на плане) будут безвозвратно удалены.',
+  deleteSuccess: 'Отчёт удалён',
+  editSuccess: 'Отчёт обновлён',
+  editTitle: 'Редактирование отчёта',
+  cannotEditLocal: 'Редактирование доступно только для синхронизированных отчётов',
 } as const
 
 export const emptyStates = {

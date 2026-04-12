@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
+  App,
   Button,
   Card,
   Descriptions,
   Image,
+  Popconfirm,
   Result,
   Skeleton,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -31,7 +34,14 @@ import {
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
 import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
+import {
+  deleteRemoteReport,
+  purgeLocalReportData,
+  updateRemoteReport,
+  type ReportUpdateInput,
+} from '@/services/reports'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
+import { EditReportModal } from './components/EditReportModal'
 import { useAuth } from '@/app/providers/AuthProvider'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -63,6 +73,7 @@ export function ReportDetailsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
+  const { message } = App.useApp()
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<LoadedReport | null>(null)
@@ -80,6 +91,11 @@ export function ReportDetailsPage() {
 
   const [planBlob, setPlanBlob] = useState<Blob | null>(null)
   const [planError, setPlanError] = useState<string | null>(null)
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [refreshCounter, setRefreshCounter] = useState(0)
 
   // Загрузка отчёта
   useEffect(() => {
@@ -168,7 +184,7 @@ export function ReportDetailsPage() {
     return () => {
       cancelled = true
     }
-  }, [id, user?.id, profile?.full_name])
+  }, [id, user?.id, profile?.full_name, refreshCounter])
 
   // Справочники для имён
   useEffect(() => {
@@ -314,6 +330,42 @@ export function ReportDetailsPage() {
     }
   }, [data?.remotePhotos, data?.card.id])
 
+  const canEdit = Boolean(
+    data &&
+    (data.card.syncStatus === 'synced' || data.card.remoteOnly) &&
+    (profile?.role === 'admin' || data.card.authorId === user?.id),
+  )
+
+  const handleDelete = useCallback(async () => {
+    if (!id) return
+    setDeleting(true)
+    try {
+      await deleteRemoteReport(id)
+      await purgeLocalReportData(id)
+      message.success(reportDetails.deleteSuccess)
+      navigate('/reports')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }, [id, navigate, message])
+
+  const handleSave = useCallback(async (values: ReportUpdateInput) => {
+    if (!id) return
+    setEditLoading(true)
+    try {
+      await updateRemoteReport(id, values)
+      message.success(reportDetails.editSuccess)
+      setEditOpen(false)
+      setRefreshCounter((c) => c + 1)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEditLoading(false)
+    }
+  }, [id, message])
+
   if (!id) return <Result status="404" title={reportDetails.notFound} />
 
   if (loading) {
@@ -380,9 +432,37 @@ export function ReportDetailsPage() {
       <PageHeader
         title={reportDetails.title}
         extra={
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
-            {actions.back}
-          </Button>
+          <Space size={8} wrap>
+            {canEdit && (
+              <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
+                {actions.edit}
+              </Button>
+            )}
+            {canEdit && (
+              <Popconfirm
+                title={reportDetails.deleteConfirmTitle}
+                description={reportDetails.deleteConfirmContent}
+                onConfirm={handleDelete}
+                okText={actions.delete}
+                cancelText={actions.cancel}
+                okButtonProps={{ danger: true, loading: deleting }}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>
+                  {actions.delete}
+                </Button>
+              </Popconfirm>
+            )}
+            {!canEdit && data && !(data.card.syncStatus === 'synced' || data.card.remoteOnly) && (
+              <Tooltip title={reportDetails.cannotEditLocal}>
+                <Button icon={<EditOutlined />} disabled>
+                  {actions.edit}
+                </Button>
+              </Tooltip>
+            )}
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+              {actions.back}
+            </Button>
+          </Space>
         }
       />
 
@@ -480,6 +560,19 @@ export function ReportDetailsPage() {
           )}
         </Card>
       </Space>
+
+      {data && (
+        <EditReportModal
+          open={editOpen}
+          report={data.card}
+          workTypes={workTypes}
+          performers={performers}
+          loading={editLoading}
+          onSave={handleSave}
+          onCancel={() => setEditOpen(false)}
+          onWorkTypeCreated={(wt) => setWorkTypes((prev) => [...prev, wt])}
+        />
+      )}
     </>
   )
 }

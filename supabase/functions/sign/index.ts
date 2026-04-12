@@ -242,7 +242,40 @@ async function checkPlanAccess(
 ): Promise<void> {
   const { user, op } = args
 
-  if (op === 'put' || op === 'delete') {
+  if (op === 'put') {
+    const { data: prof, error: profErr } = await user.client
+      .from('profiles')
+      .select('role, is_active')
+      .eq('id', user.sub)
+      .maybeSingle()
+    if (profErr) throw new HttpError(502, `supabase profiles: ${profErr.message}`)
+    if (!prof || !prof.is_active) {
+      throw new HttpError(403, 'только активный пользователь может загружать планы')
+    }
+
+    if (prof.role === 'admin') {
+      const { data: proj, error: projErr } = await user.client
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .maybeSingle()
+      if (projErr) throw new HttpError(502, `supabase projects: ${projErr.message}`)
+      if (!proj) throw new HttpError(403, 'проект недоступен')
+      return
+    }
+
+    const { data: membership, error: memErr } = await user.client
+      .from('project_memberships')
+      .select('project_id')
+      .eq('project_id', projectId)
+      .eq('user_id', user.sub)
+      .maybeSingle()
+    if (memErr) throw new HttpError(502, `supabase memberships: ${memErr.message}`)
+    if (!membership) throw new HttpError(403, 'нет доступа к проекту для загрузки плана')
+    return
+  }
+
+  if (op === 'delete') {
     const { data: prof, error: profErr } = await user.client
       .from('profiles')
       .select('role, is_active')
@@ -250,7 +283,7 @@ async function checkPlanAccess(
       .maybeSingle()
     if (profErr) throw new HttpError(502, `supabase profiles: ${profErr.message}`)
     if (!prof || prof.role !== 'admin' || !prof.is_active) {
-      throw new HttpError(403, 'только активный администратор может управлять планами')
+      throw new HttpError(403, 'только активный администратор может удалять планы')
     }
 
     const { data: proj, error: projErr } = await user.client

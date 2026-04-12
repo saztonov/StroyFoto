@@ -8,6 +8,7 @@ import {
   Flex,
   Input,
   Row,
+  Segmented,
   Select,
   Skeleton,
   Space,
@@ -22,9 +23,10 @@ import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import type { SyncStatus } from '@/lib/db'
 import { subscribeSync } from '@/services/sync'
 import { loadMergedReports, type ReportCard } from '@/services/reports'
-import { loadProjectsForUser, loadWorkTypes } from '@/services/catalogs'
+import { loadProjectsForUser, loadWorkTypes, loadPerformers } from '@/services/catalogs'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
+import type { Performer } from '@/entities/performer/types'
 
 const STATUS_LABEL: Record<SyncStatus, { text: string; color: string }> = {
   pending: { text: 'Ожидает синхронизации', color: 'gold' },
@@ -38,6 +40,7 @@ interface ReportCardItemProps {
   report: ReportCard
   projectName: string
   workTypeName: string | null
+  performerName: string | null
   onOpen: (id: string) => void
 }
 
@@ -45,6 +48,7 @@ const ReportCardItem = memo(function ReportCardItem({
   report,
   projectName,
   workTypeName,
+  performerName,
   onOpen,
 }: ReportCardItemProps) {
   const s = STATUS_LABEL[report.syncStatus] ?? { text: report.syncStatus ?? '—', color: 'default' }
@@ -71,6 +75,9 @@ const ReportCardItem = memo(function ReportCardItem({
         <Space size={8} wrap>
           <Tag color={s.color}>{s.text}</Tag>
           {report.remoteOnly && <Tag color="default">{reportsList.remoteTag}</Tag>}
+          {performerName && (
+            <Typography.Text type="secondary">{performerName}</Typography.Text>
+          )}
           {workTypeName && (
             <Typography.Text type="secondary">{workTypeName}</Typography.Text>
           )}
@@ -90,11 +97,13 @@ export function ReportsListPage() {
   const [reports, setReports] = useState<ReportCard[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
+  const [performers, setPerformers] = useState<Performer[]>([])
   const [loading, setLoading] = useState(true)
 
   const [projectId, setProjectId] = useState<string | null>(null)
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [workTypeQuery, setWorkTypeQuery] = useState('')
+  const [viewMode, setViewMode] = useState<'date' | 'performer'>('date')
 
   const reload = useCallback(() => {
     void loadMergedReports().then((r) => {
@@ -107,6 +116,7 @@ export function ReportsListPage() {
     reload()
     void loadProjectsForUser().then(setProjects).catch(() => undefined)
     void loadWorkTypes().then(setWorkTypes).catch(() => undefined)
+    void loadPerformers().then(setPerformers).catch(() => undefined)
     const unsub = subscribeSync(() => reload())
     return () => {
       unsub()
@@ -122,6 +132,10 @@ export function ReportsListPage() {
   const workTypesById = useMemo(
     () => new Map(workTypes.map((w) => [w.id, w])),
     [workTypes],
+  )
+  const performersById = useMemo(
+    () => new Map(performers.map((p) => [p.id, p])),
+    [performers],
   )
 
   const filtered = useMemo(() => {
@@ -145,6 +159,22 @@ export function ReportsListPage() {
 
   const hasFilters = projectId != null || range != null || workTypeQuery !== ''
 
+  const groupedByPerformer = useMemo(() => {
+    const map = new Map<string, { performer: Performer | null; reports: ReportCard[] }>()
+    for (const r of filtered) {
+      const key = r.performerId
+      if (!map.has(key)) {
+        map.set(key, { performer: performersById.get(key) ?? null, reports: [] })
+      }
+      map.get(key)!.reports.push(r)
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const nameA = a.performer?.name ?? ''
+      const nameB = b.performer?.name ?? ''
+      return nameA.localeCompare(nameB, 'ru')
+    })
+  }, [filtered, performersById])
+
   return (
     <>
       <PageHeader
@@ -157,6 +187,14 @@ export function ReportsListPage() {
       />
 
       <Flex gap={8} wrap="wrap" style={{ marginBottom: 16 }}>
+        <Segmented
+          value={viewMode}
+          onChange={(v) => setViewMode(v as 'date' | 'performer')}
+          options={[
+            { label: reportsList.viewByDate, value: 'date' },
+            { label: reportsList.viewByPerformer, value: 'performer' },
+          ]}
+        />
         <Select
           allowClear
           placeholder={reportsList.filterProjectAll}
@@ -199,7 +237,7 @@ export function ReportsListPage() {
             reports.length === 0 ? reportsList.emptyLocal : reportsList.emptyFiltered
           }
         />
-      ) : (
+      ) : viewMode === 'date' ? (
         <Row gutter={[12, 12]}>
           {filtered.map((r, idx) => (
             <Col key={r.id ?? idx} xs={24} sm={12} xl={8}>
@@ -207,11 +245,41 @@ export function ReportsListPage() {
                 report={r}
                 projectName={projectsById.get(r.projectId)?.name ?? '—'}
                 workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
+                performerName={performersById.get(r.performerId)?.name ?? null}
                 onOpen={openReport}
               />
             </Col>
           ))}
         </Row>
+      ) : (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {groupedByPerformer.map((group) => {
+            const perf = group.performer
+            const title = perf
+              ? `${perf.name} · ${perf.kind === 'contractor' ? 'Подрядчик' : 'Собственные силы'}`
+              : reportsList.performerUnknown
+            return (
+              <div key={perf?.id ?? '__unknown'}>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>
+                  {title}
+                </Typography.Title>
+                <Row gutter={[12, 12]}>
+                  {group.reports.map((r, idx) => (
+                    <Col key={r.id ?? idx} xs={24} sm={12} xl={8}>
+                      <ReportCardItem
+                        report={r}
+                        projectName={projectsById.get(r.projectId)?.name ?? '—'}
+                        workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
+                        performerName={null}
+                        onOpen={openReport}
+                      />
+                    </Col>
+                  ))}
+                </Row>
+              </div>
+            )
+          })}
+        </Space>
       )}
     </>
   )
