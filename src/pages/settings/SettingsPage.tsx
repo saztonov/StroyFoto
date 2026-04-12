@@ -8,10 +8,12 @@ import { nav, settings } from '@/shared/i18n/ru'
 import type { RetentionMode } from '@/lib/db'
 import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
+import { usePwaInstall } from '@/shared/hooks/usePwaInstall'
 
 export function SettingsPage() {
   const { message, modal } = App.useApp()
   const { profile, user } = useAuth()
+  const { canInstall, isInstalled, install } = usePwaInstall()
   const [mode, setMode] = useState<RetentionMode>('all')
   const [fromDate, setFromDate] = useState<Dayjs | null>(null)
   const [saving, setSaving] = useState(false)
@@ -97,6 +99,30 @@ export function SettingsPage() {
               <Typography.Text type="secondary">Роль:&nbsp;</Typography.Text>
               {profile?.role === 'admin' ? 'Администратор' : 'Пользователь'}
             </Typography.Text>
+          </Flex>
+        </Card>
+
+        <Card title="Приложение">
+          <Flex vertical gap={12}>
+            {isInstalled ? (
+              <Typography.Text type="secondary">
+                Приложение уже установлено на это устройство.
+              </Typography.Text>
+            ) : canInstall ? (
+              <>
+                <Typography.Text type="secondary">
+                  Установите СтройФото как приложение для быстрого доступа и работы офлайн.
+                </Typography.Text>
+                <Button type="primary" onClick={install} style={{ alignSelf: 'flex-start' }}>
+                  Установить приложение
+                </Button>
+              </>
+            ) : (
+              <Typography.Text type="secondary">
+                Чтобы установить приложение, откройте меню браузера и выберите «Добавить на главный
+                экран» (iOS&nbsp;Safari) или «Установить приложение» (Chrome&nbsp;/&nbsp;Edge).
+              </Typography.Text>
+            )}
           </Flex>
         </Card>
 
