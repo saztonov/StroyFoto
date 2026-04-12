@@ -2,28 +2,44 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'node:path'
+import fs from 'node:fs'
 
-function renameMjsToJs(): Plugin {
+/**
+ * Эмитирует pdfjs worker как .js-ассет (вместо .mjs) через Rollup emitFile.
+ * Это решает проблему MIME-типов: серверы часто не знают .mjs → application/javascript,
+ * а .js отдают корректно. Поскольку файл эмитируется ДО хэширования чанков,
+ * хэши всех зависимых чанков автоматически корректны (нет кэш-коллизий).
+ */
+function pdfjsWorkerFix(): Plugin {
+  let workerRefId: string
   return {
-    name: 'rename-mjs-to-js',
-    enforce: 'post',
-    generateBundle(_, bundle) {
-      const renames: [string, string][] = []
-      for (const key of Object.keys(bundle)) {
-        if (key.endsWith('.mjs')) {
-          const newKey = key.replace(/\.mjs$/, '.js')
-          bundle[key].fileName = newKey
-          renames.push([key, newKey])
-          bundle[newKey] = bundle[key]
-          delete bundle[key]
-        }
+    name: 'pdfjs-worker-fix',
+    enforce: 'pre',
+    buildStart() {
+      const workerPath = path.resolve(
+        __dirname,
+        'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+      )
+      workerRefId = this.emitFile({
+        type: 'asset',
+        name: 'pdf.worker.min.js',
+        source: fs.readFileSync(workerPath),
+      })
+    },
+    resolveId(source) {
+      if (source === 'virtual:pdfjs-worker') return '\0pdfjs-worker'
+    },
+    load(id) {
+      if (id === '\0pdfjs-worker') {
+        return `export default import.meta.ROLLUP_FILE_URL_${workerRefId}`
       }
-      for (const chunk of Object.values(bundle)) {
-        if (chunk.type === 'chunk') {
-          for (const [oldName, newName] of renames) {
-            chunk.code = chunk.code.replaceAll(oldName, newName)
-          }
-        }
+    },
+    transform(code, _id) {
+      if (code.includes('pdfjs-dist/build/pdf.worker.min.mjs?url')) {
+        return code.replace(
+          /from\s*['"]pdfjs-dist\/build\/pdf\.worker\.min\.mjs\?url['"]/g,
+          `from 'virtual:pdfjs-worker'`,
+        )
       }
     },
   }
@@ -31,8 +47,8 @@ function renameMjsToJs(): Plugin {
 
 export default defineConfig({
   plugins: [
+    pdfjsWorkerFix(),
     react(),
-    renameMjsToJs(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Spin } from 'antd'
 
-// pdfjs-dist v5 — ESM. Vite резолвит worker через ?url, эту строку установит
-// `GlobalWorkerOptions.workerSrc`. Это единственный раз на модуль — при повторном
-// монтировании компонента повторная установка не ломает pdf.js.
 import * as pdfjsLib from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+// Плагин pdfjsWorkerFix в vite.config.ts эмитирует worker как .js-ассет
+// и подставляет URL через виртуальный модуль 'virtual:pdfjs-worker'.
+// @ts-expect-error virtual module resolved by Vite plugin
+import pdfWorkerUrl from 'virtual:pdfjs-worker'
 
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl as string
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 }
 
 export interface PdfPoint {
