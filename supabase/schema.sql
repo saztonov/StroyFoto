@@ -155,11 +155,19 @@ create table if not exists public.plans (
   project_id   uuid not null references public.projects(id) on delete cascade,
   name         text not null,
   floor        text,
+  building     text,
+  section      text,
   r2_key       text not null,
   page_count   int  check (page_count is null or page_count > 0),
   uploaded_by  uuid references public.profiles(id) on delete set null,
-  created_at   timestamptz not null default now()
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
 );
+
+drop trigger if exists set_plans_updated_at on public.plans;
+create trigger set_plans_updated_at
+before update on public.plans
+for each row execute function public.set_updated_at();
 
 create index if not exists plans_project_idx on public.plans (project_id);
 
@@ -337,6 +345,32 @@ create policy plans_insert_member on public.plans
       select 1 from public.project_memberships m
       where m.project_id = plans.project_id and m.user_id = auth.uid()
     )
+  );
+
+drop policy if exists plans_update_member on public.plans;
+create policy plans_update_member on public.plans
+  for update to authenticated
+  using (
+    public.is_active_user()
+    and exists (
+      select 1 from public.project_memberships m
+      where m.project_id = plans.project_id and m.user_id = auth.uid()
+    )
+  )
+  with check (
+    public.is_active_user()
+    and exists (
+      select 1 from public.project_memberships m
+      where m.project_id = plans.project_id and m.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists plans_delete_uploader on public.plans;
+create policy plans_delete_uploader on public.plans
+  for delete to authenticated
+  using (
+    public.is_active_user()
+    and uploaded_by = auth.uid()
   );
 
 drop policy if exists plans_admin_all on public.plans;

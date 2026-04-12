@@ -282,17 +282,31 @@ async function checkPlanAccess(
       .eq('id', user.sub)
       .maybeSingle()
     if (profErr) throw new HttpError(502, `supabase profiles: ${profErr.message}`)
-    if (!prof || prof.role !== 'admin' || !prof.is_active) {
-      throw new HttpError(403, 'только активный администратор может удалять планы')
+    if (!prof || !prof.is_active) {
+      throw new HttpError(403, 'только активный пользователь может удалять планы')
     }
 
-    const { data: proj, error: projErr } = await user.client
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
+    if (prof.role === 'admin') {
+      const { data: proj, error: projErr } = await user.client
+        .from('projects')
+        .select('id')
+        .eq('id', projectId)
+        .maybeSingle()
+      if (projErr) throw new HttpError(502, `supabase projects: ${projErr.message}`)
+      if (!proj) throw new HttpError(403, 'проект недоступен')
+      return
+    }
+
+    // Не-админ: только загрузивший план может удалить
+    const { data: plan, error: planErr } = await user.client
+      .from('plans')
+      .select('uploaded_by')
+      .eq('id', planId)
       .maybeSingle()
-    if (projErr) throw new HttpError(502, `supabase projects: ${projErr.message}`)
-    if (!proj) throw new HttpError(403, 'проект недоступен')
+    if (planErr) throw new HttpError(502, `supabase plans: ${planErr.message}`)
+    if (!plan || plan.uploaded_by !== user.sub) {
+      throw new HttpError(403, 'только администратор или загрузивший план может его удалить')
+    }
     return
   }
 

@@ -10,6 +10,8 @@ export interface PlanRow {
   project_id: string
   name: string
   floor: string | null
+  building: string | null
+  section: string | null
   r2_key: string
   page_count: number | null
   created_at: string

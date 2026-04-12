@@ -94,6 +94,35 @@ export const reportDetails = {
   cannotEditLocal: 'Редактирование доступно только для синхронизированных отчётов',
 } as const
 
+export const plansPage = {
+  subtitle: 'PDF-планы по проектам',
+  allProjects: 'Все доступные проекты',
+  selectProjectFirst: 'Сначала выберите проект',
+  dragHint: 'Перетащите PDF-план сюда или нажмите для выбора',
+  uploadTitle: 'Загрузка плана',
+  uploadBtn: 'Загрузить',
+  uploadSuccess: 'План загружен',
+  editTitle: 'Редактирование плана',
+  replaceFile: 'Заменить файл',
+  replaceSuccess: 'Файл плана заменён',
+  deleteConfirm: 'Удалить план?',
+  deleteConfirmContent: 'План и связанные данные будут безвозвратно удалены.',
+  deleteSuccess: 'План удалён',
+  previewTitle: 'Просмотр плана',
+  preview: 'Просмотр',
+  fieldName: 'Название плана',
+  fieldFloor: 'Этаж',
+  fieldFloorHint: 'Например: 1, -1, Кровля, Подвал',
+  fieldBuilding: 'Корпус',
+  fieldBuildingHint: 'Например: Корпус А, Блок 2',
+  fieldSection: 'Секция',
+  fieldSectionHint: 'Например: Секция 1, Подъезд 3',
+  requiredName: 'Укажите название',
+  noBuilding: 'Без корпуса',
+  noSection: 'Без секции',
+  pageOf: 'из',
+} as const
+
 export const emptyStates = {
   soon: 'Раздел будет реализован на следующем шаге',
   noReports: 'Отчётов пока нет',
