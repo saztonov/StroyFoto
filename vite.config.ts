@@ -1,11 +1,38 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'node:path'
 
+function renameMjsToJs(): Plugin {
+  return {
+    name: 'rename-mjs-to-js',
+    enforce: 'post',
+    generateBundle(_, bundle) {
+      const renames: [string, string][] = []
+      for (const key of Object.keys(bundle)) {
+        if (key.endsWith('.mjs')) {
+          const newKey = key.replace(/\.mjs$/, '.js')
+          bundle[key].fileName = newKey
+          renames.push([key, newKey])
+          bundle[newKey] = bundle[key]
+          delete bundle[key]
+        }
+      }
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type === 'chunk') {
+          for (const [oldName, newName] of renames) {
+            chunk.code = chunk.code.replaceAll(oldName, newName)
+          }
+        }
+      }
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    renameMjsToJs(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
