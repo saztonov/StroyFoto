@@ -3,19 +3,23 @@ import {
   Alert,
   App,
   Button,
+  Card,
   Flex,
   Form,
   Input,
+  List,
   Modal,
   Space,
   Switch,
   Table,
   Tag,
+  Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptySection } from '@/shared/ui/EmptySection'
 import { useAdminResource } from '@/shared/hooks/useAdminResource'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import {
   createWorkType,
   listWorkTypes,
@@ -27,6 +31,7 @@ import { nav } from '@/shared/i18n/ru'
 
 export function WorkTypesPage() {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
   const { data, loading, error, refresh } = useAdminResource<WorkType>(useCallback(listWorkTypes, []))
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<WorkType | null>(null)
@@ -158,7 +163,7 @@ export function WorkTypesPage() {
           title="Видов работ пока нет"
           extra={<Button type="primary" onClick={openCreate}>Добавить</Button>}
         />
-      ) : (
+      ) : isDesktop ? (
         <Table
           rowKey="id"
           loading={loading}
@@ -167,6 +172,38 @@ export function WorkTypesPage() {
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           scroll={{ x: 600 }}
           size="middle"
+        />
+      ) : (
+        <List
+          loading={loading}
+          dataSource={filtered}
+          pagination={{ pageSize: 20, hideOnSinglePage: true }}
+          renderItem={(item) => (
+            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+              <Card size="small" style={{ width: '100%' }}>
+                <Flex justify="space-between" align="center">
+                  <Typography.Text strong>{item.name}</Typography.Text>
+                  <Switch
+                    checked={item.is_active}
+                    loading={savingId === item.id}
+                    onChange={(v) => handleActive(item, v)}
+                    checkedChildren="Акт."
+                    unCheckedChildren="Выкл."
+                  />
+                </Flex>
+                <div style={{ marginTop: 6 }}>
+                  {item.created_by
+                    ? <Tag color="blue">Создано пользователем</Tag>
+                    : <Tag>Справочник</Tag>}
+                </div>
+                <Flex gap={8} style={{ marginTop: 10 }}>
+                  <Button size="small" onClick={() => openEdit(item)}>
+                    Изменить
+                  </Button>
+                </Flex>
+              </Card>
+            </List.Item>
+          )}
         />
       )}
 

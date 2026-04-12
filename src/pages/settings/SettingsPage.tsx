@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Card, DatePicker, Flex, Progress, Radio, Space, Typography } from 'antd'
-import { SyncOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, DatePicker, Flex, Input, Progress, Radio, Space, Typography } from 'antd'
+import { EditOutlined, SyncOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
@@ -11,16 +11,37 @@ import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
 import { usePwaInstall } from '@/shared/hooks/usePwaInstall'
 import { fullSync, type FullSyncProgress } from '@/services/fullSync'
+import { supabase } from '@/lib/supabase'
 
 export function SettingsPage() {
   const { message, modal } = App.useApp()
-  const { profile, user } = useAuth()
+  const { profile, user, refreshProfile } = useAuth()
   const { canInstall, isInstalled, install } = usePwaInstall()
   const [mode, setMode] = useState<RetentionMode>('all')
   const [fromDate, setFromDate] = useState<Dayjs | null>(null)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<FullSyncProgress | null>(null)
+  const [editingName, setEditingName] = useState(false)
+  const [nameValue, setNameValue] = useState('')
+  const [savingName, setSavingName] = useState(false)
+
+  async function handleSaveName() {
+    const trimmed = nameValue.trim()
+    if (!trimmed || !user) return
+    setSavingName(true)
+    try {
+      const { error } = await supabase.from('profiles').update({ full_name: trimmed }).eq('id', user.id)
+      if (error) throw new Error(error.message)
+      await refreshProfile()
+      message.success('ФИО обновлено')
+      setEditingName(false)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : 'Не удалось сохранить ФИО')
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   async function handleFullSync() {
     setSyncing(true)
@@ -106,11 +127,49 @@ export function SettingsPage() {
         </Card>
 
         <Card title="Аккаунт">
-          <Flex vertical gap={4}>
-            <Typography.Text>
-              <Typography.Text type="secondary">ФИО:&nbsp;</Typography.Text>
-              {profile?.full_name ?? '—'}
-            </Typography.Text>
+          <Flex vertical gap={8}>
+            {editingName ? (
+              <Flex vertical gap={8}>
+                <Typography.Text type="secondary">ФИО</Typography.Text>
+                <Input
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  placeholder="Иванов Иван Иванович"
+                  onPressEnter={handleSaveName}
+                  autoFocus
+                />
+                <Flex gap={8}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={handleSaveName}
+                    loading={savingName}
+                    disabled={!nameValue.trim()}
+                  >
+                    Сохранить
+                  </Button>
+                  <Button size="small" onClick={() => setEditingName(false)} disabled={savingName}>
+                    Отмена
+                  </Button>
+                </Flex>
+              </Flex>
+            ) : (
+              <Flex align="center" gap={8}>
+                <Typography.Text>
+                  <Typography.Text type="secondary">ФИО:&nbsp;</Typography.Text>
+                  {profile?.full_name ?? '—'}
+                </Typography.Text>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setNameValue(profile?.full_name ?? '')
+                    setEditingName(true)
+                  }}
+                />
+              </Flex>
+            )}
             <Typography.Text>
               <Typography.Text type="secondary">Email:&nbsp;</Typography.Text>
               {user?.email ?? '—'}

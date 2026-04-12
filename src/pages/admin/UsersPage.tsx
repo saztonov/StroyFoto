@@ -3,20 +3,24 @@ import {
   Alert,
   App,
   Button,
+  Card,
   Flex,
   Form,
   Input,
+  List,
   Modal,
   Select,
   Space,
   Switch,
   Table,
   Tag,
+  Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptySection } from '@/shared/ui/EmptySection'
 import { useAdminResource } from '@/shared/hooks/useAdminResource'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import {
   listProfiles,
   listProjects,
@@ -31,6 +35,7 @@ import { nav } from '@/shared/i18n/ru'
 
 export function UsersPage() {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
   const usersResource = useAdminResource<AdminProfile>(useCallback(listProfiles, []))
   const projectsResource = useAdminResource(useCallback(listProjects, []))
   const [search, setSearch] = useState('')
@@ -203,7 +208,7 @@ export function UsersPage() {
 
       {!usersResource.loading && filtered.length === 0 ? (
         <EmptySection title="Пользователи не найдены" />
-      ) : (
+      ) : isDesktop ? (
         <Table
           rowKey="id"
           loading={usersResource.loading}
@@ -212,6 +217,61 @@ export function UsersPage() {
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           scroll={{ x: 720 }}
           size="middle"
+        />
+      ) : (
+        <List
+          loading={usersResource.loading}
+          dataSource={filtered}
+          pagination={{ pageSize: 20, hideOnSinglePage: true }}
+          renderItem={(user) => (
+            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+              <Card size="small" style={{ width: '100%' }}>
+                <Flex justify="space-between" align="center">
+                  <Typography.Text strong>
+                    {user.full_name || <Tag>не указано</Tag>}
+                  </Typography.Text>
+                  <Switch
+                    checked={user.is_active}
+                    loading={savingId === user.id}
+                    onChange={(v) => handleActive(user, v)}
+                    checkedChildren="Акт."
+                    unCheckedChildren="Выкл."
+                  />
+                </Flex>
+                <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                  {user.email}
+                </Typography.Text>
+                <Flex align="center" gap={8} style={{ marginTop: 8 }}>
+                  <Typography.Text type="secondary">Роль:</Typography.Text>
+                  <Select<Role>
+                    value={user.role}
+                    size="small"
+                    style={{ width: 140 }}
+                    disabled={savingId === user.id}
+                    onChange={(v) => handleRole(user, v)}
+                    options={[
+                      { value: 'user', label: 'Пользователь' },
+                      { value: 'admin', label: 'Администратор' },
+                    ]}
+                  />
+                </Flex>
+                <Flex gap={8} style={{ marginTop: 10 }}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditing(user)
+                      editForm.setFieldsValue({ full_name: user.full_name ?? '' })
+                    }}
+                  >
+                    ФИО
+                  </Button>
+                  <Button size="small" onClick={() => openAssign(user)}>
+                    Проекты
+                  </Button>
+                </Flex>
+              </Card>
+            </List.Item>
+          )}
         />
       )}
 

@@ -3,9 +3,11 @@ import {
   Alert,
   App,
   Button,
+  Card,
   Flex,
   Form,
   Input,
+  List,
   Modal,
   Radio,
   Select,
@@ -13,11 +15,13 @@ import {
   Switch,
   Table,
   Tag,
+  Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptySection } from '@/shared/ui/EmptySection'
 import { useAdminResource } from '@/shared/hooks/useAdminResource'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import {
   createPerformer,
   listPerformers,
@@ -41,6 +45,7 @@ interface FormValues {
 
 export function PerformersPage() {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
   const { data, loading, error, refresh } = useAdminResource<Performer>(useCallback(listPerformers, []))
   const [search, setSearch] = useState('')
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
@@ -189,7 +194,7 @@ export function PerformersPage() {
           title="Исполнителей нет"
           extra={<Button type="primary" onClick={openCreate}>Добавить</Button>}
         />
-      ) : (
+      ) : isDesktop ? (
         <Table
           rowKey="id"
           loading={loading}
@@ -198,6 +203,38 @@ export function PerformersPage() {
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           scroll={{ x: 640 }}
           size="middle"
+        />
+      ) : (
+        <List
+          loading={loading}
+          dataSource={filtered}
+          pagination={{ pageSize: 20, hideOnSinglePage: true }}
+          renderItem={(item) => (
+            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+              <Card size="small" style={{ width: '100%' }}>
+                <Flex justify="space-between" align="center">
+                  <Typography.Text strong>{item.name}</Typography.Text>
+                  <Switch
+                    checked={item.is_active}
+                    loading={savingId === item.id}
+                    onChange={(v) => handleActive(item, v)}
+                    checkedChildren="Акт."
+                    unCheckedChildren="Выкл."
+                  />
+                </Flex>
+                <div style={{ marginTop: 6 }}>
+                  <Tag color={item.kind === 'contractor' ? 'geekblue' : 'green'}>
+                    {KIND_LABEL[item.kind]}
+                  </Tag>
+                </div>
+                <Flex gap={8} style={{ marginTop: 10 }}>
+                  <Button size="small" onClick={() => openEdit(item)}>
+                    Изменить
+                  </Button>
+                </Flex>
+              </Card>
+            </List.Item>
+          )}
         />
       )}
 

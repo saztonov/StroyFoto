@@ -3,18 +3,22 @@ import {
   Alert,
   App,
   Button,
+  Card,
   Flex,
   Form,
   Input,
+  List,
   Modal,
   Popconfirm,
   Space,
   Table,
+  Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptySection } from '@/shared/ui/EmptySection'
 import { useAdminResource } from '@/shared/hooks/useAdminResource'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import {
   createProject,
   deleteProject,
@@ -31,6 +35,7 @@ interface FormValues {
 
 export function ProjectsPage() {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
   const { data, loading, error, refresh } = useAdminResource<Project>(useCallback(listProjects, []))
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<Project | null>(null)
@@ -157,7 +162,7 @@ export function ProjectsPage() {
           title="Проектов пока нет"
           extra={<Button type="primary" onClick={openCreate}>Создать первый</Button>}
         />
-      ) : (
+      ) : isDesktop ? (
         <Table
           rowKey="id"
           loading={loading}
@@ -166,6 +171,45 @@ export function ProjectsPage() {
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           scroll={{ x: 600 }}
           size="middle"
+        />
+      ) : (
+        <List
+          loading={loading}
+          dataSource={filtered}
+          pagination={{ pageSize: 20, hideOnSinglePage: true }}
+          renderItem={(project) => (
+            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+              <Card size="small" style={{ width: '100%' }}>
+                <Typography.Text strong>{project.name}</Typography.Text>
+                {project.description && (
+                  <Typography.Paragraph
+                    type="secondary"
+                    style={{ margin: '4px 0 0' }}
+                    ellipsis={{ rows: 2 }}
+                  >
+                    {project.description}
+                  </Typography.Paragraph>
+                )}
+                <Flex gap={8} style={{ marginTop: 10 }}>
+                  <Button size="small" onClick={() => openEdit(project)}>
+                    Изменить
+                  </Button>
+                  <Popconfirm
+                    title="Удалить проект?"
+                    description="Связанные данные могут быть удалены."
+                    okText="Удалить"
+                    cancelText="Отмена"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => handleDelete(project.id)}
+                  >
+                    <Button size="small" danger>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                </Flex>
+              </Card>
+            </List.Item>
+          )}
         />
       )}
 
