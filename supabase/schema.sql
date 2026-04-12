@@ -468,6 +468,38 @@ create policy report_marks_insert on public.report_plan_marks
     )
   );
 
+drop policy if exists report_marks_update_author on public.report_plan_marks;
+create policy report_marks_update_author on public.report_plan_marks
+  for update to authenticated
+  using (
+    public.is_active_user()
+    and exists (
+      select 1 from public.reports r
+      where r.id = report_plan_marks.report_id and r.author_id = auth.uid()
+    )
+  )
+  with check (
+    public.is_active_user()
+    and exists (
+      select 1 from public.reports r
+      join public.plans p on p.id = report_plan_marks.plan_id
+      where r.id = report_plan_marks.report_id
+        and r.author_id = auth.uid()
+        and p.project_id = r.project_id
+    )
+  );
+
+drop policy if exists report_marks_delete_author on public.report_plan_marks;
+create policy report_marks_delete_author on public.report_plan_marks
+  for delete to authenticated
+  using (
+    public.is_active_user()
+    and exists (
+      select 1 from public.reports r
+      where r.id = report_plan_marks.report_id and r.author_id = auth.uid()
+    )
+  );
+
 drop policy if exists report_marks_admin_all on public.report_plan_marks;
 create policy report_marks_admin_all on public.report_plan_marks
   for all to authenticated
@@ -492,6 +524,17 @@ drop policy if exists report_photos_insert on public.report_photos;
 create policy report_photos_insert on public.report_photos
   for insert to authenticated
   with check (
+    public.is_active_user()
+    and exists (
+      select 1 from public.reports r
+      where r.id = report_photos.report_id and r.author_id = auth.uid()
+    )
+  );
+
+drop policy if exists report_photos_delete_author on public.report_photos;
+create policy report_photos_delete_author on public.report_photos
+  for delete to authenticated
+  using (
     public.is_active_user()
     and exists (
       select 1 from public.reports r

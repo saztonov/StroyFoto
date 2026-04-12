@@ -176,6 +176,50 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   return report
 }
 
+/**
+ * Сохраняет фотографии для существующего отчёта в IDB и ставит SyncOp.
+ * Reusable-функция: используется и при создании, и при редактировании.
+ */
+export async function saveDraftPhotosForReport(
+  reportId: string,
+  photos: DraftPhotoInput[],
+): Promise<void> {
+  if (photos.length === 0) return
+  const db = await getDB()
+  const tx = db.transaction(['photos', 'sync_queue'], 'readwrite')
+  const photosStore = tx.objectStore('photos')
+  const queue = tx.objectStore('sync_queue')
+  const nowMs = Date.now()
+
+  for (let i = 0; i < photos.length; i++) {
+    const p = photos[i]
+    const photo: LocalPhoto = {
+      id: p.id,
+      reportId,
+      blob: p.blob,
+      thumbBlob: p.thumbBlob,
+      width: p.width,
+      height: p.height,
+      takenAt: p.takenAt,
+      order: p.order,
+      syncStatus: 'pending_upload',
+      origin: 'local',
+    }
+    await photosStore.put(photo)
+    const photoOp: SyncOp = {
+      kind: 'photo',
+      entityId: p.id,
+      reportId,
+      attempts: 0,
+      nextAttemptAt: nowMs + 200,
+      lastError: null,
+    }
+    await queue.add(photoOp)
+  }
+
+  await tx.done
+}
+
 export async function listLocalReports(): Promise<LocalReport[]> {
   const db = await getDB()
   const all = await db.getAll('reports')

@@ -5,7 +5,8 @@ import {
   markReportSyncedIfComplete,
   updateReportStatus,
 } from '@/services/localReports'
-import { markPhotoSynced, uploadPhoto } from '@/services/photos'
+import { deleteRemotePhoto, markPhotoSynced, uploadPhoto } from '@/services/photos'
+import { replaceRemotePlanMark } from '@/services/reports'
 import { applyRetention } from '@/services/retention'
 import { warnIfQuotaHigh } from '@/services/storageQuota'
 import { emitReportsChanged } from '@/services/invalidation'
@@ -166,14 +167,18 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const mutation = await db.get('report_mutations', Number(op.entityId))
     if (!mutation) return { done: true }
     if (!mutation.payload) return { done: true }
+    const updatePayload: Record<string, unknown> = {
+      work_type_id: mutation.payload.workTypeId,
+      performer_id: mutation.payload.performerId,
+      description: mutation.payload.description,
+      taken_at: mutation.payload.takenAt,
+    }
+    if (mutation.payload.planId !== undefined) {
+      updatePayload.plan_id = mutation.payload.planId
+    }
     const { data, error } = await supabase
       .from('reports')
-      .update({
-        work_type_id: mutation.payload.workTypeId,
-        performer_id: mutation.payload.performerId,
-        description: mutation.payload.description,
-        taken_at: mutation.payload.takenAt,
-      })
+      .update(updatePayload)
       .eq('id', mutation.reportId)
       .eq('updated_at', mutation.baseUpdatedAt)
       .select('id')
@@ -203,6 +208,48 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     }
     await db.delete('report_mutations', mutation.id!)
     return { done: true }
+  }
+
+  if (op.kind === 'photo_delete') {
+    const rec = await db.get('photo_deletes', op.entityId)
+    if (!rec) return { done: true }
+    try {
+      await deleteRemotePhoto(rec.id, rec.reportId, rec.r2Key, rec.thumbR2Key)
+      await db.delete('photo_deletes', rec.id)
+      // Удаляем локальный blob (если был кэш)
+      try { await db.delete('photos', rec.id) } catch { /* нет в кэше */ }
+      return { done: true }
+    } catch (e) {
+      return { done: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  if (op.kind === 'mark_update') {
+    const rec = await db.get('mark_updates', op.entityId)
+    if (!rec) return { done: true }
+    try {
+      const mark = rec.planId && rec.page != null && rec.xNorm != null && rec.yNorm != null
+        ? { planId: rec.planId, page: rec.page, xNorm: rec.xNorm, yNorm: rec.yNorm }
+        : null
+      await replaceRemotePlanMark(rec.reportId, mark)
+      await db.delete('mark_updates', rec.reportId)
+      // Обновляем локальный plan_marks store
+      if (mark) {
+        await db.put('plan_marks', {
+          reportId: rec.reportId,
+          planId: mark.planId,
+          page: mark.page,
+          xNorm: mark.xNorm,
+          yNorm: mark.yNorm,
+          syncStatus: 'synced' as const,
+        })
+      } else {
+        try { await db.delete('plan_marks', rec.reportId) } catch { /* может не быть */ }
+      }
+      return { done: true }
+    } catch (e) {
+      return { done: false, error: e instanceof Error ? e.message : String(e) }
+    }
   }
 
   if (op.kind === 'work_type') {
@@ -246,7 +293,7 @@ async function tick() {
         .sort((a, b) => {
           // work_type → report → mark → photo. work_type идёт первым,
           // потому что отчёт может ссылаться на локальный work_type.id.
-          const order: Record<string, number> = { work_type: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, photo: 3 }
+          const order: Record<string, number> = { work_type: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, mark_update: 2, photo: 3, photo_delete: 4 }
           return order[a.kind] - order[b.kind] || a.nextAttemptAt - b.nextAttemptAt
         })[0]
       if (!next) break

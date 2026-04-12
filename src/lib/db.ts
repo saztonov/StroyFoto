@@ -47,7 +47,7 @@ export interface LocalPlanMark {
   syncStatus: SyncStatus
 }
 
-export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type' | 'report_update' | 'report_delete'
+export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type' | 'report_update' | 'report_delete' | 'photo_delete' | 'mark_update'
 
 export interface SyncOp {
   id?: number
@@ -87,6 +87,7 @@ export interface ReportMutation {
     performerId: string
     description: string | null
     takenAt: string | null
+    planId?: string | null // undefined = не менять, null = убрать
   } | null
   queuedAt: number
   lastError: string | null
@@ -144,6 +145,28 @@ export interface CatalogRecord {
   updatedAt: number
 }
 
+/**
+ * Запись на удаление фото с сервера, поставленная в очередь офлайн.
+ */
+export interface PhotoDeleteRecord {
+  id: string // photo UUID
+  reportId: string
+  r2Key: string
+  thumbR2Key: string
+}
+
+/**
+ * Запись на обновление/удаление метки на плане, поставленная в очередь офлайн.
+ * Если planId = null — метку нужно удалить.
+ */
+export interface MarkUpdateRecord {
+  reportId: string
+  planId: string | null
+  page: number | null
+  xNorm: number | null
+  yNorm: number | null
+}
+
 interface StroyFotoDB extends DBSchema {
   reports: {
     key: string
@@ -190,6 +213,14 @@ interface StroyFotoDB extends DBSchema {
     value: ReportMutation
     indexes: { by_report: string }
   }
+  photo_deletes: {
+    key: string
+    value: PhotoDeleteRecord
+  }
+  mark_updates: {
+    key: string
+    value: MarkUpdateRecord
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
@@ -220,7 +251,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 84
+const DB_VERSION = 85
 
 export function getDB() {
   if (!dbPromise) {
@@ -263,6 +294,10 @@ export function getDB() {
         if (mutationsNew) {
           mutationsNew.createIndex('by_report', 'reportId')
         }
+
+        // v4 stores — edit photos/marks
+        ensureStore(db, 'photo_deletes', { keyPath: 'id' }, tx)
+        ensureStore(db, 'mark_updates', { keyPath: 'reportId' }, tx)
 
         const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' }, tx)
         if (remoteNew) {

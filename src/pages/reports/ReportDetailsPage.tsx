@@ -19,9 +19,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, reportDetails } from '@/shared/i18n/ru'
-import type { LocalPhoto, SyncStatus, ReportMutation, SyncOp } from '@/lib/db'
+import type { LocalPhoto, SyncStatus, ReportMutation, SyncOp, PhotoDeleteRecord, MarkUpdateRecord } from '@/lib/db'
 import { getDB } from '@/lib/db'
-import { getLocalReport, getPhotosForReport } from '@/services/localReports'
+import { getLocalReport, getPhotosForReport, saveDraftPhotosForReport } from '@/services/localReports'
 import {
   cacheRemotePhotoBlob,
   ConflictError,
@@ -30,19 +30,21 @@ import {
   loadCachedRemoteReport,
   loadRemoteReportById,
   purgeLocalReportData,
+  replaceRemotePlanMark,
   updateRemoteReport,
   type ReportCard,
-  type ReportUpdateInput,
   type RemoteReportFull,
   type RemoteReportPhoto,
 } from '@/services/reports'
+import { deleteRemotePhoto } from '@/services/photos'
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
 import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
 import { emitReportChanged, emitReportsChanged, onReportChanged } from '@/services/invalidation'
 import { triggerSync } from '@/services/sync'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
-import { EditReportModal } from './components/EditReportModal'
+import { EditReportModal, type EditReportSaveInput, type ExistingPhoto } from './components/EditReportModal'
+import type { PlanMarkValue } from './components/PlanMarkPicker'
 import { useAuth } from '@/app/providers/AuthProvider'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -360,6 +362,43 @@ export function ReportDetailsPage() {
     }
   }, [data?.remotePhotos, data?.card.id])
 
+  // Подготовка данных для EditReportModal
+  const existingPhotosForModal = useMemo<ExistingPhoto[]>(() => {
+    if (data?.localPhotos) {
+      return localDisplayPhotos.map((p) => {
+        const local = data.localPhotos!.find((lp) => lp.id === p.id)
+        return {
+          id: p.id,
+          thumbUrl: p.thumbUrl,
+          r2Key: local?.r2Key ?? '',
+          thumbR2Key: local?.thumbR2Key ?? '',
+        }
+      })
+    }
+    if (data?.remotePhotos) {
+      return remotePhotoUrls.map((p) => {
+        const remote = data.remotePhotos!.find((rp) => rp.id === p.id)
+        return {
+          id: p.id,
+          thumbUrl: p.thumbUrl,
+          r2Key: remote?.r2_key ?? '',
+          thumbR2Key: remote?.thumb_r2_key ?? '',
+        }
+      })
+    }
+    return []
+  }, [data?.localPhotos, data?.remotePhotos, localDisplayPhotos, remotePhotoUrls])
+
+  const existingMarkForModal = useMemo<PlanMarkValue | null>(() => {
+    if (!data?.mark) return null
+    return {
+      planId: data.mark.planId,
+      page: data.mark.page,
+      xNorm: data.mark.xNorm,
+      yNorm: data.mark.yNorm,
+    }
+  }, [data?.mark])
+
   const canEdit = Boolean(
     data &&
     (data.card.syncStatus === 'synced' || data.card.remoteOnly) &&
@@ -421,17 +460,61 @@ export function ReportDetailsPage() {
     }
   }, [id, data, navigate, message])
 
-  const handleSave = useCallback(async (values: ReportUpdateInput) => {
+  const handleSave = useCallback(async (values: EditReportSaveInput) => {
     if (!id || !data) return
     setEditLoading(true)
     try {
       const online = typeof navigator === 'undefined' ? true : navigator.onLine
       if (online) {
         try {
+          // 1. Обновляем основные поля отчёта (включая planId) с OCC
           await updateRemoteReport(id, {
-            ...values,
+            workTypeId: values.workTypeId,
+            performerId: values.performerId,
+            description: values.description,
+            takenAt: values.takenAt,
+            planId: values.planId,
             expectedUpdatedAt: data.card.updatedAt,
           })
+
+          // 2. Удаляем фото (best-effort — ошибки не блокируют)
+          for (const p of values.photosToRemove) {
+            try {
+              await deleteRemotePhoto(p.id, id, p.r2Key, p.thumbR2Key)
+            } catch (e) {
+              console.warn('photo delete failed (online):', p.id, e)
+            }
+          }
+
+          // 3. Новые фото: сохраняем в IDB + ставим в sync queue
+          if (values.photosToAdd.length > 0) {
+            await saveDraftPhotosForReport(
+              id,
+              values.photosToAdd.map((p, i) => ({
+                id: p.id,
+                blob: p.blob,
+                thumbBlob: p.thumbBlob,
+                width: p.width,
+                height: p.height,
+                takenAt: p.takenAt,
+                order: (existingPhotosForModal.length - values.photosToRemove.length) + i,
+              })),
+            )
+            triggerSync()
+          }
+
+          // 4. Метка на плане
+          if (values.markChanged) {
+            try {
+              const markPayload = values.mark && values.mark.xNorm != null && values.mark.yNorm != null
+                ? { planId: values.mark.planId, page: values.mark.page, xNorm: values.mark.xNorm, yNorm: values.mark.yNorm }
+                : null
+              await replaceRemotePlanMark(id, markPayload)
+            } catch (e) {
+              console.warn('mark update failed (online):', e)
+            }
+          }
+
           message.success(reportDetails.editSuccess)
           setEditOpen(false)
           emitReportChanged(id, 'update')
@@ -450,9 +533,16 @@ export function ReportDetailsPage() {
           }
         }
       }
-      // Offline или сетевая ошибка — ставим мутацию в очередь
+
+      // Offline или сетевая ошибка — ставим всё в очередь
       const db = await getDB()
-      const tx = db.transaction(['report_mutations', 'sync_queue'], 'readwrite')
+      const tx = db.transaction(
+        ['report_mutations', 'sync_queue', 'photo_deletes', 'mark_updates', 'photos'],
+        'readwrite',
+      )
+      const nowMs = Date.now()
+
+      // 1. Мутация отчёта (report_update)
       const mutation: ReportMutation = {
         kind: 'update',
         reportId: id,
@@ -462,24 +552,89 @@ export function ReportDetailsPage() {
           performerId: values.performerId,
           description: values.description,
           takenAt: values.takenAt,
+          planId: values.planId,
         },
-        queuedAt: Date.now(),
+        queuedAt: nowMs,
         lastError: null,
         attempts: 0,
-        nextAttemptAt: Date.now(),
+        nextAttemptAt: nowMs,
       }
       const mutationId = await tx.objectStore('report_mutations').add(mutation)
-      const syncOp: SyncOp = {
-        kind: 'report_update',
+      await tx.objectStore('sync_queue').add({
+        kind: 'report_update' as const,
         entityId: String(mutationId),
         reportId: id,
         attempts: 0,
-        nextAttemptAt: Date.now(),
+        nextAttemptAt: nowMs,
         lastError: null,
+      })
+
+      // 2. Удаление фото
+      for (const p of values.photosToRemove) {
+        const rec: PhotoDeleteRecord = {
+          id: p.id,
+          reportId: id,
+          r2Key: p.r2Key,
+          thumbR2Key: p.thumbR2Key,
+        }
+        await tx.objectStore('photo_deletes').put(rec)
+        await tx.objectStore('sync_queue').add({
+          kind: 'photo_delete' as const,
+          entityId: p.id,
+          reportId: id,
+          attempts: 0,
+          nextAttemptAt: nowMs + 100,
+          lastError: null,
+        })
       }
-      await tx.objectStore('sync_queue').add(syncOp)
+
+      // 3. Новые фото
+      for (let i = 0; i < values.photosToAdd.length; i++) {
+        const p = values.photosToAdd[i]
+        await tx.objectStore('photos').put({
+          id: p.id,
+          reportId: id,
+          blob: p.blob,
+          thumbBlob: p.thumbBlob,
+          width: p.width,
+          height: p.height,
+          takenAt: p.takenAt,
+          order: (existingPhotosForModal.length - values.photosToRemove.length) + i,
+          syncStatus: 'pending_upload' as const,
+          origin: 'local' as const,
+        })
+        await tx.objectStore('sync_queue').add({
+          kind: 'photo' as const,
+          entityId: p.id,
+          reportId: id,
+          attempts: 0,
+          nextAttemptAt: nowMs + 200,
+          lastError: null,
+        })
+      }
+
+      // 4. Метка
+      if (values.markChanged) {
+        const markRec: MarkUpdateRecord = {
+          reportId: id,
+          planId: values.mark?.planId ?? null,
+          page: values.mark?.page ?? null,
+          xNorm: values.mark?.xNorm ?? null,
+          yNorm: values.mark?.yNorm ?? null,
+        }
+        await tx.objectStore('mark_updates').put(markRec)
+        await tx.objectStore('sync_queue').add({
+          kind: 'mark_update' as const,
+          entityId: id,
+          reportId: id,
+          attempts: 0,
+          nextAttemptAt: nowMs + 50,
+          lastError: null,
+        })
+      }
+
       await tx.done
-      message.info('Изменения сохранены локально и будут отправлены при восстановлении сети')
+      message.info(reportDetails.editSavedLocally)
       setEditOpen(false)
       emitReportChanged(id, 'update')
       triggerSync()
@@ -488,7 +643,7 @@ export function ReportDetailsPage() {
     } finally {
       setEditLoading(false)
     }
-  }, [id, data, message])
+  }, [id, data, message, existingPhotosForModal])
 
   if (!id) return <Result status="404" title={reportDetails.notFound} />
 
@@ -693,6 +848,9 @@ export function ReportDetailsPage() {
           report={data.card}
           workTypes={workTypes}
           performers={performers}
+          plans={plans}
+          existingPhotos={existingPhotosForModal}
+          existingMark={existingMarkForModal}
           loading={editLoading}
           onSave={handleSave}
           onCancel={() => setEditOpen(false)}

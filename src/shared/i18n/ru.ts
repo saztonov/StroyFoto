@@ -91,6 +91,12 @@ export const reportDetails = {
   deleteSuccess: 'Отчёт удалён',
   editSuccess: 'Отчёт обновлён',
   editTitle: 'Редактирование отчёта',
+  editSectionPhotos: 'Фотографии',
+  editSectionPlan: 'План и метка',
+  editExistingPhotos: 'Текущие фотографии',
+  editAddPhotos: 'Добавить новые',
+  editMinOnePhoto: 'Должна быть хотя бы одна фотография',
+  editSavedLocally: 'Изменения сохранены локально и будут отправлены при восстановлении сети',
   cannotEditLocal: 'Редактирование доступно только для синхронизированных отчётов',
 } as const
 

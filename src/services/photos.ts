@@ -71,6 +71,35 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
   return { r2Key, thumbR2Key }
 }
 
+/**
+ * Удаляет фото с сервера: row из `report_photos` + объекты из R2 (best-effort).
+ * R2-удаление через presigned DELETE; если R2 вернёт ошибку — не блокируем,
+ * DB-строка является source of truth.
+ */
+export async function deleteRemotePhoto(
+  photoId: string,
+  reportId: string,
+  r2Key: string,
+  thumbR2Key: string,
+): Promise<void> {
+  // Best-effort R2 cleanup
+  try {
+    const [delOriginal, delThumb] = await Promise.all([
+      requestPresigned({ op: 'delete', kind: 'photo', key: r2Key, reportId }),
+      requestPresigned({ op: 'delete', kind: 'photo_thumb', key: thumbR2Key, reportId }),
+    ])
+    await Promise.allSettled([
+      fetch(delOriginal.url, { method: 'DELETE', headers: delOriginal.headers }),
+      fetch(delThumb.url, { method: 'DELETE', headers: delThumb.headers }),
+    ])
+  } catch {
+    // R2 cleanup failed — продолжаем удаление row
+  }
+
+  const { error } = await supabase.from('report_photos').delete().eq('id', photoId)
+  if (error) throw new Error(`report_photos delete: ${error.message}`)
+}
+
 export async function markPhotoSynced(
   photoId: string,
   r2Key: string,

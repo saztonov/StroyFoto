@@ -424,18 +424,23 @@ export interface ReportUpdateInput {
   performerId: string
   description: string | null
   takenAt: string | null
+  planId?: string | null // undefined = не менять, null = убрать
   expectedUpdatedAt?: string | null
 }
 
 export async function updateRemoteReport(id: string, input: ReportUpdateInput): Promise<void> {
+  const payload: Record<string, unknown> = {
+    work_type_id: input.workTypeId,
+    performer_id: input.performerId,
+    description: input.description,
+    taken_at: input.takenAt,
+  }
+  if (input.planId !== undefined) {
+    payload.plan_id = input.planId
+  }
   let query = supabase
     .from('reports')
-    .update({
-      work_type_id: input.workTypeId,
-      performer_id: input.performerId,
-      description: input.description,
-      taken_at: input.takenAt,
-    })
+    .update(payload)
     .eq('id', id)
 
   // Optimistic concurrency: если передан expectedUpdatedAt, проверяем что
@@ -451,6 +456,33 @@ export async function updateRemoteReport(id: string, input: ReportUpdateInput): 
   }
 }
 
+/**
+ * Заменяет метку на плане для отчёта: удаляет старую + вставляет новую.
+ * Если mark = null — только удаление (отвязка метки).
+ */
+export async function replaceRemotePlanMark(
+  reportId: string,
+  mark: { planId: string; page: number; xNorm: number; yNorm: number } | null,
+): Promise<void> {
+  // Удаляем существующую метку (idempotent — может не быть)
+  const { error: delErr } = await supabase
+    .from('report_plan_marks')
+    .delete()
+    .eq('report_id', reportId)
+  if (delErr) throw new Error(`plan mark delete: ${delErr.message}`)
+
+  if (mark) {
+    const { error: insErr } = await supabase.from('report_plan_marks').insert({
+      report_id: reportId,
+      plan_id: mark.planId,
+      page: mark.page,
+      x_norm: mark.xNorm,
+      y_norm: mark.yNorm,
+    })
+    if (insErr) throw new Error(`plan mark insert: ${insErr.message}`)
+  }
+}
+
 export async function deleteRemoteReport(id: string): Promise<void> {
   const { error } = await supabase.from('reports').delete().eq('id', id)
   if (error) throw new Error(error.message)
@@ -462,12 +494,13 @@ export async function deleteRemoteReport(id: string): Promise<void> {
 export async function purgeLocalReportData(id: string): Promise<void> {
   const db = await getDB()
   const tx = db.transaction(
-    ['reports', 'photos', 'plan_marks', 'sync_queue', 'remote_reports_cache'],
+    ['reports', 'photos', 'plan_marks', 'sync_queue', 'remote_reports_cache', 'photo_deletes', 'mark_updates'],
     'readwrite',
   )
   try { await tx.objectStore('reports').delete(id) } catch { /* может не быть */ }
   try { await tx.objectStore('remote_reports_cache').delete(id) } catch { /* может не быть */ }
   try { await tx.objectStore('plan_marks').delete(id) } catch { /* может не быть */ }
+  try { await tx.objectStore('mark_updates').delete(id) } catch { /* может не быть */ }
 
   const photosStore = tx.objectStore('photos')
   const photoKeys = await photosStore.index('by_report').getAllKeys(id)
@@ -479,6 +512,13 @@ export async function purgeLocalReportData(id: string): Promise<void> {
   const queueKeys = await queueStore.index('by_report').getAllKeys(id)
   for (const key of queueKeys) {
     await queueStore.delete(key)
+  }
+
+  // photo_deletes keyed by photo id — iterate and filter by reportId
+  const pdStore = tx.objectStore('photo_deletes')
+  const allPd = await pdStore.getAll()
+  for (const pd of allPd) {
+    if (pd.reportId === id) await pdStore.delete(pd.id)
   }
 
   await tx.done
