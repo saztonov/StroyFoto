@@ -6,6 +6,7 @@ import { getSyncSnapshot, subscribeSync } from '@/services/sync'
 import type { MenuProps } from 'antd'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { SyncBanner } from '@/shared/ui/SyncBanner'
+import { UpdateBanner } from '@/shared/ui/UpdateBanner'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { actions, appName, nav } from '@/shared/i18n/ru'
 import { adminNav, findActiveKey, primaryNav } from '@/app/layouts/navItems'
@@ -89,6 +90,7 @@ export function MobileLayout() {
         <ThemeToggle compact />
       </Header>
 
+      <UpdateBanner />
       <SyncBanner />
       <Content style={{ padding: 16, paddingBottom: 80 }}>
         <Outlet />

@@ -5,6 +5,7 @@ import { Button, Flex, Layout, Menu, Typography } from 'antd'
 import type { MenuProps } from 'antd'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { SyncBanner } from '@/shared/ui/SyncBanner'
+import { UpdateBanner } from '@/shared/ui/UpdateBanner'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { appName, actions, nav } from '@/shared/i18n/ru'
 import { adminNav, findActiveKey, primaryNav } from '@/app/layouts/navItems'
@@ -90,6 +91,7 @@ export function DesktopLayout() {
             {actions.signOut}
           </Button>
         </Header>
+        <UpdateBanner />
         <SyncBanner />
         <Content style={{ padding: 24 }}>
           <Outlet />
