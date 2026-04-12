@@ -71,7 +71,7 @@ export function MobileLayout() {
           alignItems: 'center',
           gap: 12,
           paddingInline: 16,
-          background: 'transparent',
+          background: 'var(--ant-color-bg-container)',
           position: 'sticky',
           top: 0,
           zIndex: 10,

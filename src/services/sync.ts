@@ -214,6 +214,11 @@ export function triggerSync() {
   void tick()
 }
 
+/** Запускает один цикл синхронизации и ждёт его завершения. */
+export async function runSyncOnce(): Promise<void> {
+  await tick()
+}
+
 function handleOnline() {
   setSnapshot({ state: 'idle' })
   triggerSync()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Card, DatePicker, Flex, Radio, Space, Typography } from 'antd'
+import { Alert, App, Button, Card, DatePicker, Flex, Progress, Radio, Space, Typography } from 'antd'
+import { SyncOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
@@ -9,6 +10,7 @@ import type { RetentionMode } from '@/lib/db'
 import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
 import { usePwaInstall } from '@/shared/hooks/usePwaInstall'
+import { fullSync, type FullSyncProgress } from '@/services/fullSync'
 
 export function SettingsPage() {
   const { message, modal } = App.useApp()
@@ -17,6 +19,24 @@ export function SettingsPage() {
   const [mode, setMode] = useState<RetentionMode>('all')
   const [fromDate, setFromDate] = useState<Dayjs | null>(null)
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<FullSyncProgress | null>(null)
+
+  async function handleFullSync() {
+    setSyncing(true)
+    setSyncProgress(null)
+    try {
+      const result = await fullSync((p) => setSyncProgress(p))
+      message.success(
+        `${settings.syncDone}. Планов загружено: ${result.plansDownloaded}, отчётов обновлено: ${result.reportsCached}.`,
+      )
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : settings.syncError)
+    } finally {
+      setSyncing(false)
+      setSyncProgress(null)
+    }
+  }
 
   useEffect(() => {
     void getRetention().then((r) => {
@@ -126,6 +146,38 @@ export function SettingsPage() {
           </Flex>
         </Card>
 
+        <Card title={settings.syncLabel}>
+          <Flex vertical gap={12}>
+            <Typography.Text type="secondary">
+              {settings.syncAllDesc}
+            </Typography.Text>
+            {syncProgress && syncProgress.total > 0 && (
+              <Flex vertical gap={4}>
+                <Typography.Text>
+                  {syncProgress.phaseLabel}: {syncProgress.current} / {syncProgress.total}
+                </Typography.Text>
+                <Progress
+                  percent={Math.round((syncProgress.current / syncProgress.total) * 100)}
+                  size="small"
+                  showInfo={false}
+                />
+              </Flex>
+            )}
+            {syncProgress && syncProgress.total === 0 && (
+              <Typography.Text type="secondary">{syncProgress.phaseLabel}...</Typography.Text>
+            )}
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={syncing} />}
+              onClick={handleFullSync}
+              loading={syncing}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {settings.syncAllBtn}
+            </Button>
+          </Flex>
+        </Card>
+
         <Card title={settings.storageLabel}>
           <Flex vertical gap={12}>
             <Typography.Text type="secondary">
@@ -154,6 +206,9 @@ export function SettingsPage() {
               showIcon
               message="Несинхронизированные отчёты и фото никогда не удаляются — они останутся локально, пока не будут отправлены на сервер."
             />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {settings.storageRetentionHint}
+            </Typography.Text>
             <Button
               type="primary"
               onClick={handleSave}

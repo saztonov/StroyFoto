@@ -42,7 +42,7 @@ import {
   uploadPlanPdf,
   type PlanRecord,
 } from '@/services/plans'
-import { PdfPlanCanvas } from '@/pages/reports/components/PdfPlanCanvas'
+import { ZoomablePdfPreview } from './components/ZoomablePdfPreview'
 
 interface ProjectOption {
   id: string
@@ -583,10 +583,9 @@ export function PlansPage() {
                 />
               </Flex>
             )}
-            <PdfPlanCanvas
+            <ZoomablePdfPreview
               blob={previewBlob}
               page={previewPage}
-              value={null}
               onPageCountReady={handlePageCountReady}
             />
           </>

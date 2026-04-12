@@ -79,7 +79,7 @@ export function DesktopLayout() {
             justifyContent: 'flex-end',
             gap: 12,
             paddingInline: 24,
-            background: 'transparent',
+            background: 'var(--ant-color-bg-container)',
           }}
         >
           <Typography.Text type="secondary" style={{ marginRight: 'auto' }}>
