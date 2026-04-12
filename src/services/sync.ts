@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { getDB, type SyncOp, type ReportMutation } from '@/lib/db'
+import { getDB, type SyncOp } from '@/lib/db'
 import {
   countPendingReports,
   markReportSyncedIfComplete,

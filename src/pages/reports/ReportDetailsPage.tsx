@@ -19,35 +19,31 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, reportDetails } from '@/shared/i18n/ru'
-import type { LocalPhoto, SyncStatus } from '@/lib/db'
+import type { LocalPhoto, SyncStatus, ReportMutation, SyncOp } from '@/lib/db'
 import { getDB } from '@/lib/db'
 import { getLocalReport, getPhotosForReport } from '@/services/localReports'
 import {
   cacheRemotePhotoBlob,
+  ConflictError,
+  deleteRemoteReport,
   getCachedRemotePhotoBlob,
   loadCachedRemoteReport,
   loadRemoteReportById,
+  purgeLocalReportData,
+  updateRemoteReport,
   type ReportCard,
+  type ReportUpdateInput,
   type RemoteReportFull,
   type RemoteReportPhoto,
 } from '@/services/reports'
 import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
 import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
-import {
-  ConflictError,
-  deleteRemoteReport,
-  purgeLocalReportData,
-  updateRemoteReport,
-  type ReportUpdateInput,
-} from '@/services/reports'
-import { getDB, type ReportMutation, type SyncOp } from '@/lib/db'
-import { emitReportChanged, emitReportsChanged } from '@/services/invalidation'
+import { emitReportChanged, emitReportsChanged, onReportChanged } from '@/services/invalidation'
 import { triggerSync } from '@/services/sync'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
 import { EditReportModal } from './components/EditReportModal'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { onReportChanged } from '@/services/invalidation'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
@@ -130,6 +126,7 @@ export function ReportDetailsPage() {
               authorId: local.authorId,
               authorName: local.authorId === user?.id ? profile?.full_name ?? null : null,
               createdAt: local.createdAt,
+              updatedAt: local.updatedAt ?? null,
               syncStatus: local.syncStatus,
               remoteOnly: false,
             },

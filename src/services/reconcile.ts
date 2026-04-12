@@ -50,7 +50,7 @@ export async function reconcile(): Promise<void> {
 async function reconcileReports(): Promise<void> {
   const { data, error } = await supabase
     .from('reports')
-    .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at')
+    .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at')
     .order('created_at', { ascending: false })
     .limit(500)
   if (error) throw error
@@ -88,6 +88,7 @@ async function reconcileReports(): Promise<void> {
       authorId: row.author_id,
       authorName: authorNames.get(row.author_id) ?? null,
       createdAt: row.created_at,
+      updatedAt: row.updated_at ?? null,
       cachedAt: Date.now(),
       // Сохраняем существующие фото/метки из кэша если есть
       photos: (await getExistingPhotos(db, row.id)),
