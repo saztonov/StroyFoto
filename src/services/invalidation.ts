@@ -144,6 +144,19 @@ async function isOwnPendingReport(reportId: string, authorId: string): Promise<b
 }
 
 function initRealtimeChannel(userId: string): void {
+  // Офлайн — не создаём WebSocket, он будет бесконечно реконнектиться.
+  // При возвращении сети AuthProvider вызовет startInvalidation() повторно.
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return
+
+  // Защита от дублирования: если канал уже создан для этого пользователя — не пересоздаём.
+  if (channel && currentUserId === userId) return
+
+  // Очистка старого канала при смене пользователя.
+  if (channel) {
+    supabase.removeChannel(channel)
+    channel = null
+  }
+
   currentUserId = userId
 
   channel = supabase
@@ -228,9 +241,19 @@ function initRealtimeChannel(userId: string): void {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+let onlineHandler: (() => void) | null = null
+
 export function startInvalidation(userId: string): void {
   initBroadcastChannel()
   initRealtimeChannel(userId)
+
+  // При возвращении сети — создаём Realtime-канал, если его ещё нет.
+  if (!onlineHandler) {
+    onlineHandler = () => {
+      if (currentUserId) initRealtimeChannel(currentUserId)
+    }
+    window.addEventListener('online', onlineHandler)
+  }
 }
 
 export function stopInvalidation(): void {
@@ -242,5 +265,9 @@ export function stopInvalidation(): void {
   if (bc) {
     bc.close()
     bc = null
+  }
+  if (onlineHandler) {
+    window.removeEventListener('online', onlineHandler)
+    onlineHandler = null
   }
 }
