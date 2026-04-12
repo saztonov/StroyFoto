@@ -1,0 +1,762 @@
+{
+  "auth.audit_log_entries.audit_logs_instance_id_idx": {
+    "schema": "auth",
+    "name": "audit_logs_instance_id_idx",
+    "table_name": "audit_log_entries",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX audit_logs_instance_id_idx ON auth.audit_log_entries USING btree (instance_id)"
+  },
+  "auth.custom_oauth_providers.custom_oauth_providers_created_at_idx": {
+    "schema": "auth",
+    "name": "custom_oauth_providers_created_at_idx",
+    "table_name": "custom_oauth_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX custom_oauth_providers_created_at_idx ON auth.custom_oauth_providers USING btree (created_at)"
+  },
+  "auth.custom_oauth_providers.custom_oauth_providers_enabled_idx": {
+    "schema": "auth",
+    "name": "custom_oauth_providers_enabled_idx",
+    "table_name": "custom_oauth_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX custom_oauth_providers_enabled_idx ON auth.custom_oauth_providers USING btree (enabled)"
+  },
+  "auth.custom_oauth_providers.custom_oauth_providers_identifier_idx": {
+    "schema": "auth",
+    "name": "custom_oauth_providers_identifier_idx",
+    "table_name": "custom_oauth_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX custom_oauth_providers_identifier_idx ON auth.custom_oauth_providers USING btree (identifier)"
+  },
+  "auth.custom_oauth_providers.custom_oauth_providers_identifier_key": {
+    "schema": "auth",
+    "name": "custom_oauth_providers_identifier_key",
+    "table_name": "custom_oauth_providers",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX custom_oauth_providers_identifier_key ON auth.custom_oauth_providers USING btree (identifier)"
+  },
+  "auth.custom_oauth_providers.custom_oauth_providers_provider_type_idx": {
+    "schema": "auth",
+    "name": "custom_oauth_providers_provider_type_idx",
+    "table_name": "custom_oauth_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX custom_oauth_providers_provider_type_idx ON auth.custom_oauth_providers USING btree (provider_type)"
+  },
+  "auth.flow_state.flow_state_created_at_idx": {
+    "schema": "auth",
+    "name": "flow_state_created_at_idx",
+    "table_name": "flow_state",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX flow_state_created_at_idx ON auth.flow_state USING btree (created_at DESC)"
+  },
+  "auth.flow_state.idx_auth_code": {
+    "schema": "auth",
+    "name": "idx_auth_code",
+    "table_name": "flow_state",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_auth_code ON auth.flow_state USING btree (auth_code)"
+  },
+  "auth.flow_state.idx_user_id_auth_method": {
+    "schema": "auth",
+    "name": "idx_user_id_auth_method",
+    "table_name": "flow_state",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_user_id_auth_method ON auth.flow_state USING btree (user_id, authentication_method)"
+  },
+  "auth.identities.identities_email_idx": {
+    "schema": "auth",
+    "name": "identities_email_idx",
+    "table_name": "identities",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX identities_email_idx ON auth.identities USING btree (email text_pattern_ops)"
+  },
+  "auth.identities.identities_provider_id_provider_unique": {
+    "schema": "auth",
+    "name": "identities_provider_id_provider_unique",
+    "table_name": "identities",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX identities_provider_id_provider_unique ON auth.identities USING btree (provider_id, provider)"
+  },
+  "auth.identities.identities_user_id_idx": {
+    "schema": "auth",
+    "name": "identities_user_id_idx",
+    "table_name": "identities",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX identities_user_id_idx ON auth.identities USING btree (user_id)"
+  },
+  "auth.mfa_amr_claims.amr_id_pk": {
+    "schema": "auth",
+    "name": "amr_id_pk",
+    "table_name": "mfa_amr_claims",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX amr_id_pk ON auth.mfa_amr_claims USING btree (id)"
+  },
+  "auth.mfa_challenges.mfa_challenge_created_at_idx": {
+    "schema": "auth",
+    "name": "mfa_challenge_created_at_idx",
+    "table_name": "mfa_challenges",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX mfa_challenge_created_at_idx ON auth.mfa_challenges USING btree (created_at DESC)"
+  },
+  "auth.mfa_factors.factor_id_created_at_idx": {
+    "schema": "auth",
+    "name": "factor_id_created_at_idx",
+    "table_name": "mfa_factors",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX factor_id_created_at_idx ON auth.mfa_factors USING btree (user_id, created_at)"
+  },
+  "auth.mfa_factors.mfa_factors_last_challenged_at_key": {
+    "schema": "auth",
+    "name": "mfa_factors_last_challenged_at_key",
+    "table_name": "mfa_factors",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX mfa_factors_last_challenged_at_key ON auth.mfa_factors USING btree (last_challenged_at)"
+  },
+  "auth.mfa_factors.mfa_factors_user_friendly_name_unique": {
+    "schema": "auth",
+    "name": "mfa_factors_user_friendly_name_unique",
+    "table_name": "mfa_factors",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX mfa_factors_user_friendly_name_unique ON auth.mfa_factors USING btree (friendly_name, user_id) WHERE (TRIM(BOTH FROM friendly_name) <> ''::text)"
+  },
+  "auth.mfa_factors.mfa_factors_user_id_idx": {
+    "schema": "auth",
+    "name": "mfa_factors_user_id_idx",
+    "table_name": "mfa_factors",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX mfa_factors_user_id_idx ON auth.mfa_factors USING btree (user_id)"
+  },
+  "auth.mfa_factors.unique_phone_factor_per_user": {
+    "schema": "auth",
+    "name": "unique_phone_factor_per_user",
+    "table_name": "mfa_factors",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX unique_phone_factor_per_user ON auth.mfa_factors USING btree (user_id, phone)"
+  },
+  "auth.oauth_authorizations.oauth_auth_pending_exp_idx": {
+    "schema": "auth",
+    "name": "oauth_auth_pending_exp_idx",
+    "table_name": "oauth_authorizations",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX oauth_auth_pending_exp_idx ON auth.oauth_authorizations USING btree (expires_at) WHERE (status = 'pending'::auth.oauth_authorization_status)"
+  },
+  "auth.oauth_authorizations.oauth_authorizations_authorization_code_key": {
+    "schema": "auth",
+    "name": "oauth_authorizations_authorization_code_key",
+    "table_name": "oauth_authorizations",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX oauth_authorizations_authorization_code_key ON auth.oauth_authorizations USING btree (authorization_code)"
+  },
+  "auth.oauth_authorizations.oauth_authorizations_authorization_id_key": {
+    "schema": "auth",
+    "name": "oauth_authorizations_authorization_id_key",
+    "table_name": "oauth_authorizations",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX oauth_authorizations_authorization_id_key ON auth.oauth_authorizations USING btree (authorization_id)"
+  },
+  "auth.oauth_client_states.idx_oauth_client_states_created_at": {
+    "schema": "auth",
+    "name": "idx_oauth_client_states_created_at",
+    "table_name": "oauth_client_states",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_oauth_client_states_created_at ON auth.oauth_client_states USING btree (created_at)"
+  },
+  "auth.oauth_clients.oauth_clients_deleted_at_idx": {
+    "schema": "auth",
+    "name": "oauth_clients_deleted_at_idx",
+    "table_name": "oauth_clients",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX oauth_clients_deleted_at_idx ON auth.oauth_clients USING btree (deleted_at)"
+  },
+  "auth.oauth_consents.oauth_consents_active_client_idx": {
+    "schema": "auth",
+    "name": "oauth_consents_active_client_idx",
+    "table_name": "oauth_consents",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX oauth_consents_active_client_idx ON auth.oauth_consents USING btree (client_id) WHERE (revoked_at IS NULL)"
+  },
+  "auth.oauth_consents.oauth_consents_active_user_client_idx": {
+    "schema": "auth",
+    "name": "oauth_consents_active_user_client_idx",
+    "table_name": "oauth_consents",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX oauth_consents_active_user_client_idx ON auth.oauth_consents USING btree (user_id, client_id) WHERE (revoked_at IS NULL)"
+  },
+  "auth.oauth_consents.oauth_consents_user_client_unique": {
+    "schema": "auth",
+    "name": "oauth_consents_user_client_unique",
+    "table_name": "oauth_consents",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX oauth_consents_user_client_unique ON auth.oauth_consents USING btree (user_id, client_id)"
+  },
+  "auth.oauth_consents.oauth_consents_user_order_idx": {
+    "schema": "auth",
+    "name": "oauth_consents_user_order_idx",
+    "table_name": "oauth_consents",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX oauth_consents_user_order_idx ON auth.oauth_consents USING btree (user_id, granted_at DESC)"
+  },
+  "auth.one_time_tokens.one_time_tokens_relates_to_hash_idx": {
+    "schema": "auth",
+    "name": "one_time_tokens_relates_to_hash_idx",
+    "table_name": "one_time_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX one_time_tokens_relates_to_hash_idx ON auth.one_time_tokens USING hash (relates_to)"
+  },
+  "auth.one_time_tokens.one_time_tokens_token_hash_hash_idx": {
+    "schema": "auth",
+    "name": "one_time_tokens_token_hash_hash_idx",
+    "table_name": "one_time_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX one_time_tokens_token_hash_hash_idx ON auth.one_time_tokens USING hash (token_hash)"
+  },
+  "auth.one_time_tokens.one_time_tokens_user_id_token_type_key": {
+    "schema": "auth",
+    "name": "one_time_tokens_user_id_token_type_key",
+    "table_name": "one_time_tokens",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX one_time_tokens_user_id_token_type_key ON auth.one_time_tokens USING btree (user_id, token_type)"
+  },
+  "auth.refresh_tokens.refresh_tokens_instance_id_idx": {
+    "schema": "auth",
+    "name": "refresh_tokens_instance_id_idx",
+    "table_name": "refresh_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX refresh_tokens_instance_id_idx ON auth.refresh_tokens USING btree (instance_id)"
+  },
+  "auth.refresh_tokens.refresh_tokens_instance_id_user_id_idx": {
+    "schema": "auth",
+    "name": "refresh_tokens_instance_id_user_id_idx",
+    "table_name": "refresh_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX refresh_tokens_instance_id_user_id_idx ON auth.refresh_tokens USING btree (instance_id, user_id)"
+  },
+  "auth.refresh_tokens.refresh_tokens_parent_idx": {
+    "schema": "auth",
+    "name": "refresh_tokens_parent_idx",
+    "table_name": "refresh_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX refresh_tokens_parent_idx ON auth.refresh_tokens USING btree (parent)"
+  },
+  "auth.refresh_tokens.refresh_tokens_session_id_revoked_idx": {
+    "schema": "auth",
+    "name": "refresh_tokens_session_id_revoked_idx",
+    "table_name": "refresh_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX refresh_tokens_session_id_revoked_idx ON auth.refresh_tokens USING btree (session_id, revoked)"
+  },
+  "auth.refresh_tokens.refresh_tokens_token_unique": {
+    "schema": "auth",
+    "name": "refresh_tokens_token_unique",
+    "table_name": "refresh_tokens",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX refresh_tokens_token_unique ON auth.refresh_tokens USING btree (token)"
+  },
+  "auth.refresh_tokens.refresh_tokens_updated_at_idx": {
+    "schema": "auth",
+    "name": "refresh_tokens_updated_at_idx",
+    "table_name": "refresh_tokens",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX refresh_tokens_updated_at_idx ON auth.refresh_tokens USING btree (updated_at DESC)"
+  },
+  "auth.saml_providers.saml_providers_entity_id_key": {
+    "schema": "auth",
+    "name": "saml_providers_entity_id_key",
+    "table_name": "saml_providers",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX saml_providers_entity_id_key ON auth.saml_providers USING btree (entity_id)"
+  },
+  "auth.saml_providers.saml_providers_sso_provider_id_idx": {
+    "schema": "auth",
+    "name": "saml_providers_sso_provider_id_idx",
+    "table_name": "saml_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX saml_providers_sso_provider_id_idx ON auth.saml_providers USING btree (sso_provider_id)"
+  },
+  "auth.saml_relay_states.saml_relay_states_created_at_idx": {
+    "schema": "auth",
+    "name": "saml_relay_states_created_at_idx",
+    "table_name": "saml_relay_states",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX saml_relay_states_created_at_idx ON auth.saml_relay_states USING btree (created_at DESC)"
+  },
+  "auth.saml_relay_states.saml_relay_states_for_email_idx": {
+    "schema": "auth",
+    "name": "saml_relay_states_for_email_idx",
+    "table_name": "saml_relay_states",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX saml_relay_states_for_email_idx ON auth.saml_relay_states USING btree (for_email)"
+  },
+  "auth.saml_relay_states.saml_relay_states_sso_provider_id_idx": {
+    "schema": "auth",
+    "name": "saml_relay_states_sso_provider_id_idx",
+    "table_name": "saml_relay_states",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX saml_relay_states_sso_provider_id_idx ON auth.saml_relay_states USING btree (sso_provider_id)"
+  },
+  "auth.sessions.sessions_not_after_idx": {
+    "schema": "auth",
+    "name": "sessions_not_after_idx",
+    "table_name": "sessions",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX sessions_not_after_idx ON auth.sessions USING btree (not_after DESC)"
+  },
+  "auth.sessions.sessions_oauth_client_id_idx": {
+    "schema": "auth",
+    "name": "sessions_oauth_client_id_idx",
+    "table_name": "sessions",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX sessions_oauth_client_id_idx ON auth.sessions USING btree (oauth_client_id)"
+  },
+  "auth.sessions.sessions_user_id_idx": {
+    "schema": "auth",
+    "name": "sessions_user_id_idx",
+    "table_name": "sessions",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX sessions_user_id_idx ON auth.sessions USING btree (user_id)"
+  },
+  "auth.sessions.user_id_created_at_idx": {
+    "schema": "auth",
+    "name": "user_id_created_at_idx",
+    "table_name": "sessions",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX user_id_created_at_idx ON auth.sessions USING btree (user_id, created_at)"
+  },
+  "auth.sso_domains.sso_domains_domain_idx": {
+    "schema": "auth",
+    "name": "sso_domains_domain_idx",
+    "table_name": "sso_domains",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX sso_domains_domain_idx ON auth.sso_domains USING btree (lower(domain))"
+  },
+  "auth.sso_domains.sso_domains_sso_provider_id_idx": {
+    "schema": "auth",
+    "name": "sso_domains_sso_provider_id_idx",
+    "table_name": "sso_domains",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX sso_domains_sso_provider_id_idx ON auth.sso_domains USING btree (sso_provider_id)"
+  },
+  "auth.sso_providers.sso_providers_resource_id_idx": {
+    "schema": "auth",
+    "name": "sso_providers_resource_id_idx",
+    "table_name": "sso_providers",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX sso_providers_resource_id_idx ON auth.sso_providers USING btree (lower(resource_id))"
+  },
+  "auth.sso_providers.sso_providers_resource_id_pattern_idx": {
+    "schema": "auth",
+    "name": "sso_providers_resource_id_pattern_idx",
+    "table_name": "sso_providers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX sso_providers_resource_id_pattern_idx ON auth.sso_providers USING btree (resource_id text_pattern_ops)"
+  },
+  "auth.users.confirmation_token_idx": {
+    "schema": "auth",
+    "name": "confirmation_token_idx",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX confirmation_token_idx ON auth.users USING btree (confirmation_token) WHERE ((confirmation_token)::text !~ '^[0-9 ]*$'::text)"
+  },
+  "auth.users.email_change_token_current_idx": {
+    "schema": "auth",
+    "name": "email_change_token_current_idx",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX email_change_token_current_idx ON auth.users USING btree (email_change_token_current) WHERE ((email_change_token_current)::text !~ '^[0-9 ]*$'::text)"
+  },
+  "auth.users.email_change_token_new_idx": {
+    "schema": "auth",
+    "name": "email_change_token_new_idx",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX email_change_token_new_idx ON auth.users USING btree (email_change_token_new) WHERE ((email_change_token_new)::text !~ '^[0-9 ]*$'::text)"
+  },
+  "auth.users.reauthentication_token_idx": {
+    "schema": "auth",
+    "name": "reauthentication_token_idx",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX reauthentication_token_idx ON auth.users USING btree (reauthentication_token) WHERE ((reauthentication_token)::text !~ '^[0-9 ]*$'::text)"
+  },
+  "auth.users.recovery_token_idx": {
+    "schema": "auth",
+    "name": "recovery_token_idx",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX recovery_token_idx ON auth.users USING btree (recovery_token) WHERE ((recovery_token)::text !~ '^[0-9 ]*$'::text)"
+  },
+  "auth.users.users_email_partial_key": {
+    "schema": "auth",
+    "name": "users_email_partial_key",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX users_email_partial_key ON auth.users USING btree (email) WHERE (is_sso_user = false)"
+  },
+  "auth.users.users_instance_id_email_idx": {
+    "schema": "auth",
+    "name": "users_instance_id_email_idx",
+    "table_name": "users",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX users_instance_id_email_idx ON auth.users USING btree (instance_id, lower((email)::text))"
+  },
+  "auth.users.users_instance_id_idx": {
+    "schema": "auth",
+    "name": "users_instance_id_idx",
+    "table_name": "users",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX users_instance_id_idx ON auth.users USING btree (instance_id)"
+  },
+  "auth.users.users_is_anonymous_idx": {
+    "schema": "auth",
+    "name": "users_is_anonymous_idx",
+    "table_name": "users",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous)"
+  },
+  "auth.users.users_phone_key": {
+    "schema": "auth",
+    "name": "users_phone_key",
+    "table_name": "users",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX users_phone_key ON auth.users USING btree (phone)"
+  },
+  "auth.webauthn_challenges.webauthn_challenges_expires_at_idx": {
+    "schema": "auth",
+    "name": "webauthn_challenges_expires_at_idx",
+    "table_name": "webauthn_challenges",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX webauthn_challenges_expires_at_idx ON auth.webauthn_challenges USING btree (expires_at)"
+  },
+  "auth.webauthn_challenges.webauthn_challenges_user_id_idx": {
+    "schema": "auth",
+    "name": "webauthn_challenges_user_id_idx",
+    "table_name": "webauthn_challenges",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX webauthn_challenges_user_id_idx ON auth.webauthn_challenges USING btree (user_id)"
+  },
+  "auth.webauthn_credentials.webauthn_credentials_credential_id_key": {
+    "schema": "auth",
+    "name": "webauthn_credentials_credential_id_key",
+    "table_name": "webauthn_credentials",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX webauthn_credentials_credential_id_key ON auth.webauthn_credentials USING btree (credential_id)"
+  },
+  "auth.webauthn_credentials.webauthn_credentials_user_id_idx": {
+    "schema": "auth",
+    "name": "webauthn_credentials_user_id_idx",
+    "table_name": "webauthn_credentials",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX webauthn_credentials_user_id_idx ON auth.webauthn_credentials USING btree (user_id)"
+  },
+  "public.performers.performers_kind_idx": {
+    "schema": "public",
+    "name": "performers_kind_idx",
+    "table_name": "performers",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX performers_kind_idx ON public.performers USING btree (kind)"
+  },
+  "public.performers.performers_kind_name_key": {
+    "schema": "public",
+    "name": "performers_kind_name_key",
+    "table_name": "performers",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX performers_kind_name_key ON public.performers USING btree (kind, name)"
+  },
+  "public.plans.plans_project_idx": {
+    "schema": "public",
+    "name": "plans_project_idx",
+    "table_name": "plans",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX plans_project_idx ON public.plans USING btree (project_id)"
+  },
+  "public.profiles.profiles_role_idx": {
+    "schema": "public",
+    "name": "profiles_role_idx",
+    "table_name": "profiles",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX profiles_role_idx ON public.profiles USING btree (role)"
+  },
+  "public.project_memberships.project_memberships_user_idx": {
+    "schema": "public",
+    "name": "project_memberships_user_idx",
+    "table_name": "project_memberships",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX project_memberships_user_idx ON public.project_memberships USING btree (user_id)"
+  },
+  "public.projects.projects_name_lower_uniq": {
+    "schema": "public",
+    "name": "projects_name_lower_uniq",
+    "table_name": "projects",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX projects_name_lower_uniq ON public.projects USING btree (lower(name))"
+  },
+  "public.report_photos.report_photos_report_idx": {
+    "schema": "public",
+    "name": "report_photos_report_idx",
+    "table_name": "report_photos",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX report_photos_report_idx ON public.report_photos USING btree (report_id)"
+  },
+  "public.report_plan_marks.report_plan_marks_plan_idx": {
+    "schema": "public",
+    "name": "report_plan_marks_plan_idx",
+    "table_name": "report_plan_marks",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX report_plan_marks_plan_idx ON public.report_plan_marks USING btree (plan_id)"
+  },
+  "public.report_plan_marks.report_plan_marks_report_uniq": {
+    "schema": "public",
+    "name": "report_plan_marks_report_uniq",
+    "table_name": "report_plan_marks",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX report_plan_marks_report_uniq ON public.report_plan_marks USING btree (report_id)"
+  },
+  "public.reports.reports_author_idx": {
+    "schema": "public",
+    "name": "reports_author_idx",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX reports_author_idx ON public.reports USING btree (author_id)"
+  },
+  "public.reports.reports_project_created_idx": {
+    "schema": "public",
+    "name": "reports_project_created_idx",
+    "table_name": "reports",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX reports_project_created_idx ON public.reports USING btree (project_id, created_at DESC)"
+  },
+  "public.work_types.work_types_name_key": {
+    "schema": "public",
+    "name": "work_types_name_key",
+    "table_name": "work_types",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX work_types_name_key ON public.work_types USING btree (name)"
+  },
+  "realtime.messages.messages_inserted_at_topic_index": {
+    "schema": "realtime",
+    "name": "messages_inserted_at_topic_index",
+    "table_name": "messages",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.messages_2026_04_11.messages_2026_04_11_inserted_at_topic_idx": {
+    "schema": "realtime",
+    "name": "messages_2026_04_11_inserted_at_topic_idx",
+    "table_name": "messages_2026_04_11",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_2026_04_11_inserted_at_topic_idx ON realtime.messages_2026_04_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.messages_2026_04_12.messages_2026_04_12_inserted_at_topic_idx": {
+    "schema": "realtime",
+    "name": "messages_2026_04_12_inserted_at_topic_idx",
+    "table_name": "messages_2026_04_12",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_2026_04_12_inserted_at_topic_idx ON realtime.messages_2026_04_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.messages_2026_04_13.messages_2026_04_13_inserted_at_topic_idx": {
+    "schema": "realtime",
+    "name": "messages_2026_04_13_inserted_at_topic_idx",
+    "table_name": "messages_2026_04_13",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_2026_04_13_inserted_at_topic_idx ON realtime.messages_2026_04_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.messages_2026_04_14.messages_2026_04_14_inserted_at_topic_idx": {
+    "schema": "realtime",
+    "name": "messages_2026_04_14_inserted_at_topic_idx",
+    "table_name": "messages_2026_04_14",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_2026_04_14_inserted_at_topic_idx ON realtime.messages_2026_04_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.messages_2026_04_15.messages_2026_04_15_inserted_at_topic_idx": {
+    "schema": "realtime",
+    "name": "messages_2026_04_15_inserted_at_topic_idx",
+    "table_name": "messages_2026_04_15",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX messages_2026_04_15_inserted_at_topic_idx ON realtime.messages_2026_04_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE))"
+  },
+  "realtime.subscription.ix_realtime_subscription_entity": {
+    "schema": "realtime",
+    "name": "ix_realtime_subscription_entity",
+    "table_name": "subscription",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX ix_realtime_subscription_entity ON realtime.subscription USING btree (entity)"
+  },
+  "realtime.subscription.pk_subscription": {
+    "schema": "realtime",
+    "name": "pk_subscription",
+    "table_name": "subscription",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX pk_subscription ON realtime.subscription USING btree (id)"
+  },
+  "realtime.subscription.subscription_subscription_id_entity_filters_action_filter_key": {
+    "schema": "realtime",
+    "name": "subscription_subscription_id_entity_filters_action_filter_key",
+    "table_name": "subscription",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX subscription_subscription_id_entity_filters_action_filter_key ON realtime.subscription USING btree (subscription_id, entity, filters, action_filter)"
+  },
+  "storage.buckets.bname": {
+    "schema": "storage",
+    "name": "bname",
+    "table_name": "buckets",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX bname ON storage.buckets USING btree (name)"
+  },
+  "storage.buckets_analytics.buckets_analytics_unique_name_idx": {
+    "schema": "storage",
+    "name": "buckets_analytics_unique_name_idx",
+    "table_name": "buckets_analytics",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX buckets_analytics_unique_name_idx ON storage.buckets_analytics USING btree (name) WHERE (deleted_at IS NULL)"
+  },
+  "storage.migrations.migrations_name_key": {
+    "schema": "storage",
+    "name": "migrations_name_key",
+    "table_name": "migrations",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX migrations_name_key ON storage.migrations USING btree (name)"
+  },
+  "storage.objects.bucketid_objname": {
+    "schema": "storage",
+    "name": "bucketid_objname",
+    "table_name": "objects",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX bucketid_objname ON storage.objects USING btree (bucket_id, name)"
+  },
+  "storage.objects.idx_objects_bucket_id_name": {
+    "schema": "storage",
+    "name": "idx_objects_bucket_id_name",
+    "table_name": "objects",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_objects_bucket_id_name ON storage.objects USING btree (bucket_id, name COLLATE \"C\")"
+  },
+  "storage.objects.idx_objects_bucket_id_name_lower": {
+    "schema": "storage",
+    "name": "idx_objects_bucket_id_name_lower",
+    "table_name": "objects",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_objects_bucket_id_name_lower ON storage.objects USING btree (bucket_id, lower(name) COLLATE \"C\")"
+  },
+  "storage.objects.name_prefix_search": {
+    "schema": "storage",
+    "name": "name_prefix_search",
+    "table_name": "objects",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX name_prefix_search ON storage.objects USING btree (name text_pattern_ops)"
+  },
+  "storage.s3_multipart_uploads.idx_multipart_uploads_list": {
+    "schema": "storage",
+    "name": "idx_multipart_uploads_list",
+    "table_name": "s3_multipart_uploads",
+    "is_unique": false,
+    "is_primary": false,
+    "sql": "CREATE INDEX idx_multipart_uploads_list ON storage.s3_multipart_uploads USING btree (bucket_id, key, created_at)"
+  },
+  "storage.vector_indexes.vector_indexes_name_bucket_id_idx": {
+    "schema": "storage",
+    "name": "vector_indexes_name_bucket_id_idx",
+    "table_name": "vector_indexes",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX vector_indexes_name_bucket_id_idx ON storage.vector_indexes USING btree (name, bucket_id)"
+  },
+  "vault.secrets.secrets_name_idx": {
+    "schema": "vault",
+    "name": "secrets_name_idx",
+    "table_name": "secrets",
+    "is_unique": true,
+    "is_primary": false,
+    "sql": "CREATE UNIQUE INDEX secrets_name_idx ON vault.secrets USING btree (name) WHERE (name IS NOT NULL)"
+  }
+}
