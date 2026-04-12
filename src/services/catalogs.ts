@@ -17,6 +17,9 @@ export interface PlanRow {
   created_at: string
 }
 
+/** Кэш справочников считается свежим в течение 10 минут. */
+const CATALOG_TTL_MS = 10 * 60 * 1000
+
 const LEGACY_CACHE_PREFIX = 'stroyfoto:cache:'
 let legacyMigrated = false
 
@@ -25,14 +28,21 @@ let legacyMigrated = false
 // точку истины. Сигнатуры readCache/writeCache сохранены для совместимости
 // с вызовами ниже; они асинхронные.
 
-async function readCache<T>(key: CatalogKey): Promise<T | null> {
+interface CacheResult<T> {
+  data: T | null
+  stale: boolean
+}
+
+async function readCache<T>(key: CatalogKey): Promise<CacheResult<T>> {
   try {
     await migrateLegacyCacheOnce()
     const db = await getDB()
     const rec = await db.get('catalogs', key)
-    return (rec?.payload as T) ?? null
+    if (!rec) return { data: null, stale: true }
+    const stale = (Date.now() - rec.updatedAt) > CATALOG_TTL_MS
+    return { data: (rec.payload as T) ?? null, stale }
   } catch {
-    return null
+    return { data: null, stale: true }
   }
 }
 
@@ -71,14 +81,17 @@ async function migrateLegacyCacheOnce(): Promise<void> {
   }
 }
 
-export async function loadProjectsForUser(): Promise<Project[]> {
+export async function loadProjectsForUser(forceRefresh = false): Promise<Project[]> {
+  const cache = await readCache<Project[]>('projects')
+  // Если кэш свежий и не форсируем — возвращаем без сети
+  if (!forceRefresh && !cache.stale && cache.data) return cache.data
+
   const { data, error } = await supabase
     .from('projects')
     .select('id,name,description,created_by,created_at,updated_at')
     .order('name', { ascending: true })
   if (error) {
-    const cached = await readCache<Project[]>('projects')
-    if (cached) return cached
+    if (cache.data) return cache.data
     throw error
   }
   const list = (data ?? []) as Project[]
@@ -86,15 +99,17 @@ export async function loadProjectsForUser(): Promise<Project[]> {
   return list
 }
 
-export async function loadWorkTypes(): Promise<WorkType[]> {
+export async function loadWorkTypes(forceRefresh = false): Promise<WorkType[]> {
+  const cache = await readCache<WorkType[]>('work_types')
+  if (!forceRefresh && !cache.stale && cache.data) return cache.data
+
   const { data, error } = await supabase
     .from('work_types')
     .select('id,name,is_active,created_by,created_at')
     .eq('is_active', true)
     .order('name', { ascending: true })
   if (error) {
-    const cached = await readCache<WorkType[]>('work_types')
-    if (cached) return cached
+    if (cache.data) return cache.data
     throw error
   }
   const list = (data ?? []) as WorkType[]
@@ -120,7 +135,8 @@ export async function createOrQueueWorkType(name: string): Promise<WorkType> {
   if (!trimmed) throw new Error('Пустое название')
 
   // 1) Проверка на дубликат в уже загруженных серверных значениях.
-  const cachedList = (await readCache<WorkType[]>('work_types')) ?? []
+  const cachedResult = await readCache<WorkType[]>('work_types')
+  const cachedList = cachedResult.data ?? []
   const existingServer = cachedList.find((w) => w.name.toLowerCase() === trimmed.toLowerCase())
   if (existingServer) return existingServer
 
@@ -176,15 +192,17 @@ export async function createOrQueueWorkType(name: string): Promise<WorkType> {
   } as WorkType
 }
 
-export async function loadPerformers(): Promise<Performer[]> {
+export async function loadPerformers(forceRefresh = false): Promise<Performer[]> {
+  const cache = await readCache<Performer[]>('performers')
+  if (!forceRefresh && !cache.stale && cache.data) return cache.data
+
   const { data, error } = await supabase
     .from('performers')
     .select('id,name,kind,is_active,created_at')
     .eq('is_active', true)
     .order('name', { ascending: true })
   if (error) {
-    const cached = await readCache<Performer[]>('performers')
-    if (cached) return cached
+    if (cache.data) return cache.data
     throw error
   }
   const list = (data ?? []) as Performer[]
@@ -199,13 +217,14 @@ export async function loadPlansForProject(projectId: string): Promise<PlanRow[]>
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
   if (error) {
-    const cached = await readCache<Record<string, PlanRow[]>>('plans')
-    if (cached?.[projectId]) return cached[projectId]
+    const cache = await readCache<Record<string, PlanRow[]>>('plans')
+    if (cache.data?.[projectId]) return cache.data[projectId]
     throw error
   }
   const list = (data ?? []) as PlanRow[]
-  const cached = (await readCache<Record<string, PlanRow[]>>('plans')) ?? {}
-  cached[projectId] = list
-  await writeCache('plans', cached)
+  const cache = await readCache<Record<string, PlanRow[]>>('plans')
+  const existing = cache.data ?? {}
+  existing[projectId] = list
+  await writeCache('plans', existing)
   return list
 }

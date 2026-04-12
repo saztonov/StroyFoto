@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { getDB, type SyncOp } from '@/lib/db'
+import { getDB, type SyncOp, type ReportMutation } from '@/lib/db'
 import {
   countPendingReports,
   markReportSyncedIfComplete,
@@ -7,6 +7,47 @@ import {
 } from '@/services/localReports'
 import { markPhotoSynced, uploadPhoto } from '@/services/photos'
 import { applyRetention } from '@/services/retention'
+import { warnIfQuotaHigh } from '@/services/storageQuota'
+import { emitReportsChanged } from '@/services/invalidation'
+import { reconcile } from '@/services/reconcile'
+
+// ---------------------------------------------------------------------------
+// Классификация ошибок: transient → retry, auth → refresh + retry,
+// permanent → fail immediately (без retry-storm).
+// ---------------------------------------------------------------------------
+
+type ErrorClass = 'transient' | 'auth' | 'permanent'
+
+interface SupabaseError {
+  code?: string
+  message?: string
+  status?: number
+  statusCode?: number
+}
+
+function isDuplicateKey(err: SupabaseError): boolean {
+  return err.code === '23505' || /duplicate key|23505/i.test(err.message ?? '')
+}
+
+function classifyError(err: SupabaseError): ErrorClass {
+  const code = err.code ?? ''
+  const msg = (err.message ?? '').toLowerCase()
+  const status = err.status ?? err.statusCode ?? 0
+
+  // Auth errors — refresh token and retry
+  if (status === 401 || /jwt expired|not authenticated|invalid.*token/i.test(msg)) {
+    return 'auth'
+  }
+
+  // Permanent errors — don't retry, fail immediately with readable message
+  if (status === 403 || /forbidden|rls|row.level.security/i.test(msg)) return 'permanent'
+  if (/^2[23]\d{3}$/.test(code) && code !== '23505') return 'permanent' // FK, unique (except dup key), check violations
+  if (/violates.*constraint|foreign key|check constraint/i.test(msg)) return 'permanent'
+  if (status === 400 || status === 422) return 'permanent' // validation
+
+  // Everything else is transient (network, timeout, 5xx)
+  return 'transient'
+}
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 
@@ -57,7 +98,14 @@ function backoffMs(attempts: number) {
   return base + Math.floor(Math.random() * 500)
 }
 
-async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }> {
+interface ProcessResult {
+  done: boolean
+  error?: string
+  errorCode?: string
+  errorStatus?: number
+}
+
+async function processOp(op: SyncOp): Promise<ProcessResult> {
   const db = await getDB()
 
   if (op.kind === 'photo') {
@@ -92,8 +140,8 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
     // row уже существует → 23505 (duplicate key), это ОК — считаем done.
     const { error } = await supabase.from('reports').insert(payload)
     if (error) {
-      if (/duplicate key|23505/i.test(error.message)) return { done: true }
-      return { done: false, error: error.message }
+      if (isDuplicateKey(error)) return { done: true }
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
     }
     return { done: true }
   }
@@ -108,9 +156,52 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
       x_norm: mark.xNorm,
       y_norm: mark.yNorm,
     })
-    if (error && !/duplicate key/i.test(error.message)) {
-      return { done: false, error: error.message }
+    if (error && !isDuplicateKey(error)) {
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
     }
+    return { done: true }
+  }
+
+  if (op.kind === 'report_update') {
+    const mutation = await db.get('report_mutations', Number(op.entityId))
+    if (!mutation) return { done: true }
+    if (!mutation.payload) return { done: true }
+    const { data, error } = await supabase
+      .from('reports')
+      .update({
+        work_type_id: mutation.payload.workTypeId,
+        performer_id: mutation.payload.performerId,
+        description: mutation.payload.description,
+        taken_at: mutation.payload.takenAt,
+      })
+      .eq('id', mutation.reportId)
+      .eq('updated_at', mutation.baseUpdatedAt)
+      .select('id')
+    if (error) {
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    }
+    if (!data || data.length === 0) {
+      // Конфликт: отчёт изменён другим пользователем — permanent fail
+      await db.delete('report_mutations', mutation.id!)
+      return { done: true }
+    }
+    await db.delete('report_mutations', mutation.id!)
+    return { done: true }
+  }
+
+  if (op.kind === 'report_delete') {
+    const mutation = await db.get('report_mutations', Number(op.entityId))
+    if (!mutation) return { done: true }
+    const { error } = await supabase.from('reports').delete().eq('id', mutation.reportId)
+    if (error) {
+      // Если отчёт уже удалён — считаем успехом
+      if (/not found|no rows/i.test(error.message)) {
+        await db.delete('report_mutations', mutation.id!)
+        return { done: true }
+      }
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    }
+    await db.delete('report_mutations', mutation.id!)
     return { done: true }
   }
 
@@ -126,8 +217,8 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
       { id: local.id, name: local.name, is_active: true },
       { onConflict: 'id' },
     )
-    if (error && !/duplicate key|23505/i.test(error.message)) {
-      return { done: false, error: error.message }
+    if (error && !isDuplicateKey(error)) {
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
     }
     local.syncStatus = 'synced'
     await db.put('work_types_local', local)
@@ -155,7 +246,7 @@ async function tick() {
         .sort((a, b) => {
           // work_type → report → mark → photo. work_type идёт первым,
           // потому что отчёт может ссылаться на локальный work_type.id.
-          const order = { work_type: 0, report: 1, mark: 2, photo: 3 } as const
+          const order: Record<string, number> = { work_type: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, photo: 3 }
           return order[a.kind] - order[b.kind] || a.nextAttemptAt - b.nextAttemptAt
         })[0]
       if (!next) break
@@ -167,6 +258,38 @@ async function tick() {
         const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
         if (rid) await markReportSyncedIfComplete(rid)
       } else {
+        // Классифицируем ошибку: transient → retry, auth → refresh, permanent → fail
+        const errClass = classifyError({
+          message: result.error,
+          code: result.errorCode,
+          status: result.errorStatus,
+        })
+
+        if (errClass === 'auth') {
+          // Токен протух — пробуем обновить и повторить немедленно
+          const { error: refreshError } = await supabase.auth.refreshSession()
+          if (refreshError) {
+            setSnapshot({ state: 'error', lastError: 'Сессия истекла. Войдите заново.' })
+            break
+          }
+          // Сбрасываем backoff, повторяем эту операцию немедленно
+          next.nextAttemptAt = Date.now()
+          if (next.id != null) await db.put('sync_queue', next)
+          continue
+        }
+
+        if (errClass === 'permanent') {
+          // Permanent-ошибка: не ретраим, сразу fail
+          if (next.id != null) await db.delete('sync_queue', next.id)
+          const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
+          if (rid) {
+            await updateReportStatus(rid, 'failed', result.error ?? 'Постоянная ошибка')
+          }
+          setSnapshot({ lastError: result.error ?? null })
+          continue // переходим к следующей операции, не ломаем весь цикл
+        }
+
+        // Transient — стандартный retry с backoff
         next.attempts += 1
         next.lastError = result.error ?? 'unknown'
         next.nextAttemptAt = Date.now() + backoffMs(next.attempts)
@@ -185,19 +308,18 @@ async function tick() {
             result.error ?? null,
           )
         } else {
-          // Ошибка на photo/mark/work_type — отметим сам отчёт как pending
-          // с описанием ошибки, чтобы UI показал проблему и ручная кнопка
-          // могла повторно дёрнуть цикл.
           const rid = next.reportId
           if (rid) {
             await updateReportStatus(rid, next.attempts >= 5 ? 'failed' : 'pending', result.error ?? null)
           }
         }
         setSnapshot({ lastError: result.error ?? null })
-        break // не долбим сеть подряд
+        break // transient error — не долбим сеть подряд
       }
     }
     setSnapshot({ state: 'idle' })
+    // После успешного push уведомляем UI и другие вкладки.
+    emitReportsChanged()
   } catch (e) {
     setSnapshot({ state: 'error', lastError: e instanceof Error ? e.message : String(e) })
   } finally {
@@ -207,6 +329,7 @@ async function tick() {
     // удаляет ТОЛЬКО synced-записи БЕЗ открытых задач в sync_queue, так что
     // несинхронизированные данные никогда не будут потеряны.
     void applyRetention().catch(() => undefined)
+    void warnIfQuotaHigh().catch(() => undefined)
   }
 }
 
@@ -222,12 +345,18 @@ export async function runSyncOnce(): Promise<void> {
 function handleOnline() {
   setSnapshot({ state: 'idle' })
   triggerSync()
+  // Лёгкий pull свежих данных с сервера после восстановления сети
+  void reconcile().catch(() => undefined)
 }
 function handleOffline() {
   setSnapshot({ state: 'offline' })
 }
 function handleVisibility() {
-  if (document.visibilityState === 'visible') triggerSync()
+  if (document.visibilityState === 'visible') {
+    triggerSync()
+    // При возврате в приложение тоже подтягиваем свежие данные
+    void reconcile().catch(() => undefined)
+  }
 }
 
 export function startSyncLoop() {

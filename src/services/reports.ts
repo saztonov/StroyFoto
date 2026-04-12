@@ -24,6 +24,7 @@ export interface ReportCard {
   authorId: string
   authorName: string | null
   createdAt: string
+  updatedAt: string | null
   syncStatus: SyncStatus
   remoteOnly: boolean
 }
@@ -38,6 +39,7 @@ interface RemoteReportRow {
   taken_at: string | null
   author_id: string
   created_at: string
+  updated_at: string | null
 }
 
 interface RemoteReportRowWithNested extends RemoteReportRow {
@@ -57,6 +59,7 @@ function fromLocal(r: LocalReport): ReportCard {
     authorId: r.authorId,
     authorName: null,
     createdAt: r.createdAt,
+    updatedAt: r.updatedAt ?? null,
     syncStatus: r.syncStatus,
     remoteOnly: false,
   }
@@ -74,6 +77,7 @@ function fromRemote(row: RemoteReportRow, authorName: string | null = null): Rep
     authorId: row.author_id,
     authorName,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? null,
     syncStatus: 'synced',
     remoteOnly: true,
   }
@@ -91,6 +95,7 @@ function fromSnapshot(s: RemoteReportSnapshot): ReportCard {
     authorId: s.authorId,
     authorName: s.authorName,
     createdAt: s.createdAt,
+    updatedAt: s.updatedAt ?? null,
     syncStatus: 'synced',
     remoteOnly: true,
   }
@@ -106,16 +111,30 @@ function fromSnapshot(s: RemoteReportSnapshot): ReportCard {
 async function resolveAuthorNames(ids: Iterable<string>): Promise<Map<string, string | null>> {
   const unique = Array.from(new Set([...ids]))
   const result = new Map<string, string | null>()
-  await Promise.all(
-    unique.map(async (id) => {
-      try {
-        const { data } = await supabase.rpc('get_author_name', { p_author_id: id })
-        result.set(id, (data as string | null) ?? null)
-      } catch {
-        result.set(id, null)
+  // Инициализируем null для всех, чтобы отсутствующие ФИО не ломали UI
+  for (const id of unique) result.set(id, null)
+
+  try {
+    // Батчевый RPC вместо N отдельных вызовов
+    const { data } = await supabase.rpc('get_author_names', { p_author_ids: unique })
+    if (data) {
+      for (const row of data as Array<{ author_id: string; full_name: string }>) {
+        result.set(row.author_id, row.full_name)
       }
-    }),
-  )
+    }
+  } catch {
+    // Fallback: если batch RPC не доступен (ещё не развёрнут), пробуем по одному
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const { data } = await supabase.rpc('get_author_name', { p_author_id: id })
+          result.set(id, (data as string | null) ?? null)
+        } catch {
+          // оставляем null
+        }
+      }),
+    )
+  }
   return result
 }
 
@@ -142,8 +161,15 @@ async function cacheRemoteSnapshot(snap: RemoteReportSnapshot): Promise<void> {
  */
 /** Таймаут для сетевых запросов при загрузке списка отчётов (мс). */
 const FETCH_TIMEOUT_MS = 5_000
+const PAGE_SIZE = 200
 
-export async function loadMergedReports(): Promise<ReportCard[]> {
+export interface MergedReportsResult {
+  cards: ReportCard[]
+  hasMore: boolean
+  nextCursor: string | null
+}
+
+export async function loadMergedReports(cursor?: string): Promise<MergedReportsResult> {
   const local = await listLocalReports()
   const localCards = local.map(fromLocal)
   const localIds = new Set(localCards.map((r) => r.id))
@@ -153,11 +179,15 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
   if (online) {
     try {
       const fetchRemote = async () => {
-        const { data, error } = await supabase
+        let query = supabase
           .from('reports')
-          .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at')
+          .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at')
           .order('created_at', { ascending: false })
-          .limit(200)
+          .limit(PAGE_SIZE)
+        if (cursor) {
+          query = query.lt('created_at', cursor)
+        }
+        const { data, error } = await query
         if (error) throw error
         return (data as RemoteReportRow[] | null) ?? []
       }
@@ -166,14 +196,12 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
       )
       const rows = await Promise.race([fetchRemote(), timeout])
 
-      // Разрешаем имена авторов одним проходом (паралельные RPC-вызовы).
       const authorNames = await resolveAuthorNames(rows.map((r) => r.author_id))
       const remoteCards = rows
         .filter((row) => !localIds.has(row.id))
         .map((row) => fromRemote(row, authorNames.get(row.author_id) ?? null))
 
-      // Пишем минимальный snapshot для офлайна. Фото/mark тут не тянем —
-      // их закэширует details-страница при открытии.
+      // Кэшируем для офлайна
       await Promise.all(
         rows.map((row) =>
           cacheRemoteSnapshot({
@@ -187,6 +215,7 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
             authorId: row.author_id,
             authorName: authorNames.get(row.author_id) ?? null,
             createdAt: row.created_at,
+            updatedAt: row.updated_at ?? null,
             cachedAt: Date.now(),
             photos: [],
             mark: null,
@@ -194,9 +223,15 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
         ),
       )
 
-      return [...localCards, ...remoteCards].sort((a, b) =>
-        a.createdAt < b.createdAt ? 1 : -1,
-      )
+      const hasMore = rows.length === PAGE_SIZE
+      const nextCursor = rows.length > 0 ? rows[rows.length - 1].created_at : null
+
+      // На первой странице включаем локальные; на последующих — только remote
+      const cards = cursor
+        ? remoteCards
+        : [...localCards, ...remoteCards].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+
+      return { cards, hasMore, nextCursor }
     } catch {
       // Падение сетевого запроса — пользуемся кэшем как офлайн.
     }
@@ -208,9 +243,10 @@ export async function loadMergedReports(): Promise<ReportCard[]> {
   const cachedCards = cached
     .filter((s) => !localIds.has(s.id))
     .map(fromSnapshot)
-  return [...localCards, ...cachedCards].sort((a, b) =>
+  const cards = [...localCards, ...cachedCards].sort((a, b) =>
     a.createdAt < b.createdAt ? 1 : -1,
   )
+  return { cards, hasMore: false, nextCursor: null }
 }
 
 export interface RemoteReportPhoto {
@@ -246,7 +282,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
   const { data, error } = await supabase
     .from('reports')
     .select(
-      `id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,
+      `id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at,
        report_photos(id,r2_key,thumb_r2_key,width,height,taken_at),
        report_plan_marks(plan_id,page,x_norm,y_norm)`,
     )
@@ -279,6 +315,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
     authorId: row.author_id,
     authorName,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? null,
     cachedAt: Date.now(),
     photos: photos.map((p) => ({
       id: p.id,
@@ -375,15 +412,23 @@ export async function getCachedRemotePhotoBlob(photoId: string): Promise<LocalPh
 
 // ---------- Edit / Delete ----------
 
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConflictError'
+  }
+}
+
 export interface ReportUpdateInput {
   workTypeId: string
   performerId: string
   description: string | null
   takenAt: string | null
+  expectedUpdatedAt?: string | null
 }
 
 export async function updateRemoteReport(id: string, input: ReportUpdateInput): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from('reports')
     .update({
       work_type_id: input.workTypeId,
@@ -392,7 +437,18 @@ export async function updateRemoteReport(id: string, input: ReportUpdateInput): 
       taken_at: input.takenAt,
     })
     .eq('id', id)
+
+  // Optimistic concurrency: если передан expectedUpdatedAt, проверяем что
+  // отчёт не был изменён другим пользователем с момента загрузки.
+  if (input.expectedUpdatedAt) {
+    query = query.eq('updated_at', input.expectedUpdatedAt)
+  }
+
+  const { data, error } = await query.select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) {
+    throw new ConflictError('Отчёт был изменён другим пользователем. Обновите страницу и попробуйте снова.')
+  }
 }
 
 export async function deleteRemoteReport(id: string): Promise<void> {

@@ -76,18 +76,11 @@ export default defineConfig({
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Supabase REST/Auth НЕ кэшируем через SW — при медленной сети SW может
+        // отдать устаревшие данные другого пользователя/сессии. Все офлайн-данные
+        // идут исключительно через явный IDB-кэш (remote_reports_cache, catalogs,
+        // plans_cache), который контролируется приложением.
         runtimeCaching: [
-          {
-            // Supabase REST/Auth — свежие данные приоритетнее, но при оффлайне отдаём кэш.
-            urlPattern: ({ url }) => /\.supabase\.co\/(rest|auth)\/v1\//.test(url.href),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-api',
-              networkTimeoutSeconds: 4,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
           {
             // Изображения по presigned URL из R2 — кэшируем по pathname (querystring игнорим).
             urlPattern: ({ request, url }) =>

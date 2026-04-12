@@ -21,8 +21,8 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import type { SyncStatus } from '@/lib/db'
-import { subscribeSync } from '@/services/sync'
-import { loadMergedReports, type ReportCard } from '@/services/reports'
+import { onReportsChanged } from '@/services/invalidation'
+import { loadMergedReports, type ReportCard, type MergedReportsResult } from '@/services/reports'
 import { loadProjectsForUser, loadWorkTypes, loadPerformers } from '@/services/catalogs'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -95,6 +95,9 @@ const ReportCardItem = memo(function ReportCardItem({
 export function ReportsListPage() {
   const navigate = useNavigate()
   const [reports, setReports] = useState<ReportCard[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
   const [performers, setPerformers] = useState<Performer[]>([])
@@ -107,8 +110,10 @@ export function ReportsListPage() {
 
   const reload = useCallback(() => {
     void loadMergedReports()
-      .then((r) => {
-        setReports(r)
+      .then((result) => {
+        setReports(result.cards)
+        setHasMore(result.hasMore)
+        setNextCursor(result.nextCursor)
       })
       .catch((err) => {
         console.error('loadMergedReports failed', err)
@@ -118,12 +123,25 @@ export function ReportsListPage() {
       })
   }, [])
 
+  const loadMore = useCallback(() => {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    void loadMergedReports(nextCursor)
+      .then((result) => {
+        setReports((prev) => [...prev, ...result.cards])
+        setHasMore(result.hasMore)
+        setNextCursor(result.nextCursor)
+      })
+      .catch((err) => console.error('loadMore failed', err))
+      .finally(() => setLoadingMore(false))
+  }, [nextCursor, loadingMore])
+
   useEffect(() => {
     reload()
     void loadProjectsForUser().then(setProjects).catch(() => undefined)
     void loadWorkTypes().then(setWorkTypes).catch(() => undefined)
     void loadPerformers().then(setPerformers).catch(() => undefined)
-    const unsub = subscribeSync(() => reload())
+    const unsub = onReportsChanged(() => reload())
     return () => {
       unsub()
     }
@@ -286,6 +304,14 @@ export function ReportsListPage() {
             )
           })}
         </Space>
+      )}
+
+      {hasMore && !loading && filtered.length > 0 && (
+        <Flex justify="center" style={{ marginTop: 16 }}>
+          <Button onClick={loadMore} loading={loadingMore}>
+            Загрузить ещё
+          </Button>
+        </Flex>
       )}
     </>
   )

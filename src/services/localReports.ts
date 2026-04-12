@@ -55,6 +55,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     takenAt: input.takenAt,
     authorId: input.authorId,
     createdAt: now,
+    updatedAt: null,
     syncStatus: 'pending',
     lastError: null,
   }

@@ -4,6 +4,7 @@ import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
 import { loadMergedReports } from '@/services/reports'
 import { runSyncOnce } from '@/services/sync'
 import { getRetention } from '@/services/deviceSettings'
+import { reconcile } from '@/services/reconcile'
 
 export interface FullSyncProgress {
   phase: string
@@ -87,15 +88,17 @@ export async function fullSync(
   await runSyncOnce()
   onProgress?.({ phase: 'push', phaseLabel: 'Отправка данных на сервер', current: 1, total: 1 })
 
-  // Фаза 2: Справочники
-  onProgress?.({ phase: 'catalogs', phaseLabel: 'Обновление справочников', current: 0, total: 3 })
+  // Фаза 2: Reconcile — подтягиваем серверные данные + справочники через единый pipeline
+  onProgress?.({ phase: 'catalogs', phaseLabel: 'Обновление справочников и отчётов', current: 0, total: 3 })
+  await reconcile()
+  // Дополнительно принудительно обновляем справочники (reconcile может использовать stale cache)
   await Promise.all([
-    loadProjectsForUser(),
-    loadWorkTypes(),
-    loadPerformers(),
+    loadProjectsForUser(true),
+    loadWorkTypes(true),
+    loadPerformers(true),
   ])
   result.catalogsRefreshed = true
-  onProgress?.({ phase: 'catalogs', phaseLabel: 'Обновление справочников', current: 3, total: 3 })
+  onProgress?.({ phase: 'catalogs', phaseLabel: 'Обновление справочников и отчётов', current: 3, total: 3 })
 
   // Фаза 3+4: Планы (метаданные обновляются внутри syncAllPlansForUser → loadPlansForProject)
   onProgress?.({ phase: 'plans', phaseLabel: 'Скачивание планов', current: 0, total: 0 })
@@ -110,8 +113,8 @@ export async function fullSync(
   const retention = await getRetention()
   if (retention.mode !== 'none') {
     onProgress?.({ phase: 'reports', phaseLabel: 'Загрузка отчётов', current: 0, total: 1 })
-    const reports = await loadMergedReports()
-    result.reportsCached = reports.length
+    const { cards } = await loadMergedReports()
+    result.reportsCached = cards.length
     onProgress?.({ phase: 'reports', phaseLabel: 'Загрузка отчётов', current: 1, total: 1 })
   }
 

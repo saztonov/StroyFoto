@@ -12,6 +12,7 @@ export interface LocalReport {
   takenAt: string | null
   authorId: string
   createdAt: string
+  updatedAt: string | null
   syncStatus: SyncStatus
   lastError: string | null
 }
@@ -46,7 +47,7 @@ export interface LocalPlanMark {
   syncStatus: SyncStatus
 }
 
-export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type'
+export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type' | 'report_update' | 'report_delete'
 
 export interface SyncOp {
   id?: number
@@ -72,6 +73,28 @@ export interface LocalWorkType {
 }
 
 /**
+ * Мутация существующего отчёта, поставленная в очередь офлайн.
+ * Для update содержит payload с новыми значениями + baseUpdatedAt для OCC.
+ * Для delete — payload null.
+ */
+export interface ReportMutation {
+  id?: number // auto-increment
+  kind: 'update' | 'delete'
+  reportId: string
+  baseUpdatedAt: string
+  payload: {
+    workTypeId: string
+    performerId: string
+    description: string | null
+    takenAt: string | null
+  } | null
+  queuedAt: number
+  lastError: string | null
+  attempts: number
+  nextAttemptAt: number
+}
+
+/**
  * Снимок отчёта, прочитанного с сервера. Используется только для
  * offline-просмотра истории; retention чистит эти записи по device
  * setting, но никогда не трогает локальные drafts в store `reports`.
@@ -87,6 +110,7 @@ export interface RemoteReportSnapshot {
   authorId: string
   authorName: string | null
   createdAt: string
+  updatedAt: string | null
   cachedAt: number
   // фото-метаданные хранятся здесь, бинарные blobs — в store `photos` c origin='remote'
   photos: Array<{
@@ -161,6 +185,11 @@ interface StroyFotoDB extends DBSchema {
     value: RemoteReportSnapshot
     indexes: { by_project: string; by_created: string }
   }
+  report_mutations: {
+    key: number
+    value: ReportMutation
+    indexes: { by_report: string }
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
@@ -191,7 +220,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 83
+const DB_VERSION = 84
 
 export function getDB() {
   if (!dbPromise) {
@@ -226,6 +255,14 @@ export function getDB() {
 
         // v3 stores
         ensureStore(db, 'work_types_local', { keyPath: 'id' }, tx)
+
+        const mutationsNew = ensureStore(db, 'report_mutations', {
+          keyPath: 'id',
+          autoIncrement: true,
+        }, tx)
+        if (mutationsNew) {
+          mutationsNew.createIndex('by_report', 'reportId')
+        }
 
         const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' }, tx)
         if (remoteNew) {
@@ -275,6 +312,9 @@ export function getDB() {
           `[idb] upgrade blocked: другая вкладка держит БД на версии ${currentVersion}, ` +
             `новая версия ${blockedVersion}. Закройте другие вкладки приложения.`,
         )
+        window.dispatchEvent(new CustomEvent('stroyfoto:idb-blocked', {
+          detail: { currentVersion, blockedVersion },
+        }))
       },
       blocking(currentVersion, blockedVersion) {
         console.warn(

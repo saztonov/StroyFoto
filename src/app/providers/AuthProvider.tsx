@@ -6,6 +6,7 @@ import { loadProfile, mapAuthError, signOut as doSignOut } from '@/services/auth
 import type { Profile } from '@/entities/profile/types'
 import { startSyncLoop, stopSyncLoop } from '@/services/sync'
 import { applyRetention } from '@/services/retention'
+import { startInvalidation, stopInvalidation } from '@/services/invalidation'
 
 interface AuthContextValue {
   session: Session | null
@@ -68,18 +69,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loadedForUserId.current = null
         setProfileError(null)
         stopSyncLoop()
+        stopInvalidation()
         return
       }
 
       // Дедупликация: если профиль уже загружен для этого user.id — ничего не делаем.
       if (loadedForUserId.current === nextSession.user.id) {
         startSyncLoop()
+        startInvalidation(nextSession.user.id)
         void applyRetention()
         return
       }
 
       await fetchProfile(nextSession.user.id)
       startSyncLoop()
+      startInvalidation(nextSession.user.id)
       void applyRetention()
     },
     [fetchProfile],

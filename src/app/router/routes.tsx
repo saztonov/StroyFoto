@@ -5,6 +5,7 @@ import { Skeleton } from 'antd'
 import { RequireActive, RequireAdmin, RequireAuth, RequireGuest } from '@/app/router/guards'
 import { AppShell } from '@/app/layouts/AppShell'
 import { AuthLayout } from '@/app/layouts/AuthLayout'
+import { ErrorBoundary } from '@/shared/ui/ErrorBoundary'
 
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { RegisterPage } from '@/pages/auth/RegisterPage'
@@ -39,7 +40,11 @@ const PerformersPage = lazy(() =>
 )
 
 function lazyPage(node: ReactNode) {
-  return <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>{node}</Suspense>
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>{node}</Suspense>
+    </ErrorBoundary>
+  )
 }
 
 export const router = createBrowserRouter([

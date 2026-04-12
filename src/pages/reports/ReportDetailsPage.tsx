@@ -35,14 +35,19 @@ import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers
 import { requestPresigned } from '@/services/r2'
 import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
 import {
+  ConflictError,
   deleteRemoteReport,
   purgeLocalReportData,
   updateRemoteReport,
   type ReportUpdateInput,
 } from '@/services/reports'
+import { getDB, type ReportMutation, type SyncOp } from '@/lib/db'
+import { emitReportChanged, emitReportsChanged } from '@/services/invalidation'
+import { triggerSync } from '@/services/sync'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
 import { EditReportModal } from './components/EditReportModal'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { onReportChanged } from '@/services/invalidation'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
@@ -144,12 +149,21 @@ export function ReportDetailsPage() {
         if (online) {
           try {
             remote = await loadRemoteReportById(id)
+            if (!remote) {
+              // Онлайн-запрос успешен, но отчёт не найден → удалён другим
+              // пользователем или доступ отозван. Чистим stale кэш.
+              await purgeLocalReportData(id)
+              if (cancelled) return
+              setError('Отчёт удалён или недоступен')
+              setLoading(false)
+              return
+            }
           } catch {
-            remote = null
+            // Сетевая ошибка — fallback на IDB-кэш
+            remote = await loadCachedRemoteReport(id)
           }
-        }
-        // Фоллбэк на IDB-кэш: работает и офлайн, и при сетевой ошибке.
-        if (!remote) {
+        } else {
+          // Офлайн — только кэш
           remote = await loadCachedRemoteReport(id)
         }
         if (cancelled) return
@@ -185,6 +199,21 @@ export function ReportDetailsPage() {
       cancelled = true
     }
   }, [id, user?.id, profile?.full_name, refreshCounter])
+
+  // Подписка на изменения этого отчёта от других пользователей/вкладок
+  useEffect(() => {
+    if (!id) return
+    const unsub = onReportChanged(id, (event) => {
+      if (event === 'delete') {
+        setError('Отчёт был удалён другим пользователем')
+        setData(null)
+      } else {
+        // update — перезагружаем данные
+        setRefreshCounter((c) => c + 1)
+      }
+    })
+    return unsub
+  }, [id])
 
   // Справочники для имён
   useEffect(() => {
@@ -341,34 +370,128 @@ export function ReportDetailsPage() {
   )
 
   const handleDelete = useCallback(async () => {
-    if (!id) return
+    if (!id || !data) return
     setDeleting(true)
     try {
-      await deleteRemoteReport(id)
-      await purgeLocalReportData(id)
-      message.success(reportDetails.deleteSuccess)
+      const online = typeof navigator === 'undefined' ? true : navigator.onLine
+      if (online) {
+        try {
+          await deleteRemoteReport(id)
+          await purgeLocalReportData(id)
+          message.success(reportDetails.deleteSuccess)
+          emitReportChanged(id, 'delete')
+          emitReportsChanged()
+          navigate('/reports')
+          return
+        } catch (e) {
+          // Сетевая ошибка — ставим в offline-очередь
+          if (!(e instanceof Error) || !/fetch|network|timeout/i.test(e.message)) {
+            throw e
+          }
+        }
+      }
+      // Offline — ставим delete-мутацию в очередь
+      const db = await getDB()
+      const tx = db.transaction(['report_mutations', 'sync_queue'], 'readwrite')
+      const mutation: ReportMutation = {
+        kind: 'delete',
+        reportId: id,
+        baseUpdatedAt: data.card.updatedAt ?? data.card.createdAt,
+        payload: null,
+        queuedAt: Date.now(),
+        lastError: null,
+        attempts: 0,
+        nextAttemptAt: Date.now(),
+      }
+      const mutationId = await tx.objectStore('report_mutations').add(mutation)
+      const syncOp: SyncOp = {
+        kind: 'report_delete',
+        entityId: String(mutationId),
+        reportId: id,
+        attempts: 0,
+        nextAttemptAt: Date.now(),
+        lastError: null,
+      }
+      await tx.objectStore('sync_queue').add(syncOp)
+      await tx.done
+      message.info('Удаление будет выполнено при восстановлении сети')
+      emitReportsChanged()
       navigate('/reports')
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
       setDeleting(false)
     }
-  }, [id, navigate, message])
+  }, [id, data, navigate, message])
 
   const handleSave = useCallback(async (values: ReportUpdateInput) => {
-    if (!id) return
+    if (!id || !data) return
     setEditLoading(true)
     try {
-      await updateRemoteReport(id, values)
-      message.success(reportDetails.editSuccess)
+      const online = typeof navigator === 'undefined' ? true : navigator.onLine
+      if (online) {
+        try {
+          await updateRemoteReport(id, {
+            ...values,
+            expectedUpdatedAt: data.card.updatedAt,
+          })
+          message.success(reportDetails.editSuccess)
+          setEditOpen(false)
+          emitReportChanged(id, 'update')
+          emitReportsChanged()
+          setRefreshCounter((c) => c + 1)
+          return
+        } catch (e) {
+          if (e instanceof ConflictError) {
+            message.warning(e.message)
+            setRefreshCounter((c) => c + 1)
+            return
+          }
+          // Сетевая ошибка — ставим в offline-очередь
+          if (!(e instanceof Error) || !/fetch|network|timeout/i.test(e.message)) {
+            throw e
+          }
+        }
+      }
+      // Offline или сетевая ошибка — ставим мутацию в очередь
+      const db = await getDB()
+      const tx = db.transaction(['report_mutations', 'sync_queue'], 'readwrite')
+      const mutation: ReportMutation = {
+        kind: 'update',
+        reportId: id,
+        baseUpdatedAt: data.card.updatedAt ?? data.card.createdAt,
+        payload: {
+          workTypeId: values.workTypeId,
+          performerId: values.performerId,
+          description: values.description,
+          takenAt: values.takenAt,
+        },
+        queuedAt: Date.now(),
+        lastError: null,
+        attempts: 0,
+        nextAttemptAt: Date.now(),
+      }
+      const mutationId = await tx.objectStore('report_mutations').add(mutation)
+      const syncOp: SyncOp = {
+        kind: 'report_update',
+        entityId: String(mutationId),
+        reportId: id,
+        attempts: 0,
+        nextAttemptAt: Date.now(),
+        lastError: null,
+      }
+      await tx.objectStore('sync_queue').add(syncOp)
+      await tx.done
+      message.info('Изменения сохранены локально и будут отправлены при восстановлении сети')
       setEditOpen(false)
-      setRefreshCounter((c) => c + 1)
+      emitReportChanged(id, 'update')
+      triggerSync()
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
       setEditLoading(false)
     }
-  }, [id, message])
+  }, [id, data, message])
 
   if (!id) return <Result status="404" title={reportDetails.notFound} />
 
