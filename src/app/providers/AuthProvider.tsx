@@ -7,6 +7,7 @@ import type { Profile } from '@/entities/profile/types'
 import { startSyncLoop, stopSyncLoop } from '@/services/sync'
 import { applyRetention } from '@/services/retention'
 import { startInvalidation, stopInvalidation } from '@/services/invalidation'
+import { getCachedProfile, clearCachedProfile } from '@/services/profileCache'
 
 interface AuthContextValue {
   session: Session | null
@@ -50,6 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       if (!mounted.current) return
       if (loadedForUserId.current !== userId) return
+
+      // Офлайн-fallback: пытаемся использовать кэшированный профиль из IDB
+      try {
+        const cached = await getCachedProfile()
+        if (cached && cached.id === userId) {
+          setProfile(cached)
+          return
+        }
+      } catch {
+        // IDB тоже недоступна — fallthrough к стандартной ошибке
+      }
+
       setProfile(null)
       loadedForUserId.current = null
       setProfileError(mapAuthError(e))
@@ -70,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfileError(null)
         stopSyncLoop()
         stopInvalidation()
+        void clearCachedProfile()
         return
       }
 
@@ -120,6 +134,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadedForUserId.current = null
     await fetchProfile(session.user.id)
   }, [session, fetchProfile])
+
+  // При возвращении сети — обновляем профиль с сервера (заменяет стейл-кэш).
+  useEffect(() => {
+    const handleOnline = () => {
+      if (session) void refreshProfile()
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [session, refreshProfile])
 
   const handleSignOut = useCallback(async () => {
     // onAuthStateChange сам обнулит session/profile.

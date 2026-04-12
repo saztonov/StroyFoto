@@ -2,6 +2,7 @@ import { AuthError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { Profile, Role } from '@/entities/profile/types'
 import { errors } from '@/shared/i18n/ru'
+import { setCachedProfile } from '@/services/profileCache'
 
 export async function signInWithEmail(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -52,12 +53,16 @@ export async function loadProfile(userId: string): Promise<Profile> {
     return { id: userId, full_name: null, role: 'user', is_active: false }
   }
 
-  return {
+  const profile: Profile = {
     id: data.id,
     full_name: data.full_name ?? null,
     role: (data.role as Role) ?? 'user',
     is_active: Boolean(data.is_active),
   }
+
+  void setCachedProfile(profile)
+
+  return profile
 }
 
 /**
