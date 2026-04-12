@@ -77,22 +77,24 @@ async function processOp(op: SyncOp): Promise<{ done: boolean; error?: string }>
   if (op.kind === 'report') {
     const report = await db.get('reports', op.entityId)
     if (!report) return { done: true }
-    const { error } = await supabase.from('reports').upsert(
-      {
-        id: report.id,
-        project_id: report.projectId,
-        work_type_id: report.workTypeId,
-        performer_id: report.performerId,
-        plan_id: report.planId,
-        author_id: report.authorId,
-        description: report.description,
-        taken_at: report.takenAt,
-      },
-      { onConflict: 'id' },
-    )
-    if (error) return { done: false, error: error.message }
-    // НЕ переключаем статус в 'synced' здесь — это сделает markReportSyncedIfComplete
-    // после обработки всех связанных photo/mark/work_type задач.
+    const payload = {
+      id: report.id,
+      project_id: report.projectId,
+      work_type_id: report.workTypeId,
+      performer_id: report.performerId,
+      plan_id: report.planId,
+      author_id: report.authorId,
+      description: report.description,
+      taken_at: report.takenAt,
+    }
+    // INSERT вместо upsert: upsert + RLS с подзапросами к той же таблице
+    // вызывает 500 на PostgREST. При повторной синхронизации (retry)
+    // row уже существует → 23505 (duplicate key), это ОК — считаем done.
+    const { error } = await supabase.from('reports').insert(payload)
+    if (error) {
+      if (/duplicate key|23505/i.test(error.message)) return { done: true }
+      return { done: false, error: error.message }
+    }
     return { done: true }
   }
 

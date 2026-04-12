@@ -423,8 +423,6 @@ create policy reports_update_author on public.reports
   with check (
     public.is_active_user()
     and author_id = auth.uid()
-    and project_id = (select r.project_id from public.reports r where r.id = reports.id)
-    and author_id = (select r.author_id from public.reports r where r.id = reports.id)
   );
 
 drop policy if exists reports_delete_author on public.reports;
