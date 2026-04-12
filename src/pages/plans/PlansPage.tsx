@@ -23,7 +23,7 @@ interface ProjectOption {
 export function PlansPage() {
   const { message } = App.useApp()
   const { profile } = useAuth()
-  const isAdmin = profile?.role === 'admin'
+  const canUpload = profile?.is_active
   const [projects, setProjects] = useState<ProjectOption[]>([])
   const [projectId, setProjectId] = useState<string | null>(null)
   const [plans, setPlans] = useState<PlanRecord[]>([])
@@ -128,7 +128,7 @@ export function PlansPage() {
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
         />
 
-        {isAdmin && (
+        {canUpload && (
           <Upload.Dragger
             name="file"
             multiple={false}
