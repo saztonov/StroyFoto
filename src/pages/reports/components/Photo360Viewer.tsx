@@ -23,7 +23,13 @@ export function Photo360Viewer({ open, src, onClose, onFallback }: Props) {
 
     void (async () => {
       try {
-        const mod = await import('@photo-sphere-viewer/core')
+        // CSS грузим вместе с core-модулем — Vite положит её в тот же vendor-360
+        // chunk, без этого PSV не может корректно отрисовать лоадер/прогресс
+        // (в консоли ругается «stylesheet is not loaded» и валит SVG с NaN).
+        const [mod] = await Promise.all([
+          import('@photo-sphere-viewer/core'),
+          import('@photo-sphere-viewer/core/index.css'),
+        ])
         if (cancelled || !containerRef.current) return
         const viewer = new mod.Viewer({
           container: containerRef.current,
@@ -69,7 +75,7 @@ export function Photo360Viewer({ open, src, onClose, onFallback }: Props) {
         body: { padding: 0, height: '100vh' },
       }}
       closable
-      destroyOnClose
+      destroyOnHidden
       maskClosable
       title={null}
       centered={false}
