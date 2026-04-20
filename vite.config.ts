@@ -12,10 +12,15 @@ import fs from 'node:fs'
  */
 function pdfjsWorkerFix(): Plugin {
   let workerRefId: string
+  let isDev = false
   return {
     name: 'pdfjs-worker-fix',
     enforce: 'pre',
+    configResolved(config) {
+      isDev = config.command === 'serve'
+    },
     buildStart() {
+      if (isDev) return
       const workerPath = path.resolve(
         __dirname,
         'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
@@ -31,6 +36,9 @@ function pdfjsWorkerFix(): Plugin {
     },
     load(id) {
       if (id === '\0pdfjs-worker') {
+        if (isDev) {
+          return `export default '/node_modules/pdfjs-dist/build/pdf.worker.min.mjs'`
+        }
         return `export default import.meta.ROLLUP_FILE_URL_${workerRefId}`
       }
     },
