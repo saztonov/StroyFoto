@@ -127,6 +127,11 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('pdfjs-dist')) return 'vendor-pdfjs'
+          // @photo-sphere-viewer + three → отдельный чанк, подгружается только
+          // при открытии панорамы 360° (dynamic import в Photo360Viewer).
+          if (id.includes('@photo-sphere-viewer') || id.includes('/three/')) {
+            return 'vendor-360'
+          }
           // antd-icons → тот же vendor-antd, чтобы избежать циклической
           // зависимости между чанками (antd тянет иконки, а часть пакетов
           // иконок импортирует утилиты из antd).

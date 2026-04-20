@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react'
-import { App, Button, Flex, Spin, Typography } from 'antd'
+import { App, Button, Flex, Spin, Tag, Typography } from 'antd'
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -10,6 +10,8 @@ import {
 import imageCompression from 'browser-image-compression'
 import { v4 as uuid } from 'uuid'
 import { platform } from '@/lib/platform'
+import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
+import { photo360 } from '@/shared/i18n/ru'
 
 export interface DraftPhoto {
   id: string
@@ -56,6 +58,7 @@ const PhotoTile = memo(function PhotoTile({
   onMove,
   onRemove,
 }: PhotoTileProps) {
+  const isPano = isPanoramaByRatio(photo.width, photo.height)
   return (
     <div
       style={{
@@ -73,6 +76,22 @@ const PhotoTile = memo(function PhotoTile({
         decoding="async"
         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
       />
+      {isPano && (
+        <Tag
+          color="blue"
+          style={{
+            position: 'absolute',
+            top: 4,
+            left: 4,
+            margin: 0,
+            fontSize: 11,
+            lineHeight: '16px',
+            padding: '0 6px',
+          }}
+        >
+          {photo360.badge}
+        </Tag>
+      )}
       <Flex gap={4} style={{ position: 'absolute', left: 4, bottom: 4 }}>
         <Button
           size="small"
@@ -129,9 +148,13 @@ export function PhotoPicker({ value, onChange }: Props) {
 
       const processOne = async (file: File): Promise<DraftPhoto | null> => {
         try {
+          // Предварительно читаем размеры исходника, чтобы определить 360°-панораму
+          // и сохранить её в более высоком разрешении. Thumb всегда делаем 320 px.
+          const srcDims = await readDimensions(file).catch(() => ({ width: 0, height: 0 }))
+          const isPano = isPanoramaByRatio(srcDims.width, srcDims.height)
           const compressed = await imageCompression(file, {
-            maxSizeMB: 1.5,
-            maxWidthOrHeight: 2048,
+            maxSizeMB: isPano ? 5 : 1.5,
+            maxWidthOrHeight: isPano ? 8192 : 2048,
             useWebWorker: true,
             initialQuality: 0.85,
           })

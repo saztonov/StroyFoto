@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
+    "@photo-sphere-viewer/core": "^5.14.1",
     "@supabase/supabase-js": "^2.45.4",
     "antd": "^5.21.4",
     "browser-image-compression": "^2.0.2",

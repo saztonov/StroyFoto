@@ -100,6 +100,15 @@ export const reportDetails = {
   cannotEditLocal: 'Редактирование доступно только для синхронизированных отчётов',
 } as const
 
+export const photo360 = {
+  badge: '360°',
+  openTitle: 'Панорама 360°',
+  loading: 'Загружаем панораму…',
+  loadError: 'Не удалось открыть панораму',
+  fallback: 'Обычное фото',
+  close: 'Закрыть',
+} as const
+
 export const plansPage = {
   subtitle: 'PDF-планы по проектам',
   allProjects: 'Все доступные проекты',

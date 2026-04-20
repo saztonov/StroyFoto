@@ -18,7 +18,8 @@ import { ArrowLeftOutlined, DeleteOutlined, EditOutlined } from '@ant-design/ico
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
-import { actions, reportDetails } from '@/shared/i18n/ru'
+import { actions, photo360, reportDetails } from '@/shared/i18n/ru'
+import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
 import type { LocalPhoto, SyncStatus, ReportMutation, SyncOp, PhotoDeleteRecord, MarkUpdateRecord } from '@/lib/db'
 import { getDB } from '@/lib/db'
 import { getLocalReport, getPhotosForReport, saveDraftPhotosForReport } from '@/services/localReports'
@@ -43,6 +44,7 @@ import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/pl
 import { emitReportChanged, emitReportsChanged, onReportChanged } from '@/services/invalidation'
 import { triggerSync } from '@/services/sync'
 import { PdfPlanCanvas } from './components/PdfPlanCanvas'
+import { Photo360Viewer } from './components/Photo360Viewer'
 import { EditReportModal, type EditReportSaveInput, type ExistingPhoto } from './components/EditReportModal'
 import type { PlanMarkValue } from './components/PlanMarkPicker'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -62,6 +64,8 @@ interface DisplayPhoto {
   id: string
   thumbUrl: string
   fullUrl: string
+  width: number | null
+  height: number | null
 }
 
 interface LoadedReport {
@@ -99,6 +103,7 @@ export function ReportDetailsPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refreshCounter, setRefreshCounter] = useState(0)
+  const [pano360Src, setPano360Src] = useState<string | null>(null)
 
   // Загрузка отчёта
   useEffect(() => {
@@ -278,12 +283,12 @@ export function ReportDetailsPage() {
     // Очищаем предыдущие
     for (const u of objectUrlsRef.current) URL.revokeObjectURL(u)
     objectUrlsRef.current = []
-    const list = data.localPhotos.map((p) => {
+    const list = data.localPhotos.map<DisplayPhoto>((p) => {
       // thumbBlob может быть null для remote-кэша; тогда показываем полный blob как превью.
       const thumbUrl = URL.createObjectURL(p.thumbBlob ?? p.blob)
       const fullUrl = URL.createObjectURL(p.blob)
       objectUrlsRef.current.push(thumbUrl, fullUrl)
-      return { id: p.id, thumbUrl, fullUrl }
+      return { id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null }
     })
     return list
   }, [data?.localPhotos])
@@ -314,7 +319,7 @@ export function ReportDetailsPage() {
             const thumbUrl = URL.createObjectURL(cached.thumbBlob ?? cached.blob)
             const fullUrl = URL.createObjectURL(cached.blob)
             createdUrls.push(thumbUrl, fullUrl)
-            out.push({ id: p.id, thumbUrl, fullUrl })
+            out.push({ id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null })
             continue
           }
           const online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -345,7 +350,7 @@ export function ReportDetailsPage() {
           const thumbUrl = URL.createObjectURL(thumbBlob ?? fullBlob)
           const fullUrl = URL.createObjectURL(fullBlob)
           createdUrls.push(thumbUrl, fullUrl)
-          out.push({ id: p.id, thumbUrl, fullUrl })
+          out.push({ id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null })
         } catch {
           // пропускаем — будет placeholder
         }
@@ -796,19 +801,65 @@ export function ReportDetailsPage() {
                 : reportDetails.noPhotos}
             </Typography.Text>
           ) : (
-            <Image.PreviewGroup>
+            <Image.PreviewGroup
+              items={photos
+                .filter((p) => !isPanoramaByRatio(p.width, p.height))
+                .map((p) => p.fullUrl)}
+            >
               <Space wrap size={8}>
-                {photos.map((p) => (
-                  <Image
-                    key={p.id}
-                    src={p.thumbUrl}
-                    preview={{ src: p.fullUrl }}
-                    width={120}
-                    height={120}
-                    style={{ objectFit: 'cover', borderRadius: 6 }}
-                    fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
-                  />
-                ))}
+                {photos.map((p) => {
+                  const isPano = isPanoramaByRatio(p.width, p.height)
+                  if (isPano) {
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => setPano360Src(p.fullUrl)}
+                        style={{
+                          position: 'relative',
+                          width: 120,
+                          height: 120,
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          cursor: 'pointer',
+                          background: 'var(--ant-color-fill-quaternary)',
+                        }}
+                      >
+                        <img
+                          src={p.thumbUrl}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                        <Tag
+                          color="blue"
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            left: 4,
+                            margin: 0,
+                            fontSize: 11,
+                            lineHeight: '16px',
+                            padding: '0 6px',
+                          }}
+                        >
+                          {photo360.badge}
+                        </Tag>
+                      </div>
+                    )
+                  }
+                  return (
+                    <Image
+                      key={p.id}
+                      src={p.thumbUrl}
+                      preview={{ src: p.fullUrl }}
+                      width={120}
+                      height={120}
+                      style={{ objectFit: 'cover', borderRadius: 6 }}
+                      fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
+                    />
+                  )
+                })}
               </Space>
             </Image.PreviewGroup>
           )}
@@ -857,6 +908,12 @@ export function ReportDetailsPage() {
           onWorkTypeCreated={(wt) => setWorkTypes((prev) => [...prev, wt])}
         />
       )}
+
+      <Photo360Viewer
+        open={pano360Src !== null}
+        src={pano360Src}
+        onClose={() => setPano360Src(null)}
+      />
     </>
   )
 }
