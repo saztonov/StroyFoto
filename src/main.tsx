@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/ru'
 import App from '@/app/App'
 import { applyRetention } from '@/services/retention'
+import { setUpdateAvailable, setUpdateSW } from '@/services/appUpdate'
 
 dayjs.locale('ru')
 
@@ -26,10 +27,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 // Периодически проверяем наличие новой версии: каждые 5 минут, при фокусе
 // вкладки и при выходе в онлайн.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  void Promise.all([
-    import('virtual:pwa-register'),
-    import('@/services/appUpdate'),
-  ]).then(([{ registerSW }, { setUpdateAvailable, setUpdateSW }]) => {
+  void import('virtual:pwa-register').then(({ registerSW }) => {
     const updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
