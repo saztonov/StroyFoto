@@ -35,10 +35,10 @@ npm run preview
 
 ### Переменные окружения
 
-| Переменная               | Назначение                   | Обязательна |
-| ------------------------ | ---------------------------- | ----------- |
-| `VITE_SUPABASE_URL`      | URL проекта Supabase         | да          |
-| `VITE_SUPABASE_ANON_KEY` | Публичный anon-ключ Supabase | да          |
+| Переменная               | Назначение                                    | Обязательна |
+| ------------------------ | --------------------------------------------- | ----------- |
+| `VITE_SUPABASE_URL`      | Базовый URL Supabase (REST/Auth/Functions/RT) | да          |
+| `VITE_SUPABASE_ANON_KEY` | Публичный anon-ключ Supabase                  | да          |
 
 Валидация в [src/shared/config/env.ts](src/shared/config/env.ts). Для R2
 никаких дополнительных `VITE_*`-переменных не нужно: URL Edge Function
@@ -46,8 +46,18 @@ npm run preview
 `supabase.functions.invoke`, а все R2-секреты хранятся в Supabase
 (см. секцию «Cloudflare R2 signer»).
 
-`.env.production` уже содержит публичные ключи для staging-проекта Supabase
-и коммитится в репозиторий намеренно (anon-ключ публичный по дизайну).
+В production `VITE_SUPABASE_URL` указывает на reverse proxy
+`https://proapi.fvds.ru:8443/supabase-ivy`, который проксирует REST
+(`/rest/v1`), Auth (`/auth/v1`), Functions (`/functions/v1`) и Realtime
+(`/realtime/v1/websocket`, WebSocket upgrade обязателен) к проекту Supabase
+`ivyuguhgmcudxebtevss`. Anon-ключ остаётся публичным ключом этого же
+проекта. Для локальной разработки можно указать прямой URL Supabase, если
+CORS позволяет.
+
+`.env.production` и `.env.example` гитом не трекаются (см. `.gitignore`):
+шаблон с переменными лежит в `.env.example` (создаётся локально или
+копируется из примера в README), а свои значения — в `.env` / `.env.production`,
+которые остаются вне репозитория.
 
 ## Supabase setup
 

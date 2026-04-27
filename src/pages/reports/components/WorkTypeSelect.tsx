@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { App, Select, Spin } from 'antd'
+import { App, Select, Spin, Typography } from 'antd'
 import type { SelectProps } from 'antd'
 import type { WorkType } from '@/entities/workType/types'
 import { createOrQueueWorkType } from '@/services/catalogs'
@@ -76,7 +76,13 @@ export function WorkTypeSelect({ options, value, onChange, onCreated, disabled }
       searchValue={search}
       onSelect={handleSelect}
       options={selectOptions}
-      notFoundContent={creating ? <Spin size="small" /> : null}
+      notFoundContent={
+        creating ? (
+          <Spin size="small" />
+        ) : (
+          <Typography.Text type="secondary">Введите название, чтобы создать новое</Typography.Text>
+        )
+      }
       filterOption={(input, option) => {
         if (!option?.label) return false
         // Виртуальную опцию "Создать" не фильтруем (она и так показывается только при неполном совпадении).

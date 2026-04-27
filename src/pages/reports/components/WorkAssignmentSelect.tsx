@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { App, Select, Spin } from 'antd'
+import { App, Select, Spin, Typography } from 'antd'
 import type { SelectProps } from 'antd'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { createOrQueueWorkAssignment } from '@/services/catalogs'
@@ -75,7 +75,13 @@ export function WorkAssignmentSelect({ options, value, onChange, onCreated, disa
       searchValue={search}
       onSelect={handleSelect}
       options={selectOptions}
-      notFoundContent={creating ? <Spin size="small" /> : null}
+      notFoundContent={
+        creating ? (
+          <Spin size="small" />
+        ) : (
+          <Typography.Text type="secondary">Введите название, чтобы создать новое</Typography.Text>
+        )
+      }
       filterOption={(input, option) => {
         if (!option?.label) return false
         if (typeof option.value === 'string' && option.value.startsWith('__create__:')) return true
