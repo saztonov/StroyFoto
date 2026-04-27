@@ -26,6 +26,7 @@ export interface DraftReportInput {
   projectId: string
   workTypeId: string
   performerId: string
+  workAssignmentId: string
   planId: string | null
   description: string | null
   takenAt: string | null
@@ -50,6 +51,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     projectId: input.projectId,
     workTypeId: input.workTypeId,
     performerId: input.performerId,
+    workAssignmentId: input.workAssignmentId,
     planId: input.planId,
     description: input.description,
     takenAt: input.takenAt,

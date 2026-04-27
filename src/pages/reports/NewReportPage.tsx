@@ -20,6 +20,7 @@ import {
   loadPerformers,
   loadPlansForProject,
   loadProjectsForUser,
+  loadWorkAssignments,
   loadWorkTypes,
   type PlanRow,
 } from '@/services/catalogs'
@@ -28,14 +29,17 @@ import { triggerSync } from '@/services/sync'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { PhotoPicker, type DraftPhoto } from './components/PhotoPicker'
 import { WorkTypeSelect } from './components/WorkTypeSelect'
+import { WorkAssignmentSelect } from './components/WorkAssignmentSelect'
 import { PerformerSelect } from './components/PerformerSelect'
 import { PlanMarkPicker, type PlanMarkValue } from './components/PlanMarkPicker'
 
 interface FormValues {
   projectId: string
   workTypeId: string
+  workAssignmentId: string
   performerId: string
   description?: string
   takenAt: Dayjs
@@ -49,6 +53,7 @@ export function NewReportPage() {
 
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
+  const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([])
   const [performers, setPerformers] = useState<Performer[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [photos, setPhotos] = useState<DraftPhoto[]>([])
@@ -62,15 +67,17 @@ export function NewReportPage() {
     let cancelled = false
     void (async () => {
       try {
-        const [pr, wt, pf] = await Promise.all([
+        const [pr, wt, pf, wa] = await Promise.all([
           loadProjectsForUser(),
           loadWorkTypes(),
           loadPerformers(),
+          loadWorkAssignments(),
         ])
         if (cancelled) return
         setProjects(pr)
         setWorkTypes(wt)
         setPerformers(pf)
+        setWorkAssignments(wa)
       } catch (e) {
         message.error(e instanceof Error ? e.message : 'Не удалось загрузить справочники')
       } finally {
@@ -136,6 +143,7 @@ export function NewReportPage() {
         projectId: values.projectId,
         workTypeId: values.workTypeId,
         performerId: values.performerId,
+        workAssignmentId: values.workAssignmentId,
         planId: mark?.planId ?? null,
         description: values.description?.trim() || null,
         takenAt: values.takenAt.toISOString(),
@@ -219,6 +227,17 @@ export function NewReportPage() {
             <WorkTypeSelect
               options={workTypes}
               onCreated={(wt) => setWorkTypes((prev) => [...prev, wt])}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="workAssignmentId"
+            label="Назначение работ"
+            rules={[{ required: true, message: 'Выберите назначение работ' }]}
+          >
+            <WorkAssignmentSelect
+              options={workAssignments}
+              onCreated={(wa) => setWorkAssignments((prev) => [...prev, wa])}
             />
           </Form.Item>
 

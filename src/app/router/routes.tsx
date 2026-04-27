@@ -38,6 +38,9 @@ const WorkTypesPage = lazy(() =>
 const PerformersPage = lazy(() =>
   import('@/pages/admin/PerformersPage').then((m) => ({ default: m.PerformersPage })),
 )
+const WorkAssignmentsPage = lazy(() =>
+  import('@/pages/admin/WorkAssignmentsPage').then((m) => ({ default: m.WorkAssignmentsPage })),
+)
 
 function lazyPage(node: ReactNode) {
   return (
@@ -97,6 +100,7 @@ export const router = createBrowserRouter([
                   { path: '/admin/users', element: lazyPage(<UsersPage />) },
                   { path: '/admin/projects', element: lazyPage(<ProjectsPage />) },
                   { path: '/admin/work-types', element: lazyPage(<WorkTypesPage />) },
+                  { path: '/admin/work-assignments', element: lazyPage(<WorkAssignmentsPage />) },
                   { path: '/admin/performers', element: lazyPage(<PerformersPage />) },
                 ],
               },

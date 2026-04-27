@@ -9,7 +9,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { getDB, type RemoteReportSnapshot } from '@/lib/db'
-import { loadProjectsForUser, loadWorkTypes, loadPerformers } from '@/services/catalogs'
+import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
 import { emitReportsChanged, emitCatalogsChanged } from '@/services/invalidation'
 
 let reconciling = false
@@ -32,6 +32,7 @@ export async function reconcile(): Promise<void> {
       loadProjectsForUser().catch(() => undefined),
       loadWorkTypes().catch(() => undefined),
       loadPerformers().catch(() => undefined),
+      loadWorkAssignments().catch(() => undefined),
     ])
 
     emitCatalogsChanged()
@@ -50,7 +51,7 @@ export async function reconcile(): Promise<void> {
 async function reconcileReports(): Promise<void> {
   const { data, error } = await supabase
     .from('reports')
-    .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at')
+    .select('id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at')
     .order('created_at', { ascending: false })
     .limit(500)
   if (error) throw error
@@ -82,6 +83,7 @@ async function reconcileReports(): Promise<void> {
       projectId: row.project_id,
       workTypeId: row.work_type_id,
       performerId: row.performer_id,
+      workAssignmentId: row.work_assignment_id ?? null,
       planId: row.plan_id,
       description: row.description,
       takenAt: row.taken_at,

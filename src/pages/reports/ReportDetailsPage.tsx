@@ -38,7 +38,7 @@ import {
   type RemoteReportPhoto,
 } from '@/services/reports'
 import { deleteRemotePhoto } from '@/services/photos'
-import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, type PlanRow } from '@/services/catalogs'
+import { loadPlansForProject, loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments, type PlanRow } from '@/services/catalogs'
 import { requestPresigned } from '@/services/r2'
 import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
 import { emitReportChanged, emitReportsChanged, onReportChanged } from '@/services/invalidation'
@@ -51,6 +51,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
 
 const STATUS_LABEL: Record<SyncStatus, { text: string; color: string }> = {
   pending: { text: 'Ожидает синхронизации', color: 'gold' },
@@ -90,6 +91,7 @@ export function ReportDetailsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
   const [performers, setPerformers] = useState<Performer[]>([])
+  const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [planCachedOffline, setPlanCachedOffline] = useState(false)
 
@@ -127,6 +129,7 @@ export function ReportDetailsPage() {
               projectId: local.projectId,
               workTypeId: local.workTypeId,
               performerId: local.performerId,
+              workAssignmentId: local.workAssignmentId ?? null,
               planId: local.planId,
               description: local.description,
               takenAt: local.takenAt,
@@ -224,6 +227,7 @@ export function ReportDetailsPage() {
     void loadProjectsForUser().then(setProjects).catch(() => undefined)
     void loadWorkTypes().then(setWorkTypes).catch(() => undefined)
     void loadPerformers().then(setPerformers).catch(() => undefined)
+    void loadWorkAssignments().then(setWorkAssignments).catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -476,6 +480,7 @@ export function ReportDetailsPage() {
           await updateRemoteReport(id, {
             workTypeId: values.workTypeId,
             performerId: values.performerId,
+            workAssignmentId: values.workAssignmentId,
             description: values.description,
             takenAt: values.takenAt,
             planId: values.planId,
@@ -555,6 +560,7 @@ export function ReportDetailsPage() {
         payload: {
           workTypeId: values.workTypeId,
           performerId: values.performerId,
+          workAssignmentId: values.workAssignmentId,
           description: values.description,
           takenAt: values.takenAt,
           planId: values.planId,
@@ -707,6 +713,9 @@ export function ReportDetailsPage() {
   const projectName = projects.find((p) => p.id === data.card.projectId)?.name ?? '—'
   const workTypeName = workTypes.find((w) => w.id === data.card.workTypeId)?.name ?? '—'
   const performer = performers.find((p) => p.id === data.card.performerId)
+  const workAssignmentName = data.card.workAssignmentId
+    ? workAssignments.find((w) => w.id === data.card.workAssignmentId)?.name ?? '—'
+    : '—'
   const plan = plans.find((p) => p.id === data.mark?.planId) ?? plans.find((p) => p.id === data.card.planId)
   const status = STATUS_LABEL[data.card.syncStatus]
   const photos = data.localPhotos ? localDisplayPhotos : remotePhotoUrls
@@ -759,6 +768,9 @@ export function ReportDetailsPage() {
           <Descriptions column={1} size="small">
             <Descriptions.Item label={reportDetails.project}>{projectName}</Descriptions.Item>
             <Descriptions.Item label={reportDetails.workType}>{workTypeName}</Descriptions.Item>
+            <Descriptions.Item label={reportDetails.workAssignment}>
+              {workAssignmentName}
+            </Descriptions.Item>
             <Descriptions.Item label={reportDetails.performer}>
               {performer
                 ? `${performer.name} · ${
@@ -899,6 +911,7 @@ export function ReportDetailsPage() {
           report={data.card}
           workTypes={workTypes}
           performers={performers}
+          workAssignments={workAssignments}
           plans={plans}
           existingPhotos={existingPhotosForModal}
           existingMark={existingMarkForModal}
@@ -906,6 +919,7 @@ export function ReportDetailsPage() {
           onSave={handleSave}
           onCancel={() => setEditOpen(false)}
           onWorkTypeCreated={(wt) => setWorkTypes((prev) => [...prev, wt])}
+          onWorkAssignmentCreated={(wa) => setWorkAssignments((prev) => [...prev, wa])}
         />
       )}
 

@@ -4,12 +4,14 @@ import { DeleteOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
 import type { ReportCard } from '@/services/reports'
 import type { PlanRow } from '@/services/catalogs'
 import type { DraftPhoto } from './PhotoPicker'
 import type { PlanMarkValue } from './PlanMarkPicker'
 import { actions, reportDetails } from '@/shared/i18n/ru'
 import { WorkTypeSelect } from './WorkTypeSelect'
+import { WorkAssignmentSelect } from './WorkAssignmentSelect'
 import { PerformerSelect } from './PerformerSelect'
 import { PhotoPicker } from './PhotoPicker'
 import { PlanMarkPicker } from './PlanMarkPicker'
@@ -26,6 +28,7 @@ export interface ExistingPhoto {
 export interface EditReportSaveInput {
   workTypeId: string
   performerId: string
+  workAssignmentId: string
   description: string | null
   takenAt: string | null
   planId: string | null | undefined // undefined = не менять
@@ -40,6 +43,7 @@ interface Props {
   report: ReportCard
   workTypes: WorkType[]
   performers: Performer[]
+  workAssignments: WorkAssignment[]
   plans: PlanRow[]
   existingPhotos: ExistingPhoto[]
   existingMark: PlanMarkValue | null
@@ -47,6 +51,7 @@ interface Props {
   onSave: (values: EditReportSaveInput) => Promise<void>
   onCancel: () => void
   onWorkTypeCreated?: (wt: WorkType) => void
+  onWorkAssignmentCreated?: (wa: WorkAssignment) => void
 }
 
 export function EditReportModal({
@@ -54,6 +59,7 @@ export function EditReportModal({
   report,
   workTypes,
   performers,
+  workAssignments,
   plans,
   existingPhotos,
   existingMark,
@@ -61,11 +67,13 @@ export function EditReportModal({
   onSave,
   onCancel,
   onWorkTypeCreated,
+  onWorkAssignmentCreated,
 }: Props) {
   const { message } = App.useApp()
   const [form] = Form.useForm<{
     workTypeId: string
     performerId: string
+    workAssignmentId: string
     description: string
     takenAt: dayjs.Dayjs | null
   }>()
@@ -84,6 +92,7 @@ export function EditReportModal({
       form.setFieldsValue({
         workTypeId: report.workTypeId,
         performerId: report.performerId,
+        workAssignmentId: report.workAssignmentId ?? '',
         description: report.description ?? '',
         takenAt: report.takenAt ? dayjs(report.takenAt) : null,
       })
@@ -137,6 +146,7 @@ export function EditReportModal({
       await onSave({
         workTypeId: values.workTypeId,
         performerId: values.performerId,
+        workAssignmentId: values.workAssignmentId,
         description: values.description?.trim() || null,
         takenAt: values.takenAt?.toISOString() ?? null,
         planId,
@@ -173,6 +183,16 @@ export function EditReportModal({
           <WorkTypeSelect
             options={workTypes}
             onCreated={(wt) => onWorkTypeCreated?.(wt)}
+          />
+        </Form.Item>
+        <Form.Item
+          name="workAssignmentId"
+          label={reportDetails.workAssignment}
+          rules={[{ required: true, message: 'Выберите назначение работ' }]}
+        >
+          <WorkAssignmentSelect
+            options={workAssignments}
+            onCreated={(wa) => onWorkAssignmentCreated?.(wa)}
           />
         </Form.Item>
         <Form.Item

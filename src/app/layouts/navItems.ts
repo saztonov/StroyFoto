@@ -3,6 +3,7 @@ import {
   AppstoreOutlined,
   FileImageOutlined,
   ProfileOutlined,
+  ScheduleOutlined,
   SettingOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -28,6 +29,7 @@ export const adminNav: NavItem[] = [
   { key: 'admin-users', label: nav.adminUsers, path: '/admin/users', icon: createElement(UserOutlined) },
   { key: 'admin-projects', label: nav.adminProjects, path: '/admin/projects', icon: createElement(AppstoreOutlined) },
   { key: 'admin-work-types', label: nav.adminWorkTypes, path: '/admin/work-types', icon: createElement(ToolOutlined) },
+  { key: 'admin-work-assignments', label: nav.adminWorkAssignments, path: '/admin/work-assignments', icon: createElement(ScheduleOutlined) },
   { key: 'admin-performers', label: nav.adminPerformers, path: '/admin/performers', icon: createElement(TeamOutlined) },
 ]
 

@@ -1,5 +1,5 @@
 import { getDB } from '@/lib/db'
-import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadPlansForProject } from '@/services/catalogs'
+import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments, loadPlansForProject } from '@/services/catalogs'
 import { downloadPlanPdf, type PlanRecord } from '@/services/plans'
 import { loadMergedReports } from '@/services/reports'
 import { runSyncOnce } from '@/services/sync'
@@ -96,6 +96,7 @@ export async function fullSync(
     loadProjectsForUser(true),
     loadWorkTypes(true),
     loadPerformers(true),
+    loadWorkAssignments(true),
   ])
   result.catalogsRefreshed = true
   onProgress?.({ phase: 'catalogs', phaseLabel: 'Обновление справочников и отчётов', current: 3, total: 3 })

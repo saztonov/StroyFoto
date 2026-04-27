@@ -131,6 +131,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       project_id: report.projectId,
       work_type_id: report.workTypeId,
       performer_id: report.performerId,
+      work_assignment_id: report.workAssignmentId,
       plan_id: report.planId,
       author_id: report.authorId,
       description: report.description,
@@ -170,6 +171,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const updatePayload: Record<string, unknown> = {
       work_type_id: mutation.payload.workTypeId,
       performer_id: mutation.payload.performerId,
+      work_assignment_id: mutation.payload.workAssignmentId,
       description: mutation.payload.description,
       taken_at: mutation.payload.takenAt,
     }
@@ -272,6 +274,24 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     return { done: true }
   }
 
+  if (op.kind === 'work_assignment') {
+    // Симметрично work_type: офлайн-черновик назначения работ → upsert по id
+    // на сервере. Дубликат по name (citext unique) обрабатывается так же —
+    // 23505 не считается ошибкой, операция помечается завершённой.
+    const local = await db.get('work_assignments_local', op.entityId)
+    if (!local) return { done: true }
+    const { error } = await supabase.from('work_assignments').upsert(
+      { id: local.id, name: local.name, is_active: true },
+      { onConflict: 'id' },
+    )
+    if (error && !isDuplicateKey(error)) {
+      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    }
+    local.syncStatus = 'synced'
+    await db.put('work_assignments_local', local)
+    return { done: true }
+  }
+
   return { done: true }
 }
 
@@ -291,9 +311,9 @@ async function tick() {
       const next = all
         .filter((o) => o.nextAttemptAt <= now)
         .sort((a, b) => {
-          // work_type → report → mark → photo. work_type идёт первым,
-          // потому что отчёт может ссылаться на локальный work_type.id.
-          const order: Record<string, number> = { work_type: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, mark_update: 2, photo: 3, photo_delete: 4 }
+          // work_type/work_assignment → report → mark → photo. Справочники
+          // идут первыми, потому что отчёт может ссылаться на их локальные id.
+          const order: Record<string, number> = { work_type: 0, work_assignment: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, mark_update: 2, photo: 3, photo_delete: 4 }
           return order[a.kind] - order[b.kind] || a.nextAttemptAt - b.nextAttemptAt
         })[0]
       if (!next) break

@@ -23,10 +23,11 @@ import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import type { SyncStatus } from '@/lib/db'
 import { onReportsChanged } from '@/services/invalidation'
 import { loadMergedReports, type ReportCard } from '@/services/reports'
-import { loadProjectsForUser, loadWorkTypes, loadPerformers } from '@/services/catalogs'
+import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
 
 const STATUS_LABEL: Record<SyncStatus, { text: string; color: string }> = {
   pending: { text: 'Ожидает синхронизации', color: 'gold' },
@@ -40,6 +41,7 @@ interface ReportCardItemProps {
   report: ReportCard
   projectName: string
   workTypeName: string | null
+  workAssignmentName: string | null
   performerName: string | null
   onOpen: (id: string) => void
 }
@@ -48,6 +50,7 @@ const ReportCardItem = memo(function ReportCardItem({
   report,
   projectName,
   workTypeName,
+  workAssignmentName,
   performerName,
   onOpen,
 }: ReportCardItemProps) {
@@ -81,6 +84,9 @@ const ReportCardItem = memo(function ReportCardItem({
           {workTypeName && (
             <Typography.Text type="secondary">{workTypeName}</Typography.Text>
           )}
+          {workAssignmentName && (
+            <Typography.Text type="secondary">{workAssignmentName}</Typography.Text>
+          )}
           {report.description && (
             <Typography.Text type="secondary" ellipsis style={{ maxWidth: 240 }}>
               {report.description}
@@ -101,6 +107,7 @@ export function ReportsListPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
   const [performers, setPerformers] = useState<Performer[]>([])
+  const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([])
   const [loading, setLoading] = useState(true)
 
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -141,6 +148,7 @@ export function ReportsListPage() {
     void loadProjectsForUser().then(setProjects).catch(() => undefined)
     void loadWorkTypes().then(setWorkTypes).catch(() => undefined)
     void loadPerformers().then(setPerformers).catch(() => undefined)
+    void loadWorkAssignments().then(setWorkAssignments).catch(() => undefined)
     const unsub = onReportsChanged(() => reload())
     return () => {
       unsub()
@@ -160,6 +168,10 @@ export function ReportsListPage() {
   const performersById = useMemo(
     () => new Map(performers.map((p) => [p.id, p])),
     [performers],
+  )
+  const workAssignmentsById = useMemo(
+    () => new Map(workAssignments.map((w) => [w.id, w])),
+    [workAssignments],
   )
 
   const filtered = useMemo(() => {
@@ -269,6 +281,9 @@ export function ReportsListPage() {
                 report={r}
                 projectName={projectsById.get(r.projectId)?.name ?? '—'}
                 workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
+                workAssignmentName={
+                  r.workAssignmentId ? workAssignmentsById.get(r.workAssignmentId)?.name ?? null : null
+                }
                 performerName={performersById.get(r.performerId)?.name ?? null}
                 onOpen={openReport}
               />
@@ -294,6 +309,11 @@ export function ReportsListPage() {
                         report={r}
                         projectName={projectsById.get(r.projectId)?.name ?? '—'}
                         workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
+                        workAssignmentName={
+                          r.workAssignmentId
+                            ? workAssignmentsById.get(r.workAssignmentId)?.name ?? null
+                            : null
+                        }
                         performerName={null}
                         onOpen={openReport}
                       />

@@ -3,6 +3,7 @@ import type { AdminProfile, Role } from '@/entities/profile/types'
 import type { Project, ProjectInput } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer, PerformerKind } from '@/entities/performer/types'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message)
@@ -122,6 +123,35 @@ export async function updateWorkType(id: string, name: string): Promise<void> {
 
 export async function setWorkTypeActive(id: string, is_active: boolean): Promise<void> {
   const { error } = await supabase.from('work_types').update({ is_active }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ---------- Work assignments ----------
+export async function listWorkAssignments(): Promise<WorkAssignment[]> {
+  const { data, error } = await supabase
+    .from('work_assignments')
+    .select('*')
+    .order('name', { ascending: true })
+    .limit(500)
+  return unwrap(data as WorkAssignment[] | null, error)
+}
+
+export async function createWorkAssignment(name: string): Promise<WorkAssignment> {
+  const { data, error } = await supabase
+    .from('work_assignments')
+    .insert({ name, is_active: true })
+    .select('*')
+    .single()
+  return unwrap(data as WorkAssignment | null, error)
+}
+
+export async function updateWorkAssignment(id: string, name: string): Promise<void> {
+  const { error } = await supabase.from('work_assignments').update({ name }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function setWorkAssignmentActive(id: string, is_active: boolean): Promise<void> {
+  const { error } = await supabase.from('work_assignments').update({ is_active }).eq('id', id)
   if (error) throw new Error(error.message)
 }
 

@@ -3,7 +3,14 @@ import { supabase } from '@/lib/supabase'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
-import { getDB, type CatalogKey, type LocalWorkType, type SyncOp } from '@/lib/db'
+import type { WorkAssignment } from '@/entities/workAssignment/types'
+import {
+  getDB,
+  type CatalogKey,
+  type LocalWorkAssignment,
+  type LocalWorkType,
+  type SyncOp,
+} from '@/lib/db'
 
 export interface PlanRow {
   id: string
@@ -59,7 +66,7 @@ async function migrateLegacyCacheOnce(): Promise<void> {
   if (legacyMigrated) return
   legacyMigrated = true
   if (typeof localStorage === 'undefined') return
-  const keys: CatalogKey[] = ['projects', 'work_types', 'performers', 'plans']
+  const keys: CatalogKey[] = ['projects', 'work_types', 'performers', 'work_assignments', 'plans']
   try {
     const db = await getDB()
     for (const key of keys) {
@@ -190,6 +197,87 @@ export async function createOrQueueWorkType(name: string): Promise<WorkType> {
     created_by: null,
     created_at: createdAt,
   } as WorkType
+}
+
+export async function loadWorkAssignments(forceRefresh = false): Promise<WorkAssignment[]> {
+  const cache = await readCache<WorkAssignment[]>('work_assignments')
+  if (!forceRefresh && !cache.stale && cache.data) return cache.data
+
+  const { data, error } = await supabase
+    .from('work_assignments')
+    .select('id,name,is_active,created_by,created_at')
+    .eq('is_active', true)
+    .order('name', { ascending: true })
+  if (error) {
+    if (cache.data) return cache.data
+    throw error
+  }
+  const list = (data ?? []) as WorkAssignment[]
+  await writeCache('work_assignments', list)
+  return list
+}
+
+/**
+ * Создаёт или ставит в очередь новое назначение работ. Полная аналогия
+ * `createOrQueueWorkType`: онлайн — задача уйдёт через sync-очередь сразу,
+ * офлайн — оставит draft в IDB и upsert на возврат сети.
+ */
+export async function createOrQueueWorkAssignment(name: string): Promise<WorkAssignment> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Пустое название')
+
+  const cachedResult = await readCache<WorkAssignment[]>('work_assignments')
+  const cachedList = cachedResult.data ?? []
+  const existingServer = cachedList.find((w) => w.name.toLowerCase() === trimmed.toLowerCase())
+  if (existingServer) return existingServer
+
+  const db = await getDB()
+  const locals = await db.getAll('work_assignments_local')
+  const existingLocal = locals.find((w) => w.name.toLowerCase() === trimmed.toLowerCase())
+  if (existingLocal) {
+    return {
+      id: existingLocal.id,
+      name: existingLocal.name,
+      is_active: true,
+      created_by: null,
+      created_at: existingLocal.createdAt,
+    } as WorkAssignment
+  }
+
+  const id = uuid()
+  const createdAt = new Date().toISOString()
+  const draft: LocalWorkAssignment = {
+    id,
+    name: trimmed,
+    createdAt,
+    syncStatus: 'pending',
+  }
+
+  const tx = db.transaction(['work_assignments_local', 'sync_queue'], 'readwrite')
+  await tx.objectStore('work_assignments_local').put(draft)
+  const op: SyncOp = {
+    kind: 'work_assignment',
+    entityId: id,
+    attempts: 0,
+    nextAttemptAt: Date.now(),
+    lastError: null,
+  }
+  await tx.objectStore('sync_queue').add(op)
+  await tx.done
+
+  const updatedCache = [
+    ...cachedList,
+    { id, name: trimmed, is_active: true, created_by: null, created_at: createdAt } as WorkAssignment,
+  ]
+  await writeCache('work_assignments', updatedCache)
+
+  return {
+    id,
+    name: trimmed,
+    is_active: true,
+    created_by: null,
+    created_at: createdAt,
+  } as WorkAssignment
 }
 
 export async function loadPerformers(forceRefresh = false): Promise<Performer[]> {

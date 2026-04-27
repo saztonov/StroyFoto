@@ -18,6 +18,7 @@ export interface ReportCard {
   projectId: string
   workTypeId: string
   performerId: string
+  workAssignmentId: string | null
   planId: string | null
   description: string | null
   takenAt: string | null
@@ -34,6 +35,7 @@ interface RemoteReportRow {
   project_id: string
   work_type_id: string
   performer_id: string
+  work_assignment_id: string | null
   plan_id: string | null
   description: string | null
   taken_at: string | null
@@ -53,6 +55,7 @@ function fromLocal(r: LocalReport): ReportCard {
     projectId: r.projectId,
     workTypeId: r.workTypeId,
     performerId: r.performerId,
+    workAssignmentId: r.workAssignmentId ?? null,
     planId: r.planId,
     description: r.description,
     takenAt: r.takenAt,
@@ -71,6 +74,7 @@ function fromRemote(row: RemoteReportRow, authorName: string | null = null): Rep
     projectId: row.project_id,
     workTypeId: row.work_type_id,
     performerId: row.performer_id,
+    workAssignmentId: row.work_assignment_id ?? null,
     planId: row.plan_id,
     description: row.description,
     takenAt: row.taken_at,
@@ -89,6 +93,7 @@ function fromSnapshot(s: RemoteReportSnapshot): ReportCard {
     projectId: s.projectId,
     workTypeId: s.workTypeId,
     performerId: s.performerId,
+    workAssignmentId: s.workAssignmentId ?? null,
     planId: s.planId,
     description: s.description,
     takenAt: s.takenAt,
@@ -181,7 +186,7 @@ export async function loadMergedReports(cursor?: string): Promise<MergedReportsR
       const fetchRemote = async () => {
         let query = supabase
           .from('reports')
-          .select('id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at')
+          .select('id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at')
           .order('created_at', { ascending: false })
           .limit(PAGE_SIZE)
         if (cursor) {
@@ -209,6 +214,7 @@ export async function loadMergedReports(cursor?: string): Promise<MergedReportsR
             projectId: row.project_id,
             workTypeId: row.work_type_id,
             performerId: row.performer_id,
+            workAssignmentId: row.work_assignment_id ?? null,
             planId: row.plan_id,
             description: row.description,
             takenAt: row.taken_at,
@@ -282,7 +288,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
   const { data, error } = await supabase
     .from('reports')
     .select(
-      `id,project_id,work_type_id,performer_id,plan_id,description,taken_at,author_id,created_at,updated_at,
+      `id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at,
        report_photos(id,r2_key,thumb_r2_key,width,height,taken_at),
        report_plan_marks(plan_id,page,x_norm,y_norm)`,
     )
@@ -309,6 +315,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
     projectId: row.project_id,
     workTypeId: row.work_type_id,
     performerId: row.performer_id,
+    workAssignmentId: row.work_assignment_id ?? null,
     planId: row.plan_id,
     description: row.description,
     takenAt: row.taken_at,
@@ -422,6 +429,7 @@ export class ConflictError extends Error {
 export interface ReportUpdateInput {
   workTypeId: string
   performerId: string
+  workAssignmentId: string | null
   description: string | null
   takenAt: string | null
   planId?: string | null // undefined = не менять, null = убрать
@@ -432,6 +440,7 @@ export async function updateRemoteReport(id: string, input: ReportUpdateInput): 
   const payload: Record<string, unknown> = {
     work_type_id: input.workTypeId,
     performer_id: input.performerId,
+    work_assignment_id: input.workAssignmentId,
     description: input.description,
     taken_at: input.takenAt,
   }

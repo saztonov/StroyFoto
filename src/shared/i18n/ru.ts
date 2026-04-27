@@ -8,6 +8,7 @@ export const nav = {
   adminUsers: 'Пользователи',
   adminProjects: 'Проекты',
   adminWorkTypes: 'Виды работ',
+  adminWorkAssignments: 'Назначение работ',
   adminPerformers: 'Исполнители',
 } as const
 
@@ -66,6 +67,7 @@ export const reportDetails = {
   sectionPlan: 'План и точка',
   project: 'Проект',
   workType: 'Вид работ',
+  workAssignment: 'Назначение работ',
   performer: 'Исполнитель',
   description: 'Описание',
   takenAt: 'Дата съёмки',
@@ -146,6 +148,7 @@ export const emptyStates = {
   noUsers: 'Пользователи появятся здесь',
   noProjects: 'Проекты появятся здесь',
   noWorkTypes: 'Виды работ появятся здесь',
+  noWorkAssignments: 'Назначения работ появятся здесь',
   noPerformers: 'Исполнители появятся здесь',
 } as const
 

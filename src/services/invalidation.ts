@@ -222,6 +222,11 @@ function initRealtimeChannel(userId: string): void {
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'work_assignments' },
+      () => fireCatalogs(),
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'projects' },
       () => { fireCatalogs(); fireReports() },
     )

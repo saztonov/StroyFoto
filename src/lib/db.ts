@@ -7,6 +7,7 @@ export interface LocalReport {
   projectId: string
   workTypeId: string
   performerId: string
+  workAssignmentId: string | null
   planId: string | null
   description: string | null
   takenAt: string | null
@@ -47,7 +48,7 @@ export interface LocalPlanMark {
   syncStatus: SyncStatus
 }
 
-export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type' | 'report_update' | 'report_delete' | 'photo_delete' | 'mark_update'
+export type SyncOpKind = 'report' | 'mark' | 'photo' | 'work_type' | 'work_assignment' | 'report_update' | 'report_delete' | 'photo_delete' | 'mark_update'
 
 export interface SyncOp {
   id?: number
@@ -73,6 +74,18 @@ export interface LocalWorkType {
 }
 
 /**
+ * Локальный черновик назначения работ, добавленного пользователем офлайн.
+ * Зеркало `LocalWorkType`: при синке — upsert в public.work_assignments
+ * с тем же UUID, на который уже ссылается отчёт.
+ */
+export interface LocalWorkAssignment {
+  id: string
+  name: string
+  createdAt: string
+  syncStatus: SyncStatus
+}
+
+/**
  * Мутация существующего отчёта, поставленная в очередь офлайн.
  * Для update содержит payload с новыми значениями + baseUpdatedAt для OCC.
  * Для delete — payload null.
@@ -85,6 +98,7 @@ export interface ReportMutation {
   payload: {
     workTypeId: string
     performerId: string
+    workAssignmentId: string | null
     description: string | null
     takenAt: string | null
     planId?: string | null // undefined = не менять, null = убрать
@@ -105,6 +119,7 @@ export interface RemoteReportSnapshot {
   projectId: string
   workTypeId: string
   performerId: string
+  workAssignmentId: string | null
   planId: string | null
   description: string | null
   takenAt: string | null
@@ -137,7 +152,7 @@ export interface DeviceSettingRecord {
   value: unknown
 }
 
-export type CatalogKey = 'projects' | 'work_types' | 'performers' | 'plans'
+export type CatalogKey = 'projects' | 'work_types' | 'performers' | 'work_assignments' | 'plans'
 
 export interface CatalogRecord {
   key: CatalogKey
@@ -203,6 +218,10 @@ interface StroyFotoDB extends DBSchema {
     key: string
     value: LocalWorkType
   }
+  work_assignments_local: {
+    key: string
+    value: LocalWorkAssignment
+  }
   remote_reports_cache: {
     key: string
     value: RemoteReportSnapshot
@@ -251,7 +270,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 85
+const DB_VERSION = 86
 
 export function getDB() {
   if (!dbPromise) {
@@ -286,6 +305,7 @@ export function getDB() {
 
         // v3 stores
         ensureStore(db, 'work_types_local', { keyPath: 'id' }, tx)
+        ensureStore(db, 'work_assignments_local', { keyPath: 'id' }, tx)
 
         const mutationsNew = ensureStore(db, 'report_mutations', {
           keyPath: 'id',
