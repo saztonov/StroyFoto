@@ -80,6 +80,7 @@ export const reportDetails = {
   pageLabel: 'Страница',
   point: 'Точка',
   photoUnavailable: 'Фото недоступно',
+  loadingPhotos: 'Загрузка фотографий…',
   loading: 'Загрузка отчёта…',
   notFound: 'Отчёт не найден',
   offlineWarning:

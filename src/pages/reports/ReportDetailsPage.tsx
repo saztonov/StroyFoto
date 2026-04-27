@@ -96,6 +96,7 @@ export function ReportDetailsPage() {
   const [planCachedOffline, setPlanCachedOffline] = useState(false)
 
   const [remotePhotoUrls, setRemotePhotoUrls] = useState<DisplayPhoto[]>([])
+  const [remotePhotosLoading, setRemotePhotosLoading] = useState(false)
   const objectUrlsRef = useRef<string[]>([])
 
   const [planBlob, setPlanBlob] = useState<Blob | null>(null)
@@ -310,61 +311,70 @@ export function ReportDetailsPage() {
   useEffect(() => {
     if (!data?.remotePhotos) {
       setRemotePhotoUrls([])
+      setRemotePhotosLoading(false)
       return
     }
     let cancelled = false
     const createdUrls: string[] = []
+    setRemotePhotoUrls([])
+    setRemotePhotosLoading(true)
     void (async () => {
       const out: DisplayPhoto[] = []
-      for (const p of data.remotePhotos!) {
-        try {
-          const cached = await getCachedRemotePhotoBlob(p.id)
-          if (cached && cached.blob) {
-            const thumbUrl = URL.createObjectURL(cached.thumbBlob ?? cached.blob)
-            const fullUrl = URL.createObjectURL(cached.blob)
+      try {
+        for (const p of data.remotePhotos!) {
+          try {
+            const cached = await getCachedRemotePhotoBlob(p.id)
+            if (cached && cached.blob) {
+              const thumbUrl = URL.createObjectURL(cached.thumbBlob ?? cached.blob)
+              const fullUrl = URL.createObjectURL(cached.blob)
+              createdUrls.push(thumbUrl, fullUrl)
+              out.push({ id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null })
+              if (!cancelled) setRemotePhotoUrls([...out])
+              continue
+            }
+            const online = typeof navigator === 'undefined' ? true : navigator.onLine
+            if (!online) continue
+
+            const [thumbPre, fullPre] = await Promise.all([
+              requestPresigned({
+                op: 'get',
+                kind: 'photo_thumb',
+                key: p.thumb_r2_key,
+                reportId: data.card.id,
+              }),
+              requestPresigned({
+                op: 'get',
+                kind: 'photo',
+                key: p.r2_key,
+                reportId: data.card.id,
+              }),
+            ])
+            const [fullResp, thumbResp] = await Promise.all([
+              fetch(fullPre.url),
+              fetch(thumbPre.url),
+            ])
+            if (!fullResp.ok) throw new Error(`photo ${p.id}: ${fullResp.status}`)
+            const fullBlob = await fullResp.blob()
+            const thumbBlob = thumbResp.ok ? await thumbResp.blob() : null
+            await cacheRemotePhotoBlob(data.card.id, p.id, fullBlob, thumbBlob)
+            const thumbUrl = URL.createObjectURL(thumbBlob ?? fullBlob)
+            const fullUrl = URL.createObjectURL(fullBlob)
             createdUrls.push(thumbUrl, fullUrl)
             out.push({ id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null })
-            continue
+            if (!cancelled) setRemotePhotoUrls([...out])
+          } catch {
+            // пропускаем — будет placeholder
           }
-          const online = typeof navigator === 'undefined' ? true : navigator.onLine
-          if (!online) continue
-
-          const [thumbPre, fullPre] = await Promise.all([
-            requestPresigned({
-              op: 'get',
-              kind: 'photo_thumb',
-              key: p.thumb_r2_key,
-              reportId: data.card.id,
-            }),
-            requestPresigned({
-              op: 'get',
-              kind: 'photo',
-              key: p.r2_key,
-              reportId: data.card.id,
-            }),
-          ])
-          const [fullResp, thumbResp] = await Promise.all([
-            fetch(fullPre.url),
-            fetch(thumbPre.url),
-          ])
-          if (!fullResp.ok) throw new Error(`photo ${p.id}: ${fullResp.status}`)
-          const fullBlob = await fullResp.blob()
-          const thumbBlob = thumbResp.ok ? await thumbResp.blob() : null
-          await cacheRemotePhotoBlob(data.card.id, p.id, fullBlob, thumbBlob)
-          const thumbUrl = URL.createObjectURL(thumbBlob ?? fullBlob)
-          const fullUrl = URL.createObjectURL(fullBlob)
-          createdUrls.push(thumbUrl, fullUrl)
-          out.push({ id: p.id, thumbUrl, fullUrl, width: p.width ?? null, height: p.height ?? null })
-        } catch {
-          // пропускаем — будет placeholder
         }
+        if (cancelled) {
+          for (const u of createdUrls) URL.revokeObjectURL(u)
+          return
+        }
+        setRemotePhotoUrls(out)
+        objectUrlsRef.current.push(...createdUrls)
+      } finally {
+        if (!cancelled) setRemotePhotosLoading(false)
       }
-      if (cancelled) {
-        for (const u of createdUrls) URL.revokeObjectURL(u)
-        return
-      }
-      setRemotePhotoUrls(out)
-      objectUrlsRef.current.push(...createdUrls)
     })()
     return () => {
       cancelled = true
@@ -806,75 +816,114 @@ export function ReportDetailsPage() {
         </Card>
 
         <Card title={reportDetails.sectionPhotos}>
-          {photos.length === 0 ? (
-            <Typography.Text type="secondary">
-              {data.remotePhotos && data.remotePhotos.length > 0
-                ? reportDetails.photoUnavailable
-                : reportDetails.noPhotos}
-            </Typography.Text>
-          ) : (
-            <Image.PreviewGroup
-              items={photos
-                .filter((p) => !isPanoramaByRatio(p.width, p.height))
-                .map((p) => p.fullUrl)}
-            >
-              <Space wrap size={8}>
-                {photos.map((p) => {
-                  const isPano = isPanoramaByRatio(p.width, p.height)
-                  if (isPano) {
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => setPano360Src(p.fullUrl)}
-                        style={{
-                          position: 'relative',
-                          width: 120,
-                          height: 120,
-                          borderRadius: 6,
-                          overflow: 'hidden',
-                          cursor: 'pointer',
-                          background: 'var(--ant-color-fill-quaternary)',
-                        }}
-                      >
-                        <img
-                          src={p.thumbUrl}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                        <Tag
-                          color="blue"
+          {(() => {
+            const expected = data.remotePhotos?.length ?? 0
+            const showInitialLoading =
+              remotePhotosLoading && photos.length === 0 && expected > 0
+
+            if (showInitialLoading) {
+              return (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Typography.Text type="secondary">
+                    {reportDetails.loadingPhotos}
+                  </Typography.Text>
+                  <Space wrap size={8}>
+                    {Array.from({ length: expected }).map((_, i) => (
+                      <Skeleton.Image
+                        key={`photo-skel-${i}`}
+                        active
+                        style={{ width: 120, height: 120, borderRadius: 6 }}
+                      />
+                    ))}
+                  </Space>
+                </Space>
+              )
+            }
+
+            if (photos.length === 0) {
+              return (
+                <Typography.Text type="secondary">
+                  {expected > 0 ? reportDetails.photoUnavailable : reportDetails.noPhotos}
+                </Typography.Text>
+              )
+            }
+
+            const remaining =
+              remotePhotosLoading && expected > photos.length
+                ? expected - photos.length
+                : 0
+
+            return (
+              <Image.PreviewGroup
+                items={photos
+                  .filter((p) => !isPanoramaByRatio(p.width, p.height))
+                  .map((p) => p.fullUrl)}
+              >
+                <Space wrap size={8}>
+                  {photos.map((p) => {
+                    const isPano = isPanoramaByRatio(p.width, p.height)
+                    if (isPano) {
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => setPano360Src(p.fullUrl)}
                           style={{
-                            position: 'absolute',
-                            top: 4,
-                            left: 4,
-                            margin: 0,
-                            fontSize: 11,
-                            lineHeight: '16px',
-                            padding: '0 6px',
+                            position: 'relative',
+                            width: 120,
+                            height: 120,
+                            borderRadius: 6,
+                            overflow: 'hidden',
+                            cursor: 'pointer',
+                            background: 'var(--ant-color-fill-quaternary)',
                           }}
                         >
-                          {photo360.badge}
-                        </Tag>
-                      </div>
+                          <img
+                            src={p.thumbUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                          <Tag
+                            color="blue"
+                            style={{
+                              position: 'absolute',
+                              top: 4,
+                              left: 4,
+                              margin: 0,
+                              fontSize: 11,
+                              lineHeight: '16px',
+                              padding: '0 6px',
+                            }}
+                          >
+                            {photo360.badge}
+                          </Tag>
+                        </div>
+                      )
+                    }
+                    return (
+                      <Image
+                        key={p.id}
+                        src={p.thumbUrl}
+                        preview={{ src: p.fullUrl }}
+                        width={120}
+                        height={120}
+                        style={{ objectFit: 'cover', borderRadius: 6 }}
+                        fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
+                      />
                     )
-                  }
-                  return (
-                    <Image
-                      key={p.id}
-                      src={p.thumbUrl}
-                      preview={{ src: p.fullUrl }}
-                      width={120}
-                      height={120}
-                      style={{ objectFit: 'cover', borderRadius: 6 }}
-                      fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
+                  })}
+                  {Array.from({ length: remaining }).map((_, i) => (
+                    <Skeleton.Image
+                      key={`photo-skel-tail-${i}`}
+                      active
+                      style={{ width: 120, height: 120, borderRadius: 6 }}
                     />
-                  )
-                })}
-              </Space>
-            </Image.PreviewGroup>
-          )}
+                  ))}
+                </Space>
+              </Image.PreviewGroup>
+            )
+          })()}
         </Card>
 
         <Card title={reportDetails.sectionPlan}>
