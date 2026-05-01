@@ -8,6 +8,7 @@ import {
   requestPresigned,
   type StorageProvider,
 } from '@/services/r2'
+import type { PlanRow } from '@/services/catalogs'
 
 export interface PlanRecord {
   id: string
@@ -35,6 +36,28 @@ export function planDisplayName(plan: Pick<PlanRecord, 'name' | 'floor' | 'build
   if (plan.section) parts.push(plan.section)
   if (plan.floor) parts.push(`Этаж ${plan.floor}`)
   return parts.length > 0 ? `${parts.join(', ')} — ${plan.name}` : plan.name
+}
+
+/**
+ * Преобразует «плоскую» строку из таблицы plans (PlanRow из каталогов) в
+ * полноценный PlanRecord, ожидаемый сервисами загрузки/удаления PDF.
+ * uploaded_by/updated_at в PlanRow не хранятся — поля заполняются разумными дефолтами.
+ */
+export function planRowToRecord(row: PlanRow): PlanRecord {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    name: row.name,
+    floor: row.floor ?? null,
+    building: row.building ?? null,
+    section: row.section ?? null,
+    r2_key: row.r2_key,
+    storage: row.storage ?? 'cloudru',
+    page_count: row.page_count,
+    uploaded_by: null,
+    created_at: row.created_at,
+    updated_at: row.created_at,
+  }
 }
 
 /**

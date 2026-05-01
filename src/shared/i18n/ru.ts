@@ -142,18 +142,6 @@ export const plansPage = {
   pageOf: 'из',
 } as const
 
-export const emptyStates = {
-  soon: 'Раздел будет реализован на следующем шаге',
-  noReports: 'Отчётов пока нет',
-  noReportsHint: 'Создайте первый отчёт — это будет доступно на следующем шаге.',
-  noPlans: 'Планы не загружены',
-  noUsers: 'Пользователи появятся здесь',
-  noProjects: 'Проекты появятся здесь',
-  noWorkTypes: 'Виды работ появятся здесь',
-  noWorkAssignments: 'Назначения работ появятся здесь',
-  noPerformers: 'Исполнители появятся здесь',
-} as const
-
 export const settings = {
   title: 'Настройки',
   themeLabel: 'Оформление',

@@ -15,11 +15,6 @@ export type StorageProvider = 'cloudru' | 'r2'
 export type StorageOp = 'put' | 'get' | 'delete'
 export type StorageKind = 'photo' | 'photo_thumb' | 'plan'
 
-/** @deprecated сохранено для обратной совместимости — используйте `StorageOp`. */
-export type R2Op = StorageOp
-/** @deprecated сохранено для обратной совместимости — используйте `StorageKind`. */
-export type R2Kind = StorageKind
-
 export interface PresignRequest {
   op: StorageOp
   kind: StorageKind

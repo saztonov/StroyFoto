@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Flex, Select, Space, Typography } from 'antd'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { PlanRow } from '@/services/catalogs'
-import { downloadPlanPdf, planDisplayName, type PlanRecord } from '@/services/plans'
+import { downloadPlanPdf, planDisplayName, planRowToRecord } from '@/services/plans'
 import { PdfPlanCanvas } from './PdfPlanCanvas'
 
 export interface PlanMarkValue {
@@ -46,21 +46,7 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
     setError(null)
     void (async () => {
       try {
-        const planRecord: PlanRecord = {
-          id: plan.id,
-          project_id: plan.project_id,
-          name: plan.name,
-          floor: plan.floor ?? null,
-          building: plan.building ?? null,
-          section: plan.section ?? null,
-          r2_key: plan.r2_key,
-          storage: plan.storage ?? 'cloudru',
-          page_count: plan.page_count,
-          uploaded_by: null,
-          created_at: plan.created_at,
-          updated_at: plan.created_at,
-        }
-        const b = await downloadPlanPdf(planRecord)
+        const b = await downloadPlanPdf(planRowToRecord(plan))
         if (!cancelled) setBlob(b)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))

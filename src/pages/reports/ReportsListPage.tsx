@@ -20,7 +20,6 @@ import { useNavigate } from 'react-router-dom'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, nav, reportsList } from '@/shared/i18n/ru'
-import type { SyncStatus } from '@/lib/db'
 import { onReportsChanged } from '@/services/invalidation'
 import { loadMergedReports, type ReportCard } from '@/services/reports'
 import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
@@ -28,14 +27,7 @@ import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
-
-const STATUS_LABEL: Record<SyncStatus, { text: string; color: string }> = {
-  pending: { text: 'Ожидает синхронизации', color: 'gold' },
-  syncing: { text: 'Синхронизируется', color: 'blue' },
-  synced: { text: 'Синхронизировано', color: 'green' },
-  failed: { text: 'Ошибка синхронизации', color: 'red' },
-  pending_upload: { text: 'Фото ждут загрузки', color: 'purple' },
-}
+import { SYNC_STATUS_LABEL } from './lib/syncStatusLabel'
 
 interface ReportCardItemProps {
   report: ReportCard
@@ -54,7 +46,7 @@ const ReportCardItem = memo(function ReportCardItem({
   performerName,
   onOpen,
 }: ReportCardItemProps) {
-  const s = STATUS_LABEL[report.syncStatus] ?? { text: report.syncStatus ?? '—', color: 'default' }
+  const s = SYNC_STATUS_LABEL[report.syncStatus] ?? { text: report.syncStatus ?? '—', color: 'default' }
   return (
     <div
       onClick={() => onOpen(report.id)}
