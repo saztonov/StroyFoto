@@ -493,7 +493,7 @@ export function PlansPage() {
         okText={plansPage.uploadBtn}
         cancelText={actions.cancel}
         confirmLoading={uploading}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={uploadForm} layout="vertical">
           <Form.Item
@@ -524,7 +524,7 @@ export function PlansPage() {
         okText={actions.save}
         cancelText={actions.cancel}
         confirmLoading={editSaving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
@@ -557,7 +557,7 @@ export function PlansPage() {
         footer={null}
         width="90vw"
         style={{ maxWidth: 960, top: 20 }}
-        destroyOnClose
+        destroyOnHidden
       >
         {previewLoading && (
           <Flex justify="center" style={{ padding: 60 }}>

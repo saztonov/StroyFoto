@@ -172,7 +172,7 @@ export function EditReportModal({
       okText={actions.save}
       cancelText={actions.cancel}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
       width={720}
       style={{ top: 20 }}
     >

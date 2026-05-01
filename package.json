@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "migrate:storage": "node scripts/migrate-storage/cli.mjs",
+    "migrate:storage:check": "node scripts/migrate-storage/cli.mjs check",
+    "migrate:storage:run": "node scripts/migrate-storage/cli.mjs run",
+    "migrate:storage:verify": "node scripts/migrate-storage/cli.mjs verify",
+    "migrate:storage:verify:full": "node scripts/migrate-storage/cli.mjs verify --compare-r2"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
@@ -29,6 +34,7 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
+    "aws4fetch": "^1.0.20",
     "typescript": "^5.6.2",
     "vite": "^6.4.2",
     "vite-plugin-pwa": "^0.21.2",
