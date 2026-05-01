@@ -1,5 +1,5 @@
 -- Database Schema SQL Export
--- Generated: 2026-04-13T00:25:21.361003
+-- Generated: 2026-05-01T17:03:32.711981
 -- Database: postgres
 -- Host: aws-1-eu-west-1.pooler.supabase.com
 
@@ -456,6 +456,7 @@ CREATE TABLE IF NOT EXISTS public.plans (
     building text,
     section text,
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    storage text NOT NULL DEFAULT 'cloudru'::text,
     CONSTRAINT plans_pkey PRIMARY KEY (id),
     CONSTRAINT plans_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
     CONSTRAINT plans_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.profiles(id)
@@ -506,6 +507,7 @@ CREATE TABLE IF NOT EXISTS public.report_photos (
     height integer,
     taken_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
+    storage text NOT NULL DEFAULT 'cloudru'::text,
     CONSTRAINT report_photos_pkey PRIMARY KEY (id),
     CONSTRAINT report_photos_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id)
 );
@@ -536,12 +538,26 @@ CREATE TABLE IF NOT EXISTS public.reports (
     taken_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    work_assignment_id uuid,
     CONSTRAINT reports_author_id_fkey FOREIGN KEY (author_id) REFERENCES public.profiles(id),
     CONSTRAINT reports_performer_id_fkey FOREIGN KEY (performer_id) REFERENCES public.performers(id),
     CONSTRAINT reports_pkey PRIMARY KEY (id),
     CONSTRAINT reports_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.plans(id),
     CONSTRAINT reports_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
+    CONSTRAINT reports_work_assignment_id_fkey FOREIGN KEY (work_assignment_id) REFERENCES public.work_assignments(id),
     CONSTRAINT reports_work_type_id_fkey FOREIGN KEY (work_type_id) REFERENCES public.work_types(id)
+);
+
+-- Table: public.work_assignments
+CREATE TABLE IF NOT EXISTS public.work_assignments (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    name citext NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
+    created_by uuid,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT work_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id),
+    CONSTRAINT work_assignments_name_key UNIQUE (name),
+    CONSTRAINT work_assignments_pkey PRIMARY KEY (id)
 );
 
 -- Table: public.work_types
@@ -556,8 +572,8 @@ CREATE TABLE IF NOT EXISTS public.work_types (
     CONSTRAINT work_types_pkey PRIMARY KEY (id)
 );
 
--- Table: realtime.messages_2026_04_11
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_11 (
+-- Table: realtime.messages_2026_04_28
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_28 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -566,12 +582,12 @@ CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_11 (
     updated_at timestamp without time zone NOT NULL DEFAULT now(),
     inserted_at timestamp without time zone NOT NULL DEFAULT now(),
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_04_11_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_04_11_pkey PRIMARY KEY (inserted_at)
+    CONSTRAINT messages_2026_04_28_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_04_28_pkey PRIMARY KEY (inserted_at)
 );
 
--- Table: realtime.messages_2026_04_12
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_12 (
+-- Table: realtime.messages_2026_04_29
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_29 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -580,12 +596,12 @@ CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_12 (
     updated_at timestamp without time zone NOT NULL DEFAULT now(),
     inserted_at timestamp without time zone NOT NULL DEFAULT now(),
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_04_12_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_04_12_pkey PRIMARY KEY (inserted_at)
+    CONSTRAINT messages_2026_04_29_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_04_29_pkey PRIMARY KEY (inserted_at)
 );
 
--- Table: realtime.messages_2026_04_13
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_13 (
+-- Table: realtime.messages_2026_04_30
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_30 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -594,12 +610,12 @@ CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_13 (
     updated_at timestamp without time zone NOT NULL DEFAULT now(),
     inserted_at timestamp without time zone NOT NULL DEFAULT now(),
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_04_13_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_04_13_pkey PRIMARY KEY (inserted_at)
+    CONSTRAINT messages_2026_04_30_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_04_30_pkey PRIMARY KEY (inserted_at)
 );
 
--- Table: realtime.messages_2026_04_14
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_14 (
+-- Table: realtime.messages_2026_05_01
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_05_01 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -608,12 +624,12 @@ CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_14 (
     updated_at timestamp without time zone NOT NULL DEFAULT now(),
     inserted_at timestamp without time zone NOT NULL DEFAULT now(),
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_04_14_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_04_14_pkey PRIMARY KEY (inserted_at)
+    CONSTRAINT messages_2026_05_01_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_05_01_pkey PRIMARY KEY (inserted_at)
 );
 
--- Table: realtime.messages_2026_04_15
-CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_15 (
+-- Table: realtime.messages_2026_05_02
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_05_02 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -622,8 +638,36 @@ CREATE TABLE IF NOT EXISTS realtime.messages_2026_04_15 (
     updated_at timestamp without time zone NOT NULL DEFAULT now(),
     inserted_at timestamp without time zone NOT NULL DEFAULT now(),
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    CONSTRAINT messages_2026_04_15_pkey PRIMARY KEY (id),
-    CONSTRAINT messages_2026_04_15_pkey PRIMARY KEY (inserted_at)
+    CONSTRAINT messages_2026_05_02_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_05_02_pkey PRIMARY KEY (inserted_at)
+);
+
+-- Table: realtime.messages_2026_05_03
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_05_03 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone NOT NULL DEFAULT now(),
+    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    CONSTRAINT messages_2026_05_03_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_05_03_pkey PRIMARY KEY (inserted_at)
+);
+
+-- Table: realtime.messages_2026_05_04
+CREATE TABLE IF NOT EXISTS realtime.messages_2026_05_04 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone NOT NULL DEFAULT now(),
+    inserted_at timestamp without time zone NOT NULL DEFAULT now(),
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    CONSTRAINT messages_2026_05_04_pkey PRIMARY KEY (id),
+    CONSTRAINT messages_2026_05_04_pkey PRIMARY KEY (inserted_at)
 );
 
 -- Table: realtime.schema_migrations
@@ -1262,7 +1306,7 @@ AS '$libdir/pgcrypto', $function$pgp_key_id_w$function$
 
 
 -- Function: extensions.pgp_pub_decrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1278,7 +1322,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
 
 
 -- Function: extensions.pgp_pub_decrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1286,7 +1330,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
 
 
 -- Function: extensions.pgp_pub_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1294,7 +1338,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 
 
 -- Function: extensions.pgp_pub_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -1310,7 +1354,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 
 
 -- Function: extensions.pgp_pub_encrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -1318,7 +1362,7 @@ AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
 
 
 -- Function: extensions.pgp_pub_encrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -1358,14 +1402,6 @@ AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
 
 
 -- Function: extensions.pgp_sym_decrypt_bytea
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)
- RETURNS bytea
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
-
-
--- Function: extensions.pgp_sym_decrypt_bytea
 CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text)
  RETURNS bytea
  LANGUAGE c
@@ -1373,8 +1409,16 @@ CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text)
 AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
 
 
+-- Function: extensions.pgp_sym_decrypt_bytea
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
+
+
 -- Function: extensions.pgp_sym_encrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -1382,7 +1426,7 @@ AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
 
 
 -- Function: extensions.pgp_sym_encrypt
-CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text, text)
+CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -1601,105 +1645,34 @@ CREATE OR REPLACE FUNCTION extensions.uuid_ns_x500()
 AS '$libdir/uuid-ossp', $function$uuid_ns_x500$function$
 
 
--- Function: graphql._internal_resolve
-CREATE OR REPLACE FUNCTION graphql._internal_resolve(query text, variables jsonb DEFAULT '{}'::jsonb, "operationName" text DEFAULT NULL::text, extensions jsonb DEFAULT NULL::jsonb)
- RETURNS jsonb
- LANGUAGE c
-AS '$libdir/pg_graphql', $function$resolve_wrapper$function$
-
-
--- Function: graphql.comment_directive
-CREATE OR REPLACE FUNCTION graphql.comment_directive(comment_ text)
- RETURNS jsonb
- LANGUAGE sql
- IMMUTABLE
-AS $function$
-    /*
-    comment on column public.account.name is '@graphql.name: myField'
-    */
-    select
-        coalesce(
-            (
-                regexp_match(
-                    comment_,
-                    '@graphql\((.+)\)'
-                )
-            )[1]::jsonb,
-            jsonb_build_object()
-        )
-$function$
-
-
--- Function: graphql.exception
-CREATE OR REPLACE FUNCTION graphql.exception(message text)
- RETURNS text
- LANGUAGE plpgsql
-AS $function$
-begin
-    raise exception using errcode='22000', message=message;
-end;
-$function$
-
-
--- Function: graphql.get_schema_version
-CREATE OR REPLACE FUNCTION graphql.get_schema_version()
- RETURNS integer
- LANGUAGE sql
- SECURITY DEFINER
-AS $function$
-    select last_value from graphql.seq_schema_version;
-$function$
-
-
--- Function: graphql.increment_schema_version
-CREATE OR REPLACE FUNCTION graphql.increment_schema_version()
- RETURNS event_trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-begin
-    perform pg_catalog.nextval('graphql.seq_schema_version');
-end;
-$function$
-
-
--- Function: graphql.resolve
-CREATE OR REPLACE FUNCTION graphql.resolve(query text, variables jsonb DEFAULT '{}'::jsonb, "operationName" text DEFAULT NULL::text, extensions jsonb DEFAULT NULL::jsonb)
- RETURNS jsonb
- LANGUAGE plpgsql
-AS $function$
-declare
-    res jsonb;
-    message_text text;
-begin
-  begin
-    select graphql._internal_resolve("query" := "query",
-                                     "variables" := "variables",
-                                     "operationName" := "operationName",
-                                     "extensions" := "extensions") into res;
-    return res;
-  exception
-    when others then
-    get stacked diagnostics message_text = message_text;
-    return
-    jsonb_build_object('data', null,
-                       'errors', jsonb_build_array(jsonb_build_object('message', message_text)));
-  end;
-end;
-$function$
-
-
 -- Function: graphql_public.graphql
 CREATE OR REPLACE FUNCTION graphql_public.graphql("operationName" text DEFAULT NULL::text, query text DEFAULT NULL::text, variables jsonb DEFAULT NULL::jsonb, extensions jsonb DEFAULT NULL::jsonb)
  RETURNS jsonb
- LANGUAGE sql
+ LANGUAGE plpgsql
 AS $function$
-            select graphql.resolve(
-                query := query,
-                variables := coalesce(variables, '{}'),
-                "operationName" := "operationName",
-                extensions := extensions
-            );
+            DECLARE
+                server_version float;
+            BEGIN
+                server_version = (SELECT (SPLIT_PART((select version()), ' ', 2))::float);
+
+                IF server_version >= 14 THEN
+                    RETURN jsonb_build_object(
+                        'errors', jsonb_build_array(
+                            jsonb_build_object(
+                                'message', 'pg_graphql extension is not enabled.'
+                            )
+                        )
+                    );
+                ELSE
+                    RETURN jsonb_build_object(
+                        'errors', jsonb_build_array(
+                            jsonb_build_object(
+                                'message', 'pg_graphql is only available on projects running Postgres 14 onwards.'
+                            )
+                        )
+                    );
+                END IF;
+            END;
         $function$
 
 
@@ -1742,19 +1715,19 @@ $function$
 
 
 -- Function: public.citext
-CREATE OR REPLACE FUNCTION public.citext(inet)
- RETURNS citext
- LANGUAGE internal
- IMMUTABLE PARALLEL SAFE STRICT
-AS $function$network_show$function$
-
-
--- Function: public.citext
 CREATE OR REPLACE FUNCTION public.citext(character)
  RETURNS citext
  LANGUAGE internal
  IMMUTABLE PARALLEL SAFE STRICT
 AS $function$rtrim1$function$
+
+
+-- Function: public.citext
+CREATE OR REPLACE FUNCTION public.citext(inet)
+ RETURNS citext
+ LANGUAGE internal
+ IMMUTABLE PARALLEL SAFE STRICT
+AS $function$network_show$function$
 
 
 -- Function: public.citext
@@ -2042,16 +2015,6 @@ $function$
 
 
 -- Function: public.regexp_matches
-CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext)
- RETURNS SETOF text[]
- LANGUAGE sql
- IMMUTABLE PARALLEL SAFE STRICT ROWS 1
-AS $function$
-    SELECT pg_catalog.regexp_matches( $1::pg_catalog.text, $2::pg_catalog.text, 'i' );
-$function$
-
-
--- Function: public.regexp_matches
 CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext, text)
  RETURNS SETOF text[]
  LANGUAGE sql
@@ -2061,13 +2024,13 @@ AS $function$
 $function$
 
 
--- Function: public.regexp_replace
-CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text, text)
- RETURNS text
+-- Function: public.regexp_matches
+CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext)
+ RETURNS SETOF text[]
  LANGUAGE sql
- IMMUTABLE PARALLEL SAFE STRICT
+ IMMUTABLE PARALLEL SAFE STRICT ROWS 1
 AS $function$
-    SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, CASE WHEN pg_catalog.strpos($4, 'c') = 0 THEN  $4 || 'i' ELSE $4 END);
+    SELECT pg_catalog.regexp_matches( $1::pg_catalog.text, $2::pg_catalog.text, 'i' );
 $function$
 
 
@@ -2078,6 +2041,16 @@ CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text)
  IMMUTABLE PARALLEL SAFE STRICT
 AS $function$
     SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, 'i');
+$function$
+
+
+-- Function: public.regexp_replace
+CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text, text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE PARALLEL SAFE STRICT
+AS $function$
+    SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, CASE WHEN pg_catalog.strpos($4, 'c') = 0 THEN  $4 || 'i' ELSE $4 END);
 $function$
 
 
@@ -2164,7 +2137,7 @@ $function$
 
 
 -- Function: public.texticlike
-CREATE OR REPLACE FUNCTION public.texticlike(citext, text)
+CREATE OR REPLACE FUNCTION public.texticlike(citext, citext)
  RETURNS boolean
  LANGUAGE internal
  IMMUTABLE PARALLEL SAFE STRICT
@@ -2172,7 +2145,7 @@ AS $function$texticlike$function$
 
 
 -- Function: public.texticlike
-CREATE OR REPLACE FUNCTION public.texticlike(citext, citext)
+CREATE OR REPLACE FUNCTION public.texticlike(citext, text)
  RETURNS boolean
  LANGUAGE internal
  IMMUTABLE PARALLEL SAFE STRICT
@@ -2196,7 +2169,7 @@ AS $function$texticnlike$function$
 
 
 -- Function: public.texticregexeq
-CREATE OR REPLACE FUNCTION public.texticregexeq(citext, text)
+CREATE OR REPLACE FUNCTION public.texticregexeq(citext, citext)
  RETURNS boolean
  LANGUAGE internal
  IMMUTABLE PARALLEL SAFE STRICT
@@ -2204,7 +2177,7 @@ AS $function$texticregexeq$function$
 
 
 -- Function: public.texticregexeq
-CREATE OR REPLACE FUNCTION public.texticregexeq(citext, citext)
+CREATE OR REPLACE FUNCTION public.texticregexeq(citext, text)
  RETURNS boolean
  LANGUAGE internal
  IMMUTABLE PARALLEL SAFE STRICT
@@ -4153,26 +4126,35 @@ CREATE INDEX reports_author_idx ON public.reports USING btree (author_id);
 -- Index on public.reports
 CREATE INDEX reports_project_created_idx ON public.reports USING btree (project_id, created_at DESC);
 
+-- Index on public.work_assignments
+CREATE UNIQUE INDEX work_assignments_name_key ON public.work_assignments USING btree (name);
+
 -- Index on public.work_types
 CREATE UNIQUE INDEX work_types_name_key ON public.work_types USING btree (name);
 
 -- Index on realtime.messages
 CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
--- Index on realtime.messages_2026_04_11
-CREATE INDEX messages_2026_04_11_inserted_at_topic_idx ON realtime.messages_2026_04_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+-- Index on realtime.messages_2026_04_28
+CREATE INDEX messages_2026_04_28_inserted_at_topic_idx ON realtime.messages_2026_04_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
--- Index on realtime.messages_2026_04_12
-CREATE INDEX messages_2026_04_12_inserted_at_topic_idx ON realtime.messages_2026_04_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+-- Index on realtime.messages_2026_04_29
+CREATE INDEX messages_2026_04_29_inserted_at_topic_idx ON realtime.messages_2026_04_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
--- Index on realtime.messages_2026_04_13
-CREATE INDEX messages_2026_04_13_inserted_at_topic_idx ON realtime.messages_2026_04_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+-- Index on realtime.messages_2026_04_30
+CREATE INDEX messages_2026_04_30_inserted_at_topic_idx ON realtime.messages_2026_04_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
--- Index on realtime.messages_2026_04_14
-CREATE INDEX messages_2026_04_14_inserted_at_topic_idx ON realtime.messages_2026_04_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+-- Index on realtime.messages_2026_05_01
+CREATE INDEX messages_2026_05_01_inserted_at_topic_idx ON realtime.messages_2026_05_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
--- Index on realtime.messages_2026_04_15
-CREATE INDEX messages_2026_04_15_inserted_at_topic_idx ON realtime.messages_2026_04_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+-- Index on realtime.messages_2026_05_02
+CREATE INDEX messages_2026_05_02_inserted_at_topic_idx ON realtime.messages_2026_05_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+-- Index on realtime.messages_2026_05_03
+CREATE INDEX messages_2026_05_03_inserted_at_topic_idx ON realtime.messages_2026_05_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+-- Index on realtime.messages_2026_05_04
+CREATE INDEX messages_2026_05_04_inserted_at_topic_idx ON realtime.messages_2026_05_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 -- Index on realtime.subscription
 CREATE INDEX ix_realtime_subscription_entity ON realtime.subscription USING btree (entity);

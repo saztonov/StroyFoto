@@ -195,12 +195,12 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_key_id(bytea)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_key_id_w$function$\n"
   },
-  "extensions.pgp_pub_decrypt(bytea, bytea, text)": {
+  "extensions.pgp_pub_decrypt(bytea, bytea, text, text)": {
     "schema": "extensions",
     "name": "pgp_pub_decrypt",
-    "arguments": "bytea, bytea, text",
+    "arguments": "bytea, bytea, text, text",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$\n"
   },
   "extensions.pgp_pub_decrypt(bytea, bytea)": {
     "schema": "extensions",
@@ -209,19 +209,12 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$\n"
   },
-  "extensions.pgp_pub_decrypt(bytea, bytea, text, text)": {
+  "extensions.pgp_pub_decrypt(bytea, bytea, text)": {
     "schema": "extensions",
     "name": "pgp_pub_decrypt",
-    "arguments": "bytea, bytea, text, text",
+    "arguments": "bytea, bytea, text",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$\n"
-  },
-  "extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)": {
-    "schema": "extensions",
-    "name": "pgp_pub_decrypt_bytea",
-    "arguments": "bytea, bytea, text, text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt(bytea, bytea, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$\n"
   },
   "extensions.pgp_pub_decrypt_bytea(bytea, bytea)": {
     "schema": "extensions",
@@ -230,6 +223,13 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$\n"
   },
+  "extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)": {
+    "schema": "extensions",
+    "name": "pgp_pub_decrypt_bytea",
+    "arguments": "bytea, bytea, text, text",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$\n"
+  },
   "extensions.pgp_pub_decrypt_bytea(bytea, bytea, text)": {
     "schema": "extensions",
     "name": "pgp_pub_decrypt_bytea",
@@ -237,19 +237,19 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_decrypt_bytea(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$\n"
   },
-  "extensions.pgp_pub_encrypt(text, bytea)": {
-    "schema": "extensions",
-    "name": "pgp_pub_encrypt",
-    "arguments": "text, bytea",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$\n"
-  },
   "extensions.pgp_pub_encrypt(text, bytea, text)": {
     "schema": "extensions",
     "name": "pgp_pub_encrypt",
     "arguments": "text, bytea, text",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$\n"
+  },
+  "extensions.pgp_pub_encrypt(text, bytea)": {
+    "schema": "extensions",
+    "name": "pgp_pub_encrypt",
+    "arguments": "text, bytea",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_pub_encrypt(text, bytea)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$\n"
   },
   "extensions.pgp_pub_encrypt_bytea(bytea, bytea)": {
     "schema": "extensions",
@@ -279,13 +279,6 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt(bytea, text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$\n"
   },
-  "extensions.pgp_sym_decrypt_bytea(bytea, text, text)": {
-    "schema": "extensions",
-    "name": "pgp_sym_decrypt_bytea",
-    "arguments": "bytea, text, text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$\n"
-  },
   "extensions.pgp_sym_decrypt_bytea(bytea, text)": {
     "schema": "extensions",
     "name": "pgp_sym_decrypt_bytea",
@@ -293,12 +286,12 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$\n"
   },
-  "extensions.pgp_sym_encrypt(text, text)": {
+  "extensions.pgp_sym_decrypt_bytea(bytea, text, text)": {
     "schema": "extensions",
-    "name": "pgp_sym_encrypt",
-    "arguments": "text, text",
+    "name": "pgp_sym_decrypt_bytea",
+    "arguments": "bytea, text, text",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_decrypt_bytea(bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$\n"
   },
   "extensions.pgp_sym_encrypt(text, text, text)": {
     "schema": "extensions",
@@ -306,6 +299,13 @@
     "arguments": "text, text, text",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$\n"
+  },
+  "extensions.pgp_sym_encrypt(text, text)": {
+    "schema": "extensions",
+    "name": "pgp_sym_encrypt",
+    "arguments": "text, text",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION extensions.pgp_sym_encrypt(text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$\n"
   },
   "extensions.pgp_sym_encrypt_bytea(bytea, text, text)": {
     "schema": "extensions",
@@ -412,54 +412,12 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION extensions.uuid_ns_x500()\n RETURNS uuid\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/uuid-ossp', $function$uuid_ns_x500$function$\n"
   },
-  "graphql._internal_resolve(query text, variables jsonb, \"operationName\" text, extensions jsonb)": {
-    "schema": "graphql",
-    "name": "_internal_resolve",
-    "arguments": "query text, variables jsonb, \"operationName\" text, extensions jsonb",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql._internal_resolve(query text, variables jsonb DEFAULT '{}'::jsonb, \"operationName\" text DEFAULT NULL::text, extensions jsonb DEFAULT NULL::jsonb)\n RETURNS jsonb\n LANGUAGE c\nAS '$libdir/pg_graphql', $function$resolve_wrapper$function$\n"
-  },
-  "graphql.comment_directive(comment_ text)": {
-    "schema": "graphql",
-    "name": "comment_directive",
-    "arguments": "comment_ text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql.comment_directive(comment_ text)\n RETURNS jsonb\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    /*\n    comment on column public.account.name is '@graphql.name: myField'\n    */\n    select\n        coalesce(\n            (\n                regexp_match(\n                    comment_,\n                    '@graphql\\((.+)\\)'\n                )\n            )[1]::jsonb,\n            jsonb_build_object()\n        )\n$function$\n"
-  },
-  "graphql.exception(message text)": {
-    "schema": "graphql",
-    "name": "exception",
-    "arguments": "message text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql.exception(message text)\n RETURNS text\n LANGUAGE plpgsql\nAS $function$\nbegin\n    raise exception using errcode='22000', message=message;\nend;\n$function$\n"
-  },
-  "graphql.get_schema_version()": {
-    "schema": "graphql",
-    "name": "get_schema_version",
-    "arguments": "",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql.get_schema_version()\n RETURNS integer\n LANGUAGE sql\n SECURITY DEFINER\nAS $function$\n    select last_value from graphql.seq_schema_version;\n$function$\n"
-  },
-  "graphql.increment_schema_version()": {
-    "schema": "graphql",
-    "name": "increment_schema_version",
-    "arguments": "",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql.increment_schema_version()\n RETURNS event_trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\nbegin\n    perform pg_catalog.nextval('graphql.seq_schema_version');\nend;\n$function$\n"
-  },
-  "graphql.resolve(query text, variables jsonb, \"operationName\" text, extensions jsonb)": {
-    "schema": "graphql",
-    "name": "resolve",
-    "arguments": "query text, variables jsonb, \"operationName\" text, extensions jsonb",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql.resolve(query text, variables jsonb DEFAULT '{}'::jsonb, \"operationName\" text DEFAULT NULL::text, extensions jsonb DEFAULT NULL::jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\nAS $function$\ndeclare\n    res jsonb;\n    message_text text;\nbegin\n  begin\n    select graphql._internal_resolve(\"query\" := \"query\",\n                                     \"variables\" := \"variables\",\n                                     \"operationName\" := \"operationName\",\n                                     \"extensions\" := \"extensions\") into res;\n    return res;\n  exception\n    when others then\n    get stacked diagnostics message_text = message_text;\n    return\n    jsonb_build_object('data', null,\n                       'errors', jsonb_build_array(jsonb_build_object('message', message_text)));\n  end;\nend;\n$function$\n"
-  },
   "graphql_public.graphql(\"operationName\" text, query text, variables jsonb, extensions jsonb)": {
     "schema": "graphql_public",
     "name": "graphql",
     "arguments": "\"operationName\" text, query text, variables jsonb, extensions jsonb",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION graphql_public.graphql(\"operationName\" text DEFAULT NULL::text, query text DEFAULT NULL::text, variables jsonb DEFAULT NULL::jsonb, extensions jsonb DEFAULT NULL::jsonb)\n RETURNS jsonb\n LANGUAGE sql\nAS $function$\n            select graphql.resolve(\n                query := query,\n                variables := coalesce(variables, '{}'),\n                \"operationName\" := \"operationName\",\n                extensions := extensions\n            );\n        $function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION graphql_public.graphql(\"operationName\" text DEFAULT NULL::text, query text DEFAULT NULL::text, variables jsonb DEFAULT NULL::jsonb, extensions jsonb DEFAULT NULL::jsonb)\n RETURNS jsonb\n LANGUAGE plpgsql\nAS $function$\n            DECLARE\n                server_version float;\n            BEGIN\n                server_version = (SELECT (SPLIT_PART((select version()), ' ', 2))::float);\n\n                IF server_version >= 14 THEN\n                    RETURN jsonb_build_object(\n                        'errors', jsonb_build_array(\n                            jsonb_build_object(\n                                'message', 'pg_graphql extension is not enabled.'\n                            )\n                        )\n                    );\n                ELSE\n                    RETURN jsonb_build_object(\n                        'errors', jsonb_build_array(\n                            jsonb_build_object(\n                                'message', 'pg_graphql is only available on projects running Postgres 14 onwards.'\n                            )\n                        )\n                    );\n                END IF;\n            END;\n        $function$\n"
   },
   "pgbouncer.get_auth(p_usename text)": {
     "schema": "pgbouncer",
@@ -475,19 +433,19 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.admin_list_profiles()\n RETURNS TABLE(id uuid, full_name text, email text, role user_role, is_active boolean, created_at timestamp with time zone, updated_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select p.id, p.full_name, u.email::text, p.role, p.is_active, p.created_at, p.updated_at\r\n  from public.profiles p\r\n  join auth.users u on u.id = p.id\r\n  where public.is_admin()\r\n  order by p.created_at desc;\r\n$function$\n"
   },
-  "public.citext(inet)": {
-    "schema": "public",
-    "name": "citext",
-    "arguments": "inet",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.citext(inet)\n RETURNS citext\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$network_show$function$\n"
-  },
   "public.citext(character)": {
     "schema": "public",
     "name": "citext",
     "arguments": "character",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.citext(character)\n RETURNS citext\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$rtrim1$function$\n"
+  },
+  "public.citext(inet)": {
+    "schema": "public",
+    "name": "citext",
+    "arguments": "inet",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION public.citext(inet)\n RETURNS citext\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$network_show$function$\n"
   },
   "public.citext(boolean)": {
     "schema": "public",
@@ -685,13 +643,6 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.regexp_match(citext, citext, text)\n RETURNS text[]\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$\n    SELECT pg_catalog.regexp_match( $1::pg_catalog.text, $2::pg_catalog.text, CASE WHEN pg_catalog.strpos($3, 'c') = 0 THEN  $3 || 'i' ELSE $3 END );\n$function$\n"
   },
-  "public.regexp_matches(citext, citext)": {
-    "schema": "public",
-    "name": "regexp_matches",
-    "arguments": "citext, citext",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext)\n RETURNS SETOF text[]\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT ROWS 1\nAS $function$\n    SELECT pg_catalog.regexp_matches( $1::pg_catalog.text, $2::pg_catalog.text, 'i' );\n$function$\n"
-  },
   "public.regexp_matches(citext, citext, text)": {
     "schema": "public",
     "name": "regexp_matches",
@@ -699,12 +650,12 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext, text)\n RETURNS SETOF text[]\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT ROWS 10\nAS $function$\n    SELECT pg_catalog.regexp_matches( $1::pg_catalog.text, $2::pg_catalog.text, CASE WHEN pg_catalog.strpos($3, 'c') = 0 THEN  $3 || 'i' ELSE $3 END );\n$function$\n"
   },
-  "public.regexp_replace(citext, citext, text, text)": {
+  "public.regexp_matches(citext, citext)": {
     "schema": "public",
-    "name": "regexp_replace",
-    "arguments": "citext, citext, text, text",
+    "name": "regexp_matches",
+    "arguments": "citext, citext",
     "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text, text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$\n    SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, CASE WHEN pg_catalog.strpos($4, 'c') = 0 THEN  $4 || 'i' ELSE $4 END);\n$function$\n"
+    "sql": "CREATE OR REPLACE FUNCTION public.regexp_matches(citext, citext)\n RETURNS SETOF text[]\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT ROWS 1\nAS $function$\n    SELECT pg_catalog.regexp_matches( $1::pg_catalog.text, $2::pg_catalog.text, 'i' );\n$function$\n"
   },
   "public.regexp_replace(citext, citext, text)": {
     "schema": "public",
@@ -712,6 +663,13 @@
     "arguments": "citext, citext, text",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$\n    SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, 'i');\n$function$\n"
+  },
+  "public.regexp_replace(citext, citext, text, text)": {
+    "schema": "public",
+    "name": "regexp_replace",
+    "arguments": "citext, citext, text, text",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION public.regexp_replace(citext, citext, text, text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$\n    SELECT pg_catalog.regexp_replace( $1::pg_catalog.text, $2::pg_catalog.text, $3, CASE WHEN pg_catalog.strpos($4, 'c') = 0 THEN  $4 || 'i' ELSE $4 END);\n$function$\n"
   },
   "public.regexp_split_to_array(citext, citext)": {
     "schema": "public",
@@ -769,19 +727,19 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.strpos(citext, citext)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$\n    SELECT pg_catalog.strpos( pg_catalog.lower( $1::pg_catalog.text ), pg_catalog.lower( $2::pg_catalog.text ) );\n$function$\n"
   },
-  "public.texticlike(citext, text)": {
-    "schema": "public",
-    "name": "texticlike",
-    "arguments": "citext, text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.texticlike(citext, text)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticlike$function$\n"
-  },
   "public.texticlike(citext, citext)": {
     "schema": "public",
     "name": "texticlike",
     "arguments": "citext, citext",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.texticlike(citext, citext)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticlike$function$\n"
+  },
+  "public.texticlike(citext, text)": {
+    "schema": "public",
+    "name": "texticlike",
+    "arguments": "citext, text",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION public.texticlike(citext, text)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticlike$function$\n"
   },
   "public.texticnlike(citext, text)": {
     "schema": "public",
@@ -797,19 +755,19 @@
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.texticnlike(citext, citext)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticnlike$function$\n"
   },
-  "public.texticregexeq(citext, text)": {
-    "schema": "public",
-    "name": "texticregexeq",
-    "arguments": "citext, text",
-    "comment": null,
-    "sql": "CREATE OR REPLACE FUNCTION public.texticregexeq(citext, text)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticregexeq$function$\n"
-  },
   "public.texticregexeq(citext, citext)": {
     "schema": "public",
     "name": "texticregexeq",
     "arguments": "citext, citext",
     "comment": null,
     "sql": "CREATE OR REPLACE FUNCTION public.texticregexeq(citext, citext)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticregexeq$function$\n"
+  },
+  "public.texticregexeq(citext, text)": {
+    "schema": "public",
+    "name": "texticregexeq",
+    "arguments": "citext, text",
+    "comment": null,
+    "sql": "CREATE OR REPLACE FUNCTION public.texticregexeq(citext, text)\n RETURNS boolean\n LANGUAGE internal\n IMMUTABLE PARALLEL SAFE STRICT\nAS $function$texticregexeq$function$\n"
   },
   "public.texticregexne(citext, citext)": {
     "schema": "public",
