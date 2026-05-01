@@ -1,16 +1,39 @@
 import { supabase } from '@/lib/supabase'
 
-export type R2Op = 'put' | 'get' | 'delete'
-export type R2Kind = 'photo' | 'photo_thumb' | 'plan'
+/**
+ * Идентификатор объектного хранилища, в котором лежит конкретный объект.
+ *  - `cloudru` — Cloud.ru Object Storage (s3.cloud.ru, ru-central-1).
+ *    Активный провайдер: все новые загрузки уходят сюда.
+ *  - `r2` — Cloudflare R2. Легаси-провайдер; используется только для чтения
+ *    исторических объектов и во время разовой миграции
+ *    (см. `src/pages/admin/StorageMigrationPage.tsx`).
+ *
+ * Значение хранится в столбце `storage` таблиц `report_photos` и `plans`.
+ */
+export type StorageProvider = 'cloudru' | 'r2'
+
+export type StorageOp = 'put' | 'get' | 'delete'
+export type StorageKind = 'photo' | 'photo_thumb' | 'plan'
+
+/** @deprecated сохранено для обратной совместимости — используйте `StorageOp`. */
+export type R2Op = StorageOp
+/** @deprecated сохранено для обратной совместимости — используйте `StorageKind`. */
+export type R2Kind = StorageKind
 
 export interface PresignRequest {
-  op: R2Op
-  kind: R2Kind
+  op: StorageOp
+  kind: StorageKind
   key: string
   reportId?: string
   projectId?: string
   planId?: string
   contentType?: string
+  /**
+   * Провайдер хранилища. По умолчанию — `cloudru` (новый бакет в Cloud.ru).
+   * Передавайте `r2` только для чтения/удаления исторических объектов из
+   * Cloudflare R2 во время миграции.
+   */
+  provider?: StorageProvider
 }
 
 export interface PresignResponse {
@@ -18,12 +41,14 @@ export interface PresignResponse {
   method: 'PUT' | 'GET' | 'DELETE'
   headers: Record<string, string>
   expiresAt: number
+  /** Подтверждение, в каком хранилище был выпущен URL (echo от сервера). */
+  provider: StorageProvider
 }
 
 /**
- * Запрашивает у Supabase Edge Function `sign` presigned URL для R2.
- * Никаких R2-секретов на клиенте — функция валидирует JWT и проверяет права
- * через supabase-js + RLS, после чего подписывает короткоживущий URL.
+ * Запрашивает у Supabase Edge Function `sign` presigned URL.
+ * Никаких секретов хранилища на клиенте — функция валидирует JWT и проверяет
+ * права через supabase-js + RLS, после чего подписывает короткоживущий URL.
  *
  * Authorization передаём явно: @supabase/supabase-js v2 из коробки не всегда
  * прокидывает актуальный access_token в FunctionsClient после входа/refresh'а —
@@ -80,11 +105,11 @@ export function planKey(projectId: string, planId: string): string {
   return `plans/${projectId}/${planId}.pdf`
 }
 
-// Таймаут на R2 PUT/GET: мобильные сети иногда «залипают» на минуты,
+// Таймаут на S3 PUT/GET: мобильные сети иногда «залипают» на минуты,
 // мы не хотим, чтобы зависший запрос блокировал весь батч синхронизации.
 // При timeout fetch бросает AbortError → sync-loop увеличит backoff и повторит.
-const R2_PUT_TIMEOUT_MS = 60_000
-const R2_GET_TIMEOUT_MS = 45_000
+const STORAGE_PUT_TIMEOUT_MS = 60_000
+const STORAGE_GET_TIMEOUT_MS = 45_000
 
 async function fetchWithTimeout(
   url: string,
@@ -121,12 +146,12 @@ export async function putToPresigned(
       headers: presigned.headers,
       body,
     },
-    R2_PUT_TIMEOUT_MS,
-    'R2 PUT',
+    STORAGE_PUT_TIMEOUT_MS,
+    `S3 PUT (${presigned.provider})`,
   )
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`R2 PUT ${res.status}: ${text || res.statusText}`)
+    throw new Error(`S3 PUT (${presigned.provider}) ${res.status}: ${text || res.statusText}`)
   }
 }
 
@@ -137,12 +162,12 @@ export async function getFromPresigned(presigned: PresignResponse): Promise<Blob
       method: presigned.method,
       headers: presigned.headers,
     },
-    R2_GET_TIMEOUT_MS,
-    'R2 GET',
+    STORAGE_GET_TIMEOUT_MS,
+    `S3 GET (${presigned.provider})`,
   )
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`R2 GET ${res.status}: ${text || res.statusText}`)
+    throw new Error(`S3 GET (${presigned.provider}) ${res.status}: ${text || res.statusText}`)
   }
   return await res.blob()
 }

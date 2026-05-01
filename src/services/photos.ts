@@ -5,6 +5,7 @@ import {
   photoThumbKey,
   putToPresigned,
   requestPresigned,
+  type StorageProvider,
 } from '@/services/r2'
 
 export interface UploadPhotoResult {
@@ -13,16 +14,16 @@ export interface UploadPhotoResult {
 }
 
 /**
- * Загружает фото и его thumbnail в приватный R2 через короткоживущие presigned
- * URL, затем вставляет строку в `report_photos` (RLS проверит автора). Все три
- * шага идемпотентны:
+ * Загружает фото и его thumbnail в приватный бакет Cloud.ru S3 через
+ * короткоживущие presigned URL, затем вставляет строку в `report_photos`
+ * (RLS проверит автора). Все три шага идемпотентны:
  *   - object keys детерминированы от photo.id и report.id (UUID, client-gen),
  *     поэтому повторная загрузка перезапишет ровно те же объекты;
  *   - INSERT в report_photos идёт через upsert по PK, чтобы повторный sync
  *     после частичной ошибки не падал.
  *
- * Никаких секретов R2 на клиенте: пресигнинг делает Supabase Edge Function
- * `sign`, см. supabase/functions/sign/.
+ * Никаких секретов хранилища на клиенте: пресигнинг делает Supabase Edge
+ * Function `sign`, см. supabase/functions/sign/.
  */
 export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult> {
   if (!photo.thumbBlob) {
@@ -54,6 +55,9 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
     putToPresigned(putThumb, thumbBlob),
   ])
 
+  // storage='cloudru' — новый объект всегда уходит в Cloud.ru.
+  // Default колонки уже 'cloudru' (см. миграцию 20260501_cloudru_storage),
+  // но указываем явно — это самодокументирующая страховка.
   const { error } = await supabase.from('report_photos').upsert(
     {
       id: photo.id,
@@ -63,6 +67,7 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
       width: photo.width,
       height: photo.height,
       taken_at: photo.takenAt,
+      storage: 'cloudru',
     },
     { onConflict: 'id' },
   )
@@ -72,28 +77,32 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
 }
 
 /**
- * Удаляет фото с сервера: row из `report_photos` + объекты из R2 (best-effort).
- * R2-удаление через presigned DELETE; если R2 вернёт ошибку — не блокируем,
- * DB-строка является source of truth.
+ * Удаляет фото с сервера: row из `report_photos` + объекты из хранилища
+ * (best-effort). DELETE через presigned URL; если хранилище вернёт ошибку —
+ * не блокируем, DB-строка является source of truth.
+ *
+ * `storage` определяет, в каком бакете лежат объекты (cloudru/r2). Без
+ * указания берётся 'cloudru'.
  */
 export async function deleteRemotePhoto(
   photoId: string,
   reportId: string,
   r2Key: string,
   thumbR2Key: string,
+  storage: StorageProvider = 'cloudru',
 ): Promise<void> {
-  // Best-effort R2 cleanup
+  // Best-effort cleanup в объектном хранилище.
   try {
     const [delOriginal, delThumb] = await Promise.all([
-      requestPresigned({ op: 'delete', kind: 'photo', key: r2Key, reportId }),
-      requestPresigned({ op: 'delete', kind: 'photo_thumb', key: thumbR2Key, reportId }),
+      requestPresigned({ op: 'delete', kind: 'photo', key: r2Key, reportId, provider: storage }),
+      requestPresigned({ op: 'delete', kind: 'photo_thumb', key: thumbR2Key, reportId, provider: storage }),
     ])
     await Promise.allSettled([
       fetch(delOriginal.url, { method: 'DELETE', headers: delOriginal.headers }),
       fetch(delThumb.url, { method: 'DELETE', headers: delThumb.headers }),
     ])
   } catch {
-    // R2 cleanup failed — продолжаем удаление row
+    // cleanup в S3 упал — продолжаем удаление row
   }
 
   const { error } = await supabase.from('report_photos').delete().eq('id', photoId)

@@ -7,6 +7,7 @@ import {
   type RemoteReportSnapshot,
   type SyncStatus,
 } from '@/lib/db'
+import type { StorageProvider } from '@/services/r2'
 
 /**
  * Унифицированная карточка отчёта для списка/детальной страницы.
@@ -262,6 +263,12 @@ export interface RemoteReportPhoto {
   width: number | null
   height: number | null
   taken_at: string | null
+  /**
+   * В каком хранилище лежат бинарные объекты. До миграции на Cloud.ru у
+   * исторических фото значение 'r2'; после — 'cloudru'. Может отсутствовать
+   * в кэше старых снимков → читать как 'cloudru'.
+   */
+  storage?: StorageProvider
 }
 
 export interface RemoteReportMark {
@@ -289,7 +296,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
     .from('reports')
     .select(
       `id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at,
-       report_photos(id,r2_key,thumb_r2_key,width,height,taken_at),
+       report_photos(id,r2_key,thumb_r2_key,width,height,taken_at,storage),
        report_plan_marks(plan_id,page,x_norm,y_norm)`,
     )
     .eq('id', id)
@@ -331,6 +338,7 @@ export async function loadRemoteReportById(id: string): Promise<RemoteReportFull
       width: p.width,
       height: p.height,
       takenAt: p.taken_at,
+      storage: p.storage ?? 'cloudru',
     })),
     mark: mark
       ? { planId: mark.plan_id, page: mark.page, xNorm: mark.x_norm, yNorm: mark.y_norm }
@@ -362,6 +370,7 @@ export async function loadCachedRemoteReport(id: string): Promise<RemoteReportFu
       width: p.width,
       height: p.height,
       taken_at: p.takenAt,
+      storage: p.storage ?? 'cloudru',
     })),
     mark: snap.mark
       ? {

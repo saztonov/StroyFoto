@@ -216,7 +216,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const rec = await db.get('photo_deletes', op.entityId)
     if (!rec) return { done: true }
     try {
-      await deleteRemotePhoto(rec.id, rec.reportId, rec.r2Key, rec.thumbR2Key)
+      await deleteRemotePhoto(rec.id, rec.reportId, rec.r2Key, rec.thumbR2Key, rec.storage ?? 'cloudru')
       await db.delete('photo_deletes', rec.id)
       // Удаляем локальный blob (если был кэш)
       try { await db.delete('photos', rec.id) } catch { /* нет в кэше */ }

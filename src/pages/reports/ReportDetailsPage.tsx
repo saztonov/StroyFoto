@@ -266,6 +266,7 @@ export function ReportDetailsPage() {
           building: planRow.building ?? null,
           section: planRow.section ?? null,
           r2_key: planRow.r2_key,
+          storage: planRow.storage ?? 'cloudru',
           page_count: planRow.page_count,
           uploaded_by: null,
           created_at: planRow.created_at,
@@ -341,12 +342,14 @@ export function ReportDetailsPage() {
                 kind: 'photo_thumb',
                 key: p.thumb_r2_key,
                 reportId: data.card.id,
+                provider: p.storage ?? 'cloudru',
               }),
               requestPresigned({
                 op: 'get',
                 kind: 'photo',
                 key: p.r2_key,
                 reportId: data.card.id,
+                provider: p.storage ?? 'cloudru',
               }),
             ])
             const [fullResp, thumbResp] = await Promise.all([
@@ -391,6 +394,7 @@ export function ReportDetailsPage() {
           thumbUrl: p.thumbUrl,
           r2Key: local?.r2Key ?? '',
           thumbR2Key: local?.thumbR2Key ?? '',
+          storage: 'cloudru',
         }
       })
     }
@@ -402,6 +406,7 @@ export function ReportDetailsPage() {
           thumbUrl: p.thumbUrl,
           r2Key: remote?.r2_key ?? '',
           thumbR2Key: remote?.thumb_r2_key ?? '',
+          storage: remote?.storage ?? 'cloudru',
         }
       })
     }
@@ -500,7 +505,7 @@ export function ReportDetailsPage() {
           // 2. Удаляем фото (best-effort — ошибки не блокируют)
           for (const p of values.photosToRemove) {
             try {
-              await deleteRemotePhoto(p.id, id, p.r2Key, p.thumbR2Key)
+              await deleteRemotePhoto(p.id, id, p.r2Key, p.thumbR2Key, p.storage ?? 'cloudru')
             } catch (e) {
               console.warn('photo delete failed (online):', p.id, e)
             }
@@ -597,6 +602,7 @@ export function ReportDetailsPage() {
           reportId: id,
           r2Key: p.r2Key,
           thumbR2Key: p.thumbR2Key,
+          storage: p.storage ?? 'cloudru',
         }
         await tx.objectStore('photo_deletes').put(rec)
         await tx.objectStore('sync_queue').add({

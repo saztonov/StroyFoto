@@ -10,7 +10,9 @@
 - **Supabase** (Auth + Postgres, напрямую из браузера)
 - **vite-plugin-pwa** (manifest + service worker, installable PWA)
 
-Отдельного backend-API нет. Вся логика во фронтенде; файлы лежат в приватном Cloudflare R2, а короткоживущие presigned URL выдаёт Supabase Edge Function [supabase/functions/sign/](supabase/functions/sign/). Все R2-секреты хранятся в Supabase и никогда не попадают в клиент.
+Отдельного backend-API нет. Вся логика во фронтенде; файлы лежат в приватном бакете **Cloud.ru Object Storage** (`s3.cloud.ru`, регион `ru-central-1`), а короткоживущие presigned URL выдаёт Supabase Edge Function [supabase/functions/sign/](supabase/functions/sign/). Все секреты хранилища хранятся в Supabase и никогда не попадают в клиент.
+
+> Раньше использовался Cloudflare R2; миграция исторических объектов выполняется через страницу `/admin/storage-migration`. После переноса всех объектов R2-секреты можно отозвать. Подробности — в разделе «Перенос с Cloudflare R2 на Cloud.ru».
 
 ## Быстрый старт
 
@@ -40,11 +42,11 @@ npm run preview
 | `VITE_SUPABASE_URL`      | Базовый URL Supabase (REST/Auth/Functions/RT) | да          |
 | `VITE_SUPABASE_ANON_KEY` | Публичный anon-ключ Supabase                  | да          |
 
-Валидация в [src/shared/config/env.ts](src/shared/config/env.ts). Для R2
-никаких дополнительных `VITE_*`-переменных не нужно: URL Edge Function
-`sign` собирается из `VITE_SUPABASE_URL` внутри
-`supabase.functions.invoke`, а все R2-секреты хранятся в Supabase
-(см. секцию «Cloudflare R2 signer»).
+Валидация в [src/shared/config/env.ts](src/shared/config/env.ts). Для
+объектного хранилища никаких дополнительных `VITE_*`-переменных не нужно:
+URL Edge Function `sign` собирается из `VITE_SUPABASE_URL` внутри
+`supabase.functions.invoke`, а все секреты Cloud.ru S3 хранятся в Supabase
+(см. секцию «Cloud.ru Object Storage signer»).
 
 В production `VITE_SUPABASE_URL` указывает на reverse proxy
 `https://proapi.fvds.ru:8443/supabase-ivy`, который проксирует REST
@@ -114,23 +116,25 @@ where id = (select id from auth.users where email = 'admin@example.com');
 - **reports** — читать может админ или активный пользователь, состоящий в проекте; вставка только если `author_id = auth.uid()`, пользователь состоит в `project_id`, **и** `plan_id` (если задан) принадлежит тому же проекту; редактирование/удаление — только админ (MVP).
 - **report_plan_marks / report_photos** — доступ наследуется от родительского отчёта; вставка разрешена автору отчёта. Для `report_plan_marks` дополнительно проверяется, что `plan_id` принадлежит проекту этого отчёта (защита от подмены плана).
 
-## Cloudflare R2 signer
+## Cloud.ru Object Storage signer
 
-Bucket R2 приватный. Фронтенд **никогда** не получает ни service_role
-Supabase, ни ключи R2 — подпись короткоживущих presigned URL делает
+Bucket Cloud.ru приватный. Фронтенд **никогда** не получает ни service_role
+Supabase, ни ключи к S3 — подпись короткоживущих presigned URL делает
 **Supabase Edge Function** [supabase/functions/sign/](supabase/functions/sign/).
-Отдельный Cloudflare Worker больше не нужен.
+
+Cloud.ru Object Storage полностью S3-совместим: endpoint
+`https://s3.cloud.ru`, регион `ru-central-1`, подпись AWS Signature V4.
+Подробности API — в [официальной документации](https://cloud.ru/docs/s3e/ug/topics/api__getting-started?source-platform=Evolution).
 
 Схема:
 
 ```
 Browser/PWA  ── supabase.functions.invoke('sign') ──►  Edge Function sign
-                                                        verify JWT (Supabase Gateway)
-                                                        supabase.auth.getUser()
+                                                        verify JWT (supabase.auth.getUser)
                                                         RLS-проверки через supabase-js
                                                         SigV4 presign (aws4fetch)
-                                                        ◄─── { url, method, headers, expiresAt }
-Browser  ── PUT/GET ──►  Cloudflare R2 (приватный bucket)
+                                                        ◄─── { url, method, headers, expiresAt, provider }
+Browser  ── PUT/GET ──►  https://s3.cloud.ru/<bucket>/...
 ```
 
 Object keys (детерминированные, client-generated UUID):
@@ -141,6 +145,18 @@ photos/{reportId}/{photoId}-thumb.jpg
 plans/{projectId}/{planId}.pdf
 ```
 
+### Получение ключей доступа Cloud.ru
+
+1. В личном кабинете [cloud.ru](https://cloud.ru) включите сервис **Object
+   Storage** и создайте бакет (например `stroyfoto`).
+2. Создайте персональный или сервисный ключ доступа (Key ID + Key Secret).
+3. Возьмите идентификатор тенанта (показан над списком бакетов).
+4. Настройте CORS на бакете (см. ниже).
+
+> Cloud.ru использует составной accessKeyId формата
+> `<tenant_id>:<key_id>` — Edge Function собирает его автоматически из
+> переменных `CLOUDRU_TENANT_ID` и `CLOUDRU_KEY_ID`.
+
 ### Деплой Edge Function
 
 ```bash
@@ -148,17 +164,30 @@ plans/{projectId}/{planId}.pdf
 supabase login
 supabase link --project-ref <your-project-ref>
 
-# 2. Положить секреты R2 (один раз). SUPABASE_URL / SUPABASE_ANON_KEY
+# 2. Положить секреты Cloud.ru (один раз). SUPABASE_URL / SUPABASE_ANON_KEY
 #    задавать НЕ нужно — их Supabase инжектит сам. Префикс SUPABASE_
 #    зарезервирован.
+supabase secrets set \
+  CLOUDRU_TENANT_ID=xxxxxxxx \
+  CLOUDRU_KEY_ID=xxxxxxxx \
+  CLOUDRU_KEY_SECRET=xxxxxxxx \
+  CLOUDRU_BUCKET=stroyfoto \
+  ALLOWED_ORIGINS=https://stroyfoto.app,http://localhost:5173
+
+# Опционально (значения по умолчанию):
+#   CLOUDRU_ENDPOINT=https://s3.cloud.ru
+#   CLOUDRU_REGION=ru-central-1
+
+# 3. На время миграции исторических данных дополнительно задайте секреты R2.
+#    Edge Function использует их ТОЛЬКО для GET (через провайдер 'r2') и
+#    только для администратора.
 supabase secrets set \
   R2_ACCOUNT_ID=xxxxxxxx \
   R2_ACCESS_KEY_ID=xxxxxxxx \
   R2_SECRET_ACCESS_KEY=xxxxxxxx \
-  R2_BUCKET=stroyfoto \
-  ALLOWED_ORIGINS=https://stroyfoto.app,http://localhost:5173
+  R2_BUCKET=stroyfoto
 
-# 3. Задеплоить функцию
+# 4. Задеплоить функцию
 supabase functions deploy sign
 ```
 
@@ -170,26 +199,46 @@ supabase functions deploy sign
 
 ```bash
 supabase functions serve sign
-# + в ./supabase/.env.local положить R2_* и ALLOWED_ORIGINS
+# + в ./supabase/.env.local положить CLOUDRU_*, ALLOWED_ORIGINS
+# (опционально R2_* для миграции)
 ```
 
-### CORS на R2
+### CORS на Cloud.ru S3
 
-CORS на R2 bucket настройте на тот же origin фронтенда (для PUT/GET
-напрямую в `*.r2.cloudflarestorage.com` из браузера). Минимальный
-пример правил R2 CORS:
+CORS на бакете Cloud.ru настройте на тот же origin фронтенда. В личном
+кабинете Cloud.ru → Permissions → CORS Rules добавьте правило:
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://stroyfoto.app", "http://localhost:5173"],
-    "AllowedMethods": ["GET", "PUT"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3000
-  }
-]
-```
+| Поле                | Значение                                                 |
+| ------------------- | -------------------------------------------------------- |
+| Источники           | `https://stroyfoto.app`, `http://localhost:5173`         |
+| HTTP-методы         | `GET`, `PUT`, `DELETE`, `HEAD`                           |
+| Заголовки запроса   | `*`                                                      |
+| Заголовки ответа    | `ETag`                                                   |
+| Время кэширования   | `3000`                                                   |
+
+Через API то же самое можно сделать методом `PutBucketCors` (XML).
+
+### Перенос с Cloudflare R2 на Cloud.ru
+
+Раньше файлы лежали в приватном Cloudflare R2. После применения миграции
+[supabase/migrations/20260501_cloudru_storage.sql](supabase/migrations/20260501_cloudru_storage.sql)
+у таблиц `report_photos` и `plans` появляется колонка `storage` со
+значениями `'r2'` (исторические объекты) или `'cloudru'` (новые).
+
+Чтобы перенести существующие объекты:
+
+1. Зайдите в приложение администратором.
+2. Откройте раздел **Перенос на Cloud.ru** (`/admin/storage-migration`).
+3. Нажмите «Запустить миграцию» — для каждой строки с `storage='r2'`
+   страница скачает файл из Cloudflare R2 и зальёт его в Cloud.ru с тем
+   же object key, после чего поменяет `storage` на `'cloudru'`.
+4. Когда счётчик «Осталось переехать» обнулится, можно отозвать секреты
+   R2 (`supabase secrets unset R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET`)
+   и выпилить ветку `provider==='r2'` из Edge Function.
+
+Миграция идемпотентна: повторный запуск перенесёт только то, что не
+успело пройти, а уже скопированные объекты будут пропущены (записи в
+БД с `storage='cloudru'`).
 
 ## Структура проекта
 
@@ -207,7 +256,7 @@ src/
 supabase/
 ├── schema.sql       # единый SQL-скрипт: схема, триггеры, RLS, RPC
 ├── config.toml      # конфиг Supabase CLI (секция [functions.sign])
-└── functions/sign/  # Edge Function: presigned R2 URLs (SigV4 через aws4fetch)
+└── functions/sign/  # Edge Function: presigned URLs Cloud.ru S3 / R2 (SigV4 через aws4fetch)
 ```
 
 ## Маршруты
@@ -230,7 +279,9 @@ supabase/
 - `/admin/users` — пользователи
 - `/admin/projects` — проекты
 - `/admin/work-types` — виды работ
+- `/admin/work-assignments` — назначения работ
 - `/admin/performers` — подрядчики и собственные силы
+- `/admin/storage-migration` — перенос файлов с Cloudflare R2 на Cloud.ru S3
 
 Guard'ы (`src/app/router/guards.tsx`):
 - `RequireGuest` — пускает только неавторизованных
@@ -410,28 +461,31 @@ Retention (локальное хранение):
 - [ ] `/settings` → «Не хранить историю локально» → после синка
       всё чистится, но ни один pending/failed отчёт не пропадает
 
-Edge Function `sign` (R2 signer):
+Edge Function `sign` (Cloud.ru S3 signer):
 
 - [ ] `supabase functions deploy sign` прошёл без ошибок, секреты
-      `R2_*` заданы через `supabase secrets set`
+      `CLOUDRU_*` заданы через `supabase secrets set`
 - [ ] Фронт на dev-сервере успешно получает presigned URL и
-      заливает фото в R2
+      заливает фото в Cloud.ru (`https://s3.cloud.ru/<bucket>/...`)
 - [ ] `supabase functions logs sign` показывает запросы с 200-м
       статусом и без trace-ошибок
 - [ ] Попытка вызвать функцию без Bearer JWT возвращает 401
 - [ ] Попытка подписать `reportId`, к которому нет доступа, возвращает 403
+- [ ] Запрос с `provider:'r2'` под обычным юзером возвращает 403,
+      под админом — 200 (только для GET; PUT в R2 запрещён всегда)
 
 ## PWA — поведение оффлайн
 
 App shell, JS/CSS, иконки и PDF.js-воркер кэшируются Workbox'ом. Дополнительно настроен `runtimeCaching`:
 
 - **Supabase REST/Auth** — `NetworkFirst` (4с timeout, TTL 24ч). При оффлайне отдаётся кэш последнего успешного ответа, при сети — всегда свежие данные.
-- **Изображения R2** — `CacheFirst` (TTL 30 дней). Превью и фото уже просмотренных отчётов остаются доступны без сети.
+- **Изображения Cloud.ru S3 / R2** — `CacheFirst` (TTL 30 дней). Превью и фото уже просмотренных отчётов остаются доступны без сети. Шаблон URL покрывает `s3.cloud.ru` (текущий провайдер) и `*.r2.cloudflarestorage.com` / `*.r2.dev` (исторические объекты до миграции).
 
 Бизнес-данные (отчёты, фото, метки, черновики) живут в IndexedDB и не зависят от SW-кэша. Любая операция сначала пишется локально, потом фоновая очередь её отправляет.
 
 ## Деплой
 
 - **Frontend**: `npm run build` → `dist/` можно раздавать с любого статик-хостинга (Cloudflare Pages, Netlify, Vercel, S3+CF). Важна корректная настройка SPA-fallback на `index.html`.
-- **Edge Function `sign`**: `supabase functions deploy sign`. Перед деплоем задать секреты `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `ALLOWED_ORIGINS` через `supabase secrets set`. `SUPABASE_URL` / `SUPABASE_ANON_KEY` задавать не нужно — платформа инжектит их автоматически. См. секцию «Cloudflare R2 signer».
-- **Supabase**: применить `supabase/schema.sql` + bootstrap первого админа (см. выше).
+- **Edge Function `sign`**: `supabase functions deploy sign`. Перед деплоем задать секреты `CLOUDRU_TENANT_ID`, `CLOUDRU_KEY_ID`, `CLOUDRU_KEY_SECRET`, `CLOUDRU_BUCKET`, `ALLOWED_ORIGINS` через `supabase secrets set`. На время миграции исторических объектов с R2 дополнительно задайте `R2_*` (после переноса можно отозвать). `SUPABASE_URL` / `SUPABASE_ANON_KEY` задавать не нужно — платформа инжектит их автоматически. См. секцию «Cloud.ru Object Storage signer».
+- **Supabase**: применить `supabase/schema.sql`, миграцию `supabase/migrations/20260501_cloudru_storage.sql` (добавляет колонку `storage` в `report_photos` / `plans`) + bootstrap первого админа (см. выше).
+- **Перенос данных**: после деплоя зайти администратором в `/admin/storage-migration` и нажать «Запустить миграцию» — приложение скопирует все объекты из R2 в Cloud.ru, а потом обновит колонку `storage` на `'cloudru'`.

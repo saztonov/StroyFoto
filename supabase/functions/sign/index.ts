@@ -1,8 +1,13 @@
 // Supabase Edge Function: выдаёт короткоживущие presigned URL к приватному
-// Cloudflare R2. Заменяет прежний Cloudflare Worker worker/.
+// объектному хранилищу. Поддерживается два провайдера:
+//   - 'cloudru' (по умолчанию) — Cloud.ru Object Storage (https://s3.cloud.ru),
+//     регион ru-central-1. Полностью S3-совместим, подпись AWS SigV4.
+//   - 'r2'     — Cloudflare R2. Используется только для миграции исторических
+//     данных (страница /admin/storage-migration). После переноса всех
+//     объектов R2-секреты можно удалить и вообще убрать ветку 'r2'.
 //
-// Все секреты R2 хранятся в Supabase (`supabase secrets set R2_*`) и никогда
-// не покидают функцию. SUPABASE_URL / SUPABASE_ANON_KEY инжектит сама
+// Все секреты хранилищ хранятся в Supabase (`supabase secrets set ...`) и
+// никогда не покидают функцию. SUPABASE_URL / SUPABASE_ANON_KEY инжектит сама
 // платформа — задавать их вручную не нужно (префикс SUPABASE_ зарезервирован).
 //
 // Auth делаем ВНУТРИ функции через supabaseClient.auth.getUser(): это реальный
@@ -24,6 +29,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.4
 
 type Op = 'put' | 'get' | 'delete'
 type Kind = 'photo' | 'photo_thumb' | 'plan'
+type Provider = 'cloudru' | 'r2'
 
 interface SignBody {
   op: Op
@@ -33,6 +39,7 @@ interface SignBody {
   projectId?: string
   planId?: string
   contentType?: string
+  provider?: Provider
 }
 
 interface SignedUrl {
@@ -40,6 +47,7 @@ interface SignedUrl {
   method: 'PUT' | 'GET' | 'DELETE'
   headers: Record<string, string>
   expiresAt: number
+  provider: Provider
 }
 
 const ALLOWED_CT = new Set(['image/jpeg', 'application/pdf'])
@@ -75,6 +83,73 @@ class HttpError extends Error {
 const TTL_PUT_GET = 60 * 5
 const TTL_DELETE = 60
 
+function envOptional(name: string): string | null {
+  const v = Deno.env.get(name)
+  return v && v.length > 0 ? v : null
+}
+
+function requireEnv(name: string): string {
+  const v = envOptional(name)
+  if (!v) throw new HttpError(500, `env ${name} not set`)
+  return v
+}
+
+/**
+ * Подписывает запрос к Cloud.ru S3 (https://s3.cloud.ru, ru-central-1).
+ *
+ * Cloud.ru S3 полностью S3-совместим: SigV4, регион ru-central-1, сервис s3.
+ * Особенность — accessKeyId формата `<tenant_id>:<key_id>` (для подписи
+ * это просто опаковая строка, aws4fetch обрабатывает её корректно).
+ */
+async function presignCloudRu(op: Op, key: string, contentType?: string): Promise<SignedUrl> {
+  const tenantId = requireEnv('CLOUDRU_TENANT_ID')
+  const keyId = requireEnv('CLOUDRU_KEY_ID')
+  const keySecret = requireEnv('CLOUDRU_KEY_SECRET')
+  const bucket = requireEnv('CLOUDRU_BUCKET')
+  const endpoint = envOptional('CLOUDRU_ENDPOINT') ?? 'https://s3.cloud.ru'
+  const region = envOptional('CLOUDRU_REGION') ?? 'ru-central-1'
+
+  const client = new AwsClient({
+    accessKeyId: `${tenantId}:${keyId}`,
+    secretAccessKey: keySecret,
+    service: 's3',
+    region,
+  })
+
+  const method: 'PUT' | 'GET' | 'DELETE' =
+    op === 'put' ? 'PUT' : op === 'get' ? 'GET' : 'DELETE'
+  const expires = op === 'delete' ? TTL_DELETE : TTL_PUT_GET
+
+  const url = `${endpoint.replace(/\/$/, '')}/${bucket}/${encodeURI(
+    key,
+  )}?X-Amz-Expires=${expires}`
+
+  const signedReq = await client.sign(
+    new Request(url, {
+      method,
+      headers:
+        op === 'put' && contentType ? { 'Content-Type': contentType } : undefined,
+    }),
+    { aws: { signQuery: true } },
+  )
+
+  const headers: Record<string, string> = {}
+  if (op === 'put' && contentType) headers['Content-Type'] = contentType
+
+  return {
+    url: signedReq.url,
+    method,
+    headers,
+    expiresAt: Math.floor(Date.now() / 1000) + expires,
+    provider: 'cloudru',
+  }
+}
+
+/**
+ * Подписывает запрос к Cloudflare R2. Используется только во время миграции —
+ * после переноса всех объектов на Cloud.ru эту ветку и переменные окружения
+ * R2_* можно удалить.
+ */
 async function presignR2(op: Op, key: string, contentType?: string): Promise<SignedUrl> {
   const accountId = requireEnv('R2_ACCOUNT_ID')
   const bucket = requireEnv('R2_BUCKET')
@@ -110,13 +185,14 @@ async function presignR2(op: Op, key: string, contentType?: string): Promise<Sig
     method,
     headers,
     expiresAt: Math.floor(Date.now() / 1000) + expires,
+    provider: 'r2',
   }
 }
 
-function requireEnv(name: string): string {
-  const v = Deno.env.get(name)
-  if (!v) throw new HttpError(500, `env ${name} not set`)
-  return v
+async function presign(provider: Provider, op: Op, key: string, contentType?: string): Promise<SignedUrl> {
+  if (provider === 'cloudru') return presignCloudRu(op, key, contentType)
+  if (provider === 'r2') return presignR2(op, key, contentType)
+  throw new HttpError(400, `unsupported provider: ${provider}`)
 }
 
 function validateBody(b: SignBody): void {
@@ -124,6 +200,9 @@ function validateBody(b: SignBody): void {
   if (!['put', 'get', 'delete'].includes(b.op)) throw new HttpError(400, 'bad op')
   if (!['photo', 'photo_thumb', 'plan'].includes(b.kind)) throw new HttpError(400, 'bad kind')
   if (typeof b.key !== 'string' || b.key.length > 256) throw new HttpError(400, 'bad key')
+  if (b.provider !== undefined && b.provider !== 'cloudru' && b.provider !== 'r2') {
+    throw new HttpError(400, 'bad provider')
+  }
   if (b.op === 'put') {
     if (!b.contentType || !ALLOWED_CT.has(b.contentType)) {
       throw new HttpError(400, 'contentType должен быть image/jpeg или application/pdf')
@@ -190,10 +269,20 @@ interface CheckArgs {
   bodyReportId?: string
   bodyProjectId?: string
   bodyPlanId?: string
+  provider: Provider
 }
 
 async function checkAccess(args: CheckArgs): Promise<void> {
-  const { parsed, bodyReportId, bodyProjectId, bodyPlanId } = args
+  const { parsed, bodyReportId, bodyProjectId, bodyPlanId, provider } = args
+
+  // Доступ к R2 разрешён только админу — это легаси-провайдер,
+  // используется исключительно во время миграции исторических объектов.
+  if (provider === 'r2') {
+    await requireAdmin(args.user)
+    if (args.op === 'put') {
+      throw new HttpError(403, 'PUT в R2 запрещён: новые объекты грузятся в Cloud.ru')
+    }
+  }
 
   if (parsed.kind === 'photo' || parsed.kind === 'photo_thumb') {
     if (!bodyReportId || bodyReportId !== parsed.parent) {
@@ -215,6 +304,18 @@ async function checkAccess(args: CheckArgs): Promise<void> {
   }
 
   throw new HttpError(400, 'unknown kind')
+}
+
+async function requireAdmin(user: VerifiedUser): Promise<void> {
+  const { data: prof, error: profErr } = await user.client
+    .from('profiles')
+    .select('role, is_active')
+    .eq('id', user.sub)
+    .maybeSingle()
+  if (profErr) throw new HttpError(502, `supabase profiles: ${profErr.message}`)
+  if (!prof || !prof.is_active || prof.role !== 'admin') {
+    throw new HttpError(403, 'операция доступна только администратору')
+  }
 }
 
 async function checkPhotoAccess(args: CheckArgs, reportId: string): Promise<void> {
@@ -336,6 +437,7 @@ Deno.serve(async (req) => {
     const body = (await req.json()) as SignBody
     validateBody(body)
 
+    const provider: Provider = body.provider ?? 'cloudru'
     const user = await authenticate(req)
 
     const parsed = parseKey(body.kind, body.key)
@@ -348,9 +450,10 @@ Deno.serve(async (req) => {
       bodyReportId: body.reportId,
       bodyProjectId: body.projectId,
       bodyPlanId: body.planId,
+      provider,
     })
 
-    const signed = await presignR2(body.op, body.key, body.contentType)
+    const signed = await presign(provider, body.op, body.key, body.contentType)
     return json(signed, 200, cors)
   } catch (e) {
     if (e instanceof HttpError) {

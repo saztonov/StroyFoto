@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   AppstoreOutlined,
+  CloudSyncOutlined,
   FileImageOutlined,
   ProfileOutlined,
   ScheduleOutlined,
@@ -31,6 +32,7 @@ export const adminNav: NavItem[] = [
   { key: 'admin-work-types', label: nav.adminWorkTypes, path: '/admin/work-types', icon: createElement(ToolOutlined) },
   { key: 'admin-work-assignments', label: nav.adminWorkAssignments, path: '/admin/work-assignments', icon: createElement(ScheduleOutlined) },
   { key: 'admin-performers', label: nav.adminPerformers, path: '/admin/performers', icon: createElement(TeamOutlined) },
+  { key: 'admin-storage-migration', label: nav.adminStorageMigration, path: '/admin/storage-migration', icon: createElement(CloudSyncOutlined) },
 ]
 
 /** Находит ключ активного пункта меню по текущему pathname. */

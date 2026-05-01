@@ -6,6 +6,7 @@ import {
   planKey,
   putToPresigned,
   requestPresigned,
+  type StorageProvider,
 } from '@/services/r2'
 
 export interface PlanRecord {
@@ -16,6 +17,12 @@ export interface PlanRecord {
   building: string | null
   section: string | null
   r2_key: string
+  /**
+   * Где лежит PDF-файл: `cloudru` (текущий активный провайдер) или `r2`
+   * (исторические объекты, до миграции). Поле необязательно для совместимости:
+   * если отсутствует — считаем 'cloudru'.
+   */
+  storage?: StorageProvider
   page_count: number | null
   uploaded_by: string | null
   created_at: string
@@ -31,7 +38,8 @@ export function planDisplayName(plan: Pick<PlanRecord, 'name' | 'floor' | 'build
 }
 
 /**
- * Загружает PDF-план в приватный R2 и регистрирует его в Supabase.
+ * Загружает PDF-план в приватный бакет Cloud.ru S3 и регистрирует его
+ * в Supabase. Все новые планы записываются с `storage='cloudru'`.
  */
 export async function uploadPlanPdf(
   file: File,
@@ -66,6 +74,7 @@ export async function uploadPlanPdf(
       section,
       r2_key: key,
       page_count: pageCount,
+      storage: 'cloudru',
     })
     .select('*')
     .single()
@@ -110,8 +119,9 @@ export async function updatePlan(
 }
 
 /**
- * Заменяет PDF-файл плана. R2 key остаётся прежним (перезапись),
- * IDB-кэш инвалидируется.
+ * Заменяет PDF-файл плана. Объект всегда перезаписывается в Cloud.ru:
+ * если ранее план был в R2, после замены он окажется в Cloud.ru, поэтому
+ * `storage` обновляется на 'cloudru'.
  */
 export async function replacePlanFile(
   plan: PlanRecord,
@@ -128,10 +138,9 @@ export async function replacePlanFile(
   })
   await putToPresigned(presigned, newFile)
 
-  // Обновляем page_count в БД
   const { data, error } = await supabase
     .from('plans')
-    .update({ page_count: pageCount })
+    .update({ page_count: pageCount, storage: 'cloudru' })
     .eq('id', plan.id)
     .select('*')
     .single()
@@ -145,8 +154,9 @@ export async function replacePlanFile(
 }
 
 /**
- * Удаляет план: сначала из БД, потом файл из R2, потом IDB-кэш.
- * Если план привязан к report_plan_marks (FK RESTRICT) — бросает понятную ошибку.
+ * Удаляет план: сначала из БД, потом файл из объектного хранилища, потом
+ * IDB-кэш. Если план привязан к report_plan_marks (FK RESTRICT) — бросает
+ * понятную ошибку.
  */
 export async function deletePlan(plan: PlanRecord): Promise<void> {
   // 1. Удаляем из БД (FK violation ловим)
@@ -161,7 +171,7 @@ export async function deletePlan(plan: PlanRecord): Promise<void> {
     throw new Error(`plans delete: ${error.message}`)
   }
 
-  // 2. Удаляем файл из R2 (best-effort)
+  // 2. Удаляем файл из объектного хранилища (best-effort).
   try {
     const presigned = await requestPresigned({
       op: 'delete',
@@ -169,10 +179,11 @@ export async function deletePlan(plan: PlanRecord): Promise<void> {
       key: plan.r2_key,
       projectId: plan.project_id,
       planId: plan.id,
+      provider: plan.storage ?? 'cloudru',
     })
     await fetch(presigned.url, { method: presigned.method, headers: presigned.headers })
   } catch {
-    // R2 cleanup — не блокируем
+    // cleanup — не блокируем
   }
 
   // 3. Чистим IDB-кэш
@@ -182,7 +193,8 @@ export async function deletePlan(plan: PlanRecord): Promise<void> {
 
 /**
  * Возвращает PDF-blob: сначала смотрит локальный кэш, иначе тянет через
- * presigned GET и сохраняет в `plans_cache` для офлайна.
+ * presigned GET и сохраняет в `plans_cache` для офлайна. Провайдер
+ * хранилища берётся из колонки `storage` (по умолчанию — 'cloudru').
  */
 export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
   const db = await getDB()
@@ -195,6 +207,7 @@ export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
     key: plan.r2_key,
     projectId: plan.project_id,
     planId: plan.id,
+    provider: plan.storage ?? 'cloudru',
   })
   const blob = await getFromPresigned(presigned)
   await db.put('plans_cache', { id: plan.id, blob, cachedAt: Date.now() })

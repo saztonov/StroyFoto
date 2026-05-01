@@ -41,6 +41,9 @@ const PerformersPage = lazy(() =>
 const WorkAssignmentsPage = lazy(() =>
   import('@/pages/admin/WorkAssignmentsPage').then((m) => ({ default: m.WorkAssignmentsPage })),
 )
+const StorageMigrationPage = lazy(() =>
+  import('@/pages/admin/StorageMigrationPage').then((m) => ({ default: m.StorageMigrationPage })),
+)
 
 function lazyPage(node: ReactNode) {
   return (
@@ -102,6 +105,7 @@ export const router = createBrowserRouter([
                   { path: '/admin/work-types', element: lazyPage(<WorkTypesPage />) },
                   { path: '/admin/work-assignments', element: lazyPage(<WorkAssignmentsPage />) },
                   { path: '/admin/performers', element: lazyPage(<PerformersPage />) },
+                  { path: '/admin/storage-migration', element: lazyPage(<StorageMigrationPage />) },
                 ],
               },
             ],

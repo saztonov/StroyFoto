@@ -54,6 +54,7 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
           building: plan.building ?? null,
           section: plan.section ?? null,
           r2_key: plan.r2_key,
+          storage: plan.storage ?? 'cloudru',
           page_count: plan.page_count,
           uploaded_by: null,
           created_at: plan.created_at,

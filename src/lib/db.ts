@@ -136,6 +136,12 @@ export interface RemoteReportSnapshot {
     width: number | null
     height: number | null
     takenAt: string | null
+    /**
+     * В каком хранилище лежат blob'ы. До миграции у исторических фото 'r2',
+     * после — 'cloudru'. Поле необязательное, чтобы старые снимки кэша
+     * (снятые до апдейта) не ломали загрузку — отсутствие читать как 'cloudru'.
+     */
+    storage?: 'cloudru' | 'r2'
   }>
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null
 }
@@ -168,6 +174,11 @@ export interface PhotoDeleteRecord {
   reportId: string
   r2Key: string
   thumbR2Key: string
+  /**
+   * Хранилище, в котором лежат blob'ы. Если поле отсутствует (старые
+   * записи) — считаем 'cloudru' (новые загрузки уходят туда).
+   */
+  storage?: 'cloudru' | 'r2'
 }
 
 /**

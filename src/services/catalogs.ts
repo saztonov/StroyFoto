@@ -20,6 +20,12 @@ export interface PlanRow {
   building: string | null
   section: string | null
   r2_key: string
+  /**
+   * Хранилище, в котором лежит PDF. Может отсутствовать в кэше старых
+   * снимков; читать как 'cloudru'. Заполняется из колонки `storage` таблицы
+   * `plans` (введена в миграции 20260501_cloudru_storage).
+   */
+  storage?: 'cloudru' | 'r2'
   page_count: number | null
   created_at: string
 }
@@ -301,7 +307,7 @@ export async function loadPerformers(forceRefresh = false): Promise<Performer[]>
 export async function loadPlansForProject(projectId: string): Promise<PlanRow[]> {
   const { data, error } = await supabase
     .from('plans')
-    .select('id,project_id,name,floor,r2_key,page_count,created_at')
+    .select('id,project_id,name,floor,r2_key,storage,page_count,created_at')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
   if (error) {

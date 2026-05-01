@@ -10,6 +10,7 @@ export const nav = {
   adminWorkTypes: 'Виды работ',
   adminWorkAssignments: 'Назначение работ',
   adminPerformers: 'Исполнители',
+  adminStorageMigration: 'Перенос на Cloud.ru',
 } as const
 
 export const actions = {
