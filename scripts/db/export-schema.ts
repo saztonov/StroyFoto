@@ -318,9 +318,9 @@ async function fetchSnapshot(
 
   const enumTypes = (
     await client.query<EnumTypeInfo>(
-      `SELECT n.nspname AS schema,
-              t.typname AS name,
-              array_agg(e.enumlabel ORDER BY e.enumsortorder) AS values
+      `SELECT n.nspname::text AS schema,
+              t.typname::text AS name,
+              array_agg(e.enumlabel::text ORDER BY e.enumsortorder) AS values
        FROM pg_type t
        JOIN pg_namespace n ON n.oid = t.typnamespace
        LEFT JOIN pg_enum e ON e.enumtypid = t.oid
