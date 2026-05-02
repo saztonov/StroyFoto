@@ -1,5 +1,13 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { z } from 'zod';
+
+// Загружаем server/.env независимо от текущей CWD.
+// server/src/config.ts → ../.env даёт server/.env;
+// в скомпилированном виде server/dist/config.js → ../.env тоже даёт server/.env.
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+loadDotenv({ path: path.resolve(moduleDir, '../.env') });
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),

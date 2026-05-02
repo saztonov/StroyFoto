@@ -228,7 +228,6 @@ server/
 
 db/migrations/          # SQL-миграции Yandex MDB (001_init.sql, …)
 scripts/db/             # apply-migrations.sh (npm run migrate:db)
-scripts/migrate-db/     # Supabase → Yandex: export/import CSV + validate
 ```
 
 ## Маршруты frontend

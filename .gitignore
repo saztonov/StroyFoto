@@ -42,6 +42,3 @@ Thumbs.db
 .env.production
 .env.*.local
 !.env.example
-
-# Миграция БД Supabase → Yandex MDB: CSV содержат email + password hashes
-scripts/migrate-db/exports/

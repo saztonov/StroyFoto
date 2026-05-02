@@ -1,6 +1,5 @@
 -- 001_init.sql
--- Чистая инициализация схемы StroyFoto для Yandex Managed PostgreSQL.
--- Без Supabase internals (auth.*, storage.*, realtime.*, vault.*, supabase_admin и т.п.).
+-- Инициализация схемы StroyFoto для Yandex Managed PostgreSQL.
 -- Права доступа реализуются на уровне backend (middleware/service), RLS не используется.
 
 BEGIN;
@@ -48,7 +47,7 @@ END;
 $$;
 
 -- ============================================================================
--- app_users: учётная запись (login + password). Заменяет Supabase auth.users.
+-- app_users: учётная запись (login + password).
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.app_users (

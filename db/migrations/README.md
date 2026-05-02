@@ -1,9 +1,7 @@
 # StroyFoto — миграции PostgreSQL
 
-Чистая схема для **Yandex Managed Service for PostgreSQL**. Без Supabase
-internals (`auth.*`, `storage.*`, `realtime.*`, `vault.*`, supabase ролей и
-расширений). Права доступа реализуются на уровне backend
-(middleware/service), RLS не используется.
+Схема для **Yandex Managed Service for PostgreSQL**. Права доступа
+реализуются на уровне backend (middleware/service), RLS не используется.
 
 ## Расположение
 
@@ -101,14 +99,6 @@ COMMIT;
 | Триггеры `set_updated_at` | `app_users`, `profiles`, `projects`, `plans`, `reports` |
 | Индексы | `profiles(role)`, `project_memberships(user_id)`, `plans(project_id)`, `reports(project_id, created_at desc)`, `reports(author_id)`, `report_photos(report_id)`, `report_plan_marks(plan_id)`, уникальные `lower(projects.name)`, `report_plan_marks(report_id)` |
 | Constraints | `storage IN ('cloudru','r2')`, `page_count > 0 OR null`, `width/height > 0 OR null`, `report_plan_marks.page > 0`, `x_norm/y_norm ∈ [0,1]`, уникальные `(performers.kind, performers.name)`, `work_types.name`, `work_assignments.name` |
-
-## Совместимость с frontend
-
-Все имена колонок (включая `r2_key`, `thumb_r2_key`, `storage`, `project_id`,
-`work_type_id`, `work_assignment_id`, `performer_id`, `author_id`,
-`uploaded_by`) сохранены **идентично текущей схеме Supabase**, чтобы
-frontend-сервисы (`src/services/*`) можно было перенацелить на новый API
-без изменения SQL-имён.
 
 ## Откат
 
