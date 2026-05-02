@@ -24,7 +24,10 @@ function profileFromResponse(p: SessionResponse['profile']): Profile {
   }
 }
 
-async function applySession(data: SessionResponse): Promise<Profile> {
+async function applySession(
+  data: SessionResponse,
+  options: { persistent: boolean },
+): Promise<Profile> {
   setAccessToken(data.session.access_token, data.session.expires_at)
   if (data.session.refresh_token) {
     await saveAuthSession({
@@ -32,6 +35,7 @@ async function applySession(data: SessionResponse): Promise<Profile> {
       email: data.session.user.email,
       refreshToken: data.session.refresh_token,
       refreshExpiresAt: Date.now() + REFRESH_TTL_MS,
+      persistent: options.persistent,
     })
   }
   const profile = profileFromResponse(data.profile)
@@ -47,13 +51,14 @@ export interface AuthResult {
 export async function signInWithEmail(
   email: string,
   password: string,
+  rememberMe = false,
 ): Promise<AuthResult> {
   const data = await apiFetch<SessionResponse>('/api/auth/login', {
     method: 'POST',
     body: { email: email.trim(), password },
     auth: false,
   })
-  const profile = await applySession(data)
+  const profile = await applySession(data, { persistent: rememberMe })
   return { user: data.session.user, profile }
 }
 
@@ -71,7 +76,9 @@ export async function signUpWithEmail(
     },
     auth: false,
   })
-  const profile = await applySession(data)
+  // Регистрация → персистентная сессия: после неё ждём активации, перелогин
+  // на каждое открытие был бы лишним.
+  const profile = await applySession(data, { persistent: true })
   return { user: data.session.user, profile }
 }
 
@@ -110,7 +117,11 @@ export async function restoreSession(): Promise<AuthResult | null> {
       auth: false,
       skipRefresh: true,
     })
-    const profile = await applySession(data)
+    // Сохраняем тот же режим, что был у исходной записи. Старые записи без
+    // поля persistent трактуем как persistent: true (обратная совместимость).
+    const profile = await applySession(data, {
+      persistent: stored.persistent ?? true,
+    })
     return { user: data.session.user, profile }
   } catch {
     await clearAuthSession()

@@ -304,6 +304,7 @@ async function tick() {
     return
   }
   running = true
+  let pushedAny = false
   setSnapshot({ state: 'syncing' })
   try {
     const db = await getDB()
@@ -322,6 +323,7 @@ async function tick() {
 
       const result = await processOp(next)
       if (result.done) {
+        pushedAny = true
         if (next.id != null) await db.delete('sync_queue', next.id)
         // После успеха проверяем, можно ли агрегированно пометить отчёт synced.
         const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
@@ -386,8 +388,11 @@ async function tick() {
       }
     }
     setSnapshot({ state: 'idle' })
-    // После успешного push уведомляем UI и другие вкладки.
-    emitReportsChanged()
+    // Уведомляем UI и другие вкладки только если в этом тике реально что-то
+    // было успешно отправлено. Иначе пустые тики раз в 30с зря дёргали список.
+    if (pushedAny) {
+      emitReportsChanged()
+    }
   } catch (e) {
     setSnapshot({ state: 'error', lastError: e instanceof Error ? e.message : String(e) })
   } finally {

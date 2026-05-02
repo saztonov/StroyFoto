@@ -99,6 +99,9 @@ async function tryRefresh(): Promise<boolean> {
           email: data.session.user.email,
           refreshToken: data.session.refresh_token,
           refreshExpiresAt,
+          // Прозрачный refresh не должен «повышать» session-only токен
+          // до персистентного. Старые записи без поля считаем persistent: true.
+          persistent: session.persistent ?? true,
         })
       }
       setAccessToken(data.session.access_token, data.session.expires_at)

@@ -6,7 +6,6 @@ import {
   DatePicker,
   Empty,
   Flex,
-  Input,
   Row,
   Segmented,
   Select,
@@ -104,8 +103,17 @@ export function ReportsListPage() {
 
   const [projectId, setProjectId] = useState<string | null>(null)
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [workTypeQuery, setWorkTypeQuery] = useState('')
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([])
+  const [workTypeIds, setWorkTypeIds] = useState<string[]>([])
   const [viewMode, setViewMode] = useState<'date' | 'performer'>('date')
+
+  const monthOptions = useMemo(() => {
+    const now = dayjs()
+    return [0, 1, 2].map((delta) => {
+      const m = now.subtract(delta, 'month')
+      return { key: m.format('YYYY-MM'), label: m.format('MMMM YYYY') }
+    })
+  }, [])
 
   const reload = useCallback(() => {
     void loadMergedReports()
@@ -167,25 +175,31 @@ export function ReportsListPage() {
   )
 
   const filtered = useMemo(() => {
-    const q = workTypeQuery.trim().toLowerCase()
+    const monthSet = new Set(selectedMonths)
+    const workTypeSet = new Set(workTypeIds)
     const from = range?.[0]?.startOf('day').valueOf() ?? null
     const to = range?.[1]?.endOf('day').valueOf() ?? null
     return reports.filter((r) => {
       if (projectId && r.projectId !== projectId) return false
+      if (monthSet.size > 0) {
+        const m = r.createdAt.slice(0, 7)
+        if (!monthSet.has(m)) return false
+      }
       if (from != null || to != null) {
-        const t = new Date(r.createdAt).getTime()
+        const t = Date.parse(r.createdAt)
         if (from != null && t < from) return false
         if (to != null && t > to) return false
       }
-      if (q) {
-        const wt = workTypesById.get(r.workTypeId)
-        if (!wt || !wt.name.toLowerCase().includes(q)) return false
-      }
+      if (workTypeSet.size > 0 && !workTypeSet.has(r.workTypeId)) return false
       return true
     })
-  }, [reports, projectId, range, workTypeQuery, workTypesById])
+  }, [reports, projectId, selectedMonths, range, workTypeIds])
 
-  const hasFilters = projectId != null || range != null || workTypeQuery !== ''
+  const hasFilters =
+    projectId != null ||
+    selectedMonths.length > 0 ||
+    range != null ||
+    workTypeIds.length > 0
 
   const groupedByPerformer = useMemo(() => {
     const map = new Map<string, { performer: Performer | null; reports: ReportCard[] }>()
@@ -214,7 +228,7 @@ export function ReportsListPage() {
         }
       />
 
-      <Flex gap={8} wrap="wrap" style={{ marginBottom: 16 }}>
+      <Flex gap={8} wrap="wrap" align="center" style={{ marginBottom: 16 }}>
         <Segmented
           value={viewMode}
           onChange={(v) => setViewMode(v as 'date' | 'performer')}
@@ -231,25 +245,48 @@ export function ReportsListPage() {
           onChange={(v) => setProjectId(v ?? null)}
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
         />
+        <Space size={6} wrap>
+          {monthOptions.map((m) => (
+            <Tag.CheckableTag
+              key={m.key}
+              checked={selectedMonths.includes(m.key)}
+              onChange={(checked) => {
+                setSelectedMonths((prev) =>
+                  checked ? [...prev, m.key] : prev.filter((x) => x !== m.key),
+                )
+              }}
+            >
+              {m.label}
+            </Tag.CheckableTag>
+          ))}
+        </Space>
         <DatePicker.RangePicker
           value={range as never}
           onChange={(v) => setRange(v as [Dayjs | null, Dayjs | null] | null)}
           format="DD.MM.YYYY"
           placeholder={[reportsList.filterDateRange, '']}
         />
-        <Input.Search
-          placeholder={reportsList.filterWorkType}
+        <Select
+          mode="multiple"
           allowClear
-          value={workTypeQuery}
-          onChange={(e) => setWorkTypeQuery(e.target.value)}
-          style={{ minWidth: 220, maxWidth: 320 }}
+          showSearch
+          placeholder={reportsList.filterWorkType}
+          style={{ minWidth: 220, maxWidth: 420 }}
+          value={workTypeIds}
+          onChange={(v) => setWorkTypeIds(v)}
+          filterOption={(input, option) =>
+            String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+          }
+          options={workTypes.map((w) => ({ value: w.id, label: w.name }))}
+          maxTagCount="responsive"
         />
         {hasFilters && (
           <Button
             onClick={() => {
               setProjectId(null)
+              setSelectedMonths([])
               setRange(null)
-              setWorkTypeQuery('')
+              setWorkTypeIds([])
             }}
           >
             {reportsList.filterReset}

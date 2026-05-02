@@ -193,6 +193,10 @@ export interface AuthSessionRecord {
   refreshToken: string
   refreshExpiresAt: number // ms epoch
   savedAt: number
+  // true — храним в IDB (auth_session) для автологина после закрытия браузера;
+  // false — в sessionStorage, сессия живёт только до закрытия вкладки.
+  // Опционально: старые записи без поля считаются persistent: true.
+  persistent?: boolean
 }
 
 interface StroyFotoDB extends DBSchema {
