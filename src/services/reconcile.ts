@@ -7,10 +7,24 @@
  * отчётов показывали актуальные данные.
  */
 
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import { getDB, type RemoteReportSnapshot } from '@/lib/db'
 import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
 import { emitReportsChanged, emitCatalogsChanged } from '@/services/invalidation'
+
+interface RemoteReportRow {
+  id: string
+  project_id: string
+  work_type_id: string
+  performer_id: string
+  work_assignment_id: string | null
+  plan_id: string | null
+  description: string | null
+  taken_at: string | null
+  author_id: string
+  created_at: string
+  updated_at: string | null
+}
 
 let reconciling = false
 
@@ -49,29 +63,31 @@ export async function reconcile(): Promise<void> {
  * удаляет zombie-кэш (отчёты, пропавшие из серверного ответа).
  */
 async function reconcileReports(): Promise<void> {
-  const { data, error } = await supabase
-    .from('reports')
-    .select('id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at')
-    .order('created_at', { ascending: false })
-    .limit(500)
-  if (error) throw error
-  if (!data) return
+  const resp = await apiFetch<{ items: RemoteReportRow[] }>(
+    '/api/reports?limit=500',
+  )
+  const data = resp.items
+  if (!data || data.length === 0) {
+    // Всё равно прогоняем zombie-cleanup: возможно, на сервере действительно ничего нет.
+  }
 
   const db = await getDB()
   const serverIds = new Set<string>()
 
-  // Batch resolve author names через новый RPC
+  // Batch resolve author names через /api/author-names
   const authorIds = [...new Set(data.map((r) => r.author_id))]
   const authorNames = new Map<string, string | null>()
-  try {
-    const { data: names } = await supabase.rpc('get_author_names', { p_author_ids: authorIds })
-    if (names) {
-      for (const row of names as Array<{ author_id: string; full_name: string }>) {
+  if (authorIds.length > 0) {
+    try {
+      const namesResp = await apiFetch<{
+        names: Array<{ author_id: string; full_name: string | null }>
+      }>('/api/author-names', { method: 'POST', body: { ids: authorIds } })
+      for (const row of namesResp.names) {
         authorNames.set(row.author_id, row.full_name)
       }
+    } catch {
+      // fallback: оставим null
     }
-  } catch {
-    // fallback: оставим null
   }
 
   // Шаг 1: одной readonly-транзакцией собираем существующие photos/mark

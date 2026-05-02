@@ -193,6 +193,19 @@ export interface MarkUpdateRecord {
   yNorm: number | null
 }
 
+/**
+ * Сохранённая сессия после логина. Хранится только refresh-токен —
+ * access-токен живёт в памяти (XSS-резистентность).
+ */
+export interface AuthSessionRecord {
+  key: 'session'
+  userId: string
+  email: string
+  refreshToken: string
+  refreshExpiresAt: number // ms epoch
+  savedAt: number
+}
+
 interface StroyFotoDB extends DBSchema {
   reports: {
     key: string
@@ -251,6 +264,10 @@ interface StroyFotoDB extends DBSchema {
     key: string
     value: MarkUpdateRecord
   }
+  auth_session: {
+    key: string
+    value: AuthSessionRecord
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
@@ -281,7 +298,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 86
+const DB_VERSION = 87
 
 export function getDB() {
   if (!dbPromise) {
@@ -329,6 +346,9 @@ export function getDB() {
         // v4 stores — edit photos/marks
         ensureStore(db, 'photo_deletes', { keyPath: 'id' }, tx)
         ensureStore(db, 'mark_updates', { keyPath: 'reportId' }, tx)
+
+        // v87 — auth_session: refresh-токен после миграции на собственный backend
+        ensureStore(db, 'auth_session', { keyPath: 'key' }, tx)
 
         const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' }, tx)
         if (remoteNew) {

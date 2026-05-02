@@ -1,58 +1,78 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ReactNode } from 'react'
-import type { Session, User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
-import { loadProfile, mapAuthError, signOut as doSignOut } from '@/services/auth'
+import {
+  loadProfile,
+  mapAuthError,
+  restoreSession,
+  signOut as doSignOut,
+} from '@/services/auth'
 import type { Profile } from '@/entities/profile/types'
+import { setOnUnauthorized } from '@/lib/apiClient'
 import { startSyncLoop, stopSyncLoop } from '@/services/sync'
 import { applyRetention } from '@/services/retention'
 import { startInvalidation, stopInvalidation } from '@/services/invalidation'
 import { getCachedProfile, clearCachedProfile } from '@/services/profileCache'
 
+export interface AuthSessionUser {
+  id: string
+  email: string
+}
+
 interface AuthContextValue {
-  session: Session | null
-  user: User | null
+  user: AuthSessionUser | null
   profile: Profile | null
   /** true пока не известно, авторизован ли пользователь, либо профиль ещё грузится. */
   loading: boolean
-  /** Сообщение об ошибке загрузки профиля (сеть/RLS). null если профиль ок. */
+  /** Сообщение об ошибке загрузки профиля. null если профиль ок. */
   profileError: string | null
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  /** Вызывается из формы логина после успешного login/register. */
+  setLocalSession: (user: AuthSessionUser, profile: Profile) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null)
+  const [user, setUser] = useState<AuthSessionUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
 
   const mounted = useRef(true)
-  // Запоминаем id пользователя, для которого уже загружен профиль, чтобы
-  // не дублировать запрос при INITIAL_SESSION после getSession().
   const loadedForUserId = useRef<string | null>(null)
+
+  const teardown = useCallback(async () => {
+    setUser(null)
+    setProfile(null)
+    loadedForUserId.current = null
+    setProfileError(null)
+    stopSyncLoop()
+    stopInvalidation()
+    void clearCachedProfile()
+  }, [])
 
   const fetchProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
     setProfileError(null)
-    // Резервируем слот до await'а, чтобы параллельные вызовы могли увидеть,
-    // что профиль уже запрашивается именно для этого userId.
     loadedForUserId.current = userId
     try {
       const p = await loadProfile(userId)
       if (!mounted.current) return
-      // За время await сессия могла смениться (другой user залогинился
-      // или произошёл logout). В этом случае молча игнорируем результат.
       if (loadedForUserId.current !== userId) return
       setProfile(p)
     } catch (e) {
       if (!mounted.current) return
       if (loadedForUserId.current !== userId) return
-
-      // Офлайн-fallback: пытаемся использовать кэшированный профиль из IDB
       try {
         const cached = await getCachedProfile()
         if (cached && cached.id === userId) {
@@ -60,9 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
       } catch {
-        // IDB тоже недоступна — fallthrough к стандартной ошибке
+        // IDB недоступна — fallthrough
       }
-
       setProfile(null)
       loadedForUserId.current = null
       setProfileError(mapAuthError(e))
@@ -73,95 +92,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const applySession = useCallback(
-    async (nextSession: Session | null) => {
-      setSession(nextSession)
-
-      if (!nextSession) {
-        setProfile(null)
-        loadedForUserId.current = null
-        setProfileError(null)
-        stopSyncLoop()
-        stopInvalidation()
-        void clearCachedProfile()
-        return
-      }
-
-      // Дедупликация: если профиль уже загружен для этого user.id — ничего не делаем.
-      if (loadedForUserId.current === nextSession.user.id) {
-        startSyncLoop()
-        startInvalidation(nextSession.user.id)
-        void applyRetention()
-        return
-      }
-
-      await fetchProfile(nextSession.user.id)
+  const setLocalSession = useCallback(
+    (nextUser: AuthSessionUser, nextProfile: Profile) => {
+      setUser(nextUser)
+      setProfile(nextProfile)
+      loadedForUserId.current = nextUser.id
+      setProfileError(null)
       startSyncLoop()
-      startInvalidation(nextSession.user.id)
+      startInvalidation(nextUser.id)
       void applyRetention()
     },
-    [fetchProfile],
+    [],
   )
 
+  const handleSignOut = useCallback(async () => {
+    try {
+      await doSignOut()
+    } finally {
+      await teardown()
+    }
+  }, [teardown])
+
+  // На любой 401 от любого fetch — выкидываем пользователя.
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      void teardown()
+    })
+    return () => setOnUnauthorized(() => {})
+  }, [teardown])
+
+  // Старт: пробуем восстановить сессию из refresh-токена.
   useEffect(() => {
     mounted.current = true
     let cancelled = false
 
     void (async () => {
       try {
-        const { data } = await supabase.auth.getSession()
-        if (cancelled) return
-        await applySession(data.session ?? null)
+        const restored = await restoreSession()
+        if (cancelled || !mounted.current) return
+        if (restored) {
+          setUser(restored.user)
+          setProfile(restored.profile)
+          loadedForUserId.current = restored.user.id
+          startSyncLoop()
+          startInvalidation(restored.user.id)
+          void applyRetention()
+        }
       } finally {
         if (!cancelled) setSessionLoading(false)
       }
     })()
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void applySession(nextSession)
-    })
-
     return () => {
       cancelled = true
       mounted.current = false
-      sub.subscription.unsubscribe()
     }
-  }, [applySession])
+  }, [])
 
   const refreshProfile = useCallback(async () => {
-    if (!session) return
-    // Принудительно сбрасываем кэш дедупликации, чтобы повторный запрос ушёл.
+    if (!user) return
     loadedForUserId.current = null
-    await fetchProfile(session.user.id)
-  }, [session, fetchProfile])
+    await fetchProfile(user.id)
+  }, [user, fetchProfile])
 
-  // При возвращении сети — обновляем профиль с сервера (заменяет стейл-кэш).
+  // При возвращении сети — обновляем профиль с сервера.
   useEffect(() => {
     const handleOnline = () => {
-      if (session) void refreshProfile()
+      if (user) void refreshProfile()
     }
     window.addEventListener('online', handleOnline)
     return () => window.removeEventListener('online', handleOnline)
-  }, [session, refreshProfile])
-
-  const handleSignOut = useCallback(async () => {
-    // onAuthStateChange сам обнулит session/profile.
-    await doSignOut()
-  }, [])
+  }, [user, refreshProfile])
 
   const loading = sessionLoading || profileLoading
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      session,
-      user: session?.user ?? null,
+      user,
       profile,
       loading,
       profileError,
       signOut: handleSignOut,
       refreshProfile,
+      setLocalSession,
     }),
-    [session, profile, loading, profileError, handleSignOut, refreshProfile],
+    [user, profile, loading, profileError, handleSignOut, refreshProfile, setLocalSession],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

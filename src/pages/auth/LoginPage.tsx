@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
 import { mapAuthError, signInWithEmail } from '@/services/auth'
 import { actions, auth } from '@/shared/i18n/ru'
+import { useAuth } from '@/app/providers/AuthProvider'
 
 interface FormValues {
   email: string
@@ -11,6 +12,7 @@ interface FormValues {
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const { setLocalSession } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -18,7 +20,8 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      await signInWithEmail(values.email, values.password)
+      const result = await signInWithEmail(values.email, values.password)
+      setLocalSession(result.user, result.profile)
       navigate('/reports', { replace: true })
     } catch (e) {
       setError(mapAuthError(e))

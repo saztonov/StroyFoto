@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import {
   getFromPresigned,
   putToPresigned,
@@ -12,20 +12,21 @@ import {
  * ============================================================================
  *
  * Логика проста и идемпотентна:
- *  1. Найти в Supabase все строки `report_photos` / `plans` с `storage='r2'`.
+ *  1. Найти на backend все строки `report_photos` / `plans` с `storage='r2'`.
  *  2. Для каждой:
- *      - Запросить у Edge Function presigned GET (provider='r2'), скачать blob.
+ *      - Запросить у `/api/storage/presign` presigned GET (provider='r2'),
+ *        скачать blob.
  *      - Запросить presigned PUT (provider='cloudru'), залить blob в Cloud.ru.
- *      - Обновить колонку `storage` в Supabase на 'cloudru'.
+ *      - Обновить колонку `storage` через backend на 'cloudru'.
  *  3. Если что-то падает — оставляем `storage='r2'`, повторный запуск
  *     перенесёт оставшееся. Object key не меняется, так что повторная
  *     заливка просто перезапишет уже скопированный объект.
  *
- * Доступ к R2 разрешён в Edge Function только администратору и только
- * для GET (см. checkAccess в supabase/functions/sign/index.ts).
+ * Доступ к R2 разрешён в backend `/api/storage/presign` только администратору
+ * и только для GET (PUT в R2 запрещён всегда — см. presignService.ts).
  *
  * Миграция выполняется последовательно — экономим память на мобильных и не
- * отстреливаем себя rate-limit'ом Edge Function. Параллелизм можно поднять
+ * отстреливаем себя rate-limit'ом backend. Параллелизм можно поднять
  * аккуратной батч-обработкой, но MVP-цена/польза не стоит того.
  */
 
@@ -88,10 +89,15 @@ const PAGE_SIZE = 100
  * full + thumb, поэтому totalObjects ≠ totalRows).
  */
 export async function loadMigrationOverview(): Promise<MigrationStats> {
-  const [photos, plans] = await Promise.all([
-    countRowsByStorage('report_photos', 'r2'),
-    countRowsByStorage('plans', 'r2'),
-  ])
+  const data = await apiFetch<{
+    overview: {
+      photos_remaining: number
+      plans_remaining: number
+      photos_done: number
+      plans_done: number
+    }
+  }>('/api/storage-migration/overview')
+  const { photos_remaining: photos, plans_remaining: plans } = data.overview
   // Photo row → full + thumb (если thumb_r2_key задан, что норма для всех новых)
   // Plan row → 1 объект.
   return {
@@ -100,18 +106,6 @@ export async function loadMigrationOverview(): Promise<MigrationStats> {
     doneObjects: 0,
     errorObjects: 0,
   }
-}
-
-async function countRowsByStorage(
-  table: 'report_photos' | 'plans',
-  storage: StorageProvider,
-): Promise<number> {
-  const { count, error } = await supabase
-    .from(table)
-    .select('*', { count: 'exact', head: true })
-    .eq('storage', storage)
-  if (error) throw new Error(`${table} count: ${error.message}`)
-  return count ?? 0
 }
 
 /**
@@ -140,16 +134,17 @@ async function migratePhotos(
   abortSignal: AbortSignal,
 ): Promise<void> {
   while (!abortSignal.aborted) {
-    const { data, error } = await supabase
-      .from('report_photos')
-      .select('id, report_id, r2_key, thumb_r2_key, storage')
-      .eq('storage', 'r2')
-      .limit(PAGE_SIZE)
-    if (error) {
-      log(onProgress, stats, 'error', `report_photos page: ${error.message}`)
-      throw new Error(error.message)
+    let rows: PhotoRow[]
+    try {
+      const data = await apiFetch<{ items: PhotoRow[] }>(
+        `/api/storage-migration/photos?storage=r2&limit=${PAGE_SIZE}`,
+      )
+      rows = data.items
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log(onProgress, stats, 'error', `report_photos page: ${msg}`)
+      throw new Error(msg)
     }
-    const rows = (data as PhotoRow[] | null) ?? []
     if (rows.length === 0) return
 
     for (const row of rows) {
@@ -221,12 +216,10 @@ async function migrateOnePhoto(row: PhotoRow, abortSignal: AbortSignal): Promise
   }
 
   // 5. Помечаем строку как перенесённую
-  const { error } = await supabase
-    .from('report_photos')
-    .update({ storage: 'cloudru' })
-    .eq('id', row.id)
-    .eq('storage', 'r2') // защита от гонки
-  if (error) throw new Error(`update row: ${error.message}`)
+  await apiFetch(`/api/storage-migration/report-photos/${row.id}/storage`, {
+    method: 'PATCH',
+    body: { storage: 'cloudru', expected_storage: 'r2' },
+  })
 }
 
 async function migratePlans(
@@ -235,16 +228,17 @@ async function migratePlans(
   abortSignal: AbortSignal,
 ): Promise<void> {
   while (!abortSignal.aborted) {
-    const { data, error } = await supabase
-      .from('plans')
-      .select('id, project_id, r2_key, storage')
-      .eq('storage', 'r2')
-      .limit(PAGE_SIZE)
-    if (error) {
-      log(onProgress, stats, 'error', `plans page: ${error.message}`)
-      throw new Error(error.message)
+    let rows: PlanRow[]
+    try {
+      const data = await apiFetch<{ items: PlanRow[] }>(
+        `/api/storage-migration/plans?storage=r2&limit=${PAGE_SIZE}`,
+      )
+      rows = data.items
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log(onProgress, stats, 'error', `plans page: ${msg}`)
+      throw new Error(msg)
     }
-    const rows = (data as PlanRow[] | null) ?? []
     if (rows.length === 0) return
 
     for (const row of rows) {
@@ -286,12 +280,10 @@ async function migrateOnePlan(row: PlanRow, abortSignal: AbortSignal): Promise<v
   abortGuard(abortSignal)
   await putToPresigned(toCloud, blob)
 
-  const { error } = await supabase
-    .from('plans')
-    .update({ storage: 'cloudru' })
-    .eq('id', row.id)
-    .eq('storage', 'r2')
-  if (error) throw new Error(`update row: ${error.message}`)
+  await apiFetch(`/api/storage-migration/plans/${row.id}/storage`, {
+    method: 'PATCH',
+    body: { storage: 'cloudru', expected_storage: 'r2' },
+  })
 }
 
 function abortGuard(signal: AbortSignal): void {

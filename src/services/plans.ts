@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import { getDB } from '@/lib/db'
 import {
   getFromPresigned,
@@ -62,7 +62,7 @@ export function planRowToRecord(row: PlanRow): PlanRecord {
 
 /**
  * Загружает PDF-план в приватный бакет Cloud.ru S3 и регистрирует его
- * в Supabase. Все новые планы записываются с `storage='cloudru'`.
+ * через backend POST /api/plans. Все новые планы записываются с `storage='cloudru'`.
  */
 export async function uploadPlanPdf(
   file: File,
@@ -86,9 +86,9 @@ export async function uploadPlanPdf(
   })
   await putToPresigned(presigned, file)
 
-  const { data, error } = await supabase
-    .from('plans')
-    .insert({
+  const data = await apiFetch<{ plan: PlanRecord }>('/api/plans', {
+    method: 'POST',
+    body: {
       id: planId,
       project_id: projectId,
       name,
@@ -97,31 +97,21 @@ export async function uploadPlanPdf(
       section,
       r2_key: key,
       page_count: pageCount,
-      storage: 'cloudru',
-    })
-    .select('*')
-    .single()
-  if (error) throw new Error(`plans insert: ${error.message}`)
-  return data as PlanRecord
+    },
+  })
+  return data.plan
 }
 
 export async function listPlansForProject(projectId: string): Promise<PlanRecord[]> {
-  const { data, error } = await supabase
-    .from('plans')
-    .select('*')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as PlanRecord[]
+  const data = await apiFetch<{ plans: PlanRecord[] }>(
+    `/api/projects/${projectId}/plans`,
+  )
+  return data.plans
 }
 
 export async function listAllVisiblePlans(): Promise<PlanRecord[]> {
-  const { data, error } = await supabase
-    .from('plans')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as PlanRecord[]
+  const data = await apiFetch<{ plans: PlanRecord[] }>('/api/plans')
+  return data.plans
 }
 
 /**
@@ -131,14 +121,11 @@ export async function updatePlan(
   planId: string,
   updates: { name?: string; floor?: string | null; building?: string | null; section?: string | null },
 ): Promise<PlanRecord> {
-  const { data, error } = await supabase
-    .from('plans')
-    .update(updates)
-    .eq('id', planId)
-    .select('*')
-    .single()
-  if (error) throw new Error(`plans update: ${error.message}`)
-  return data as PlanRecord
+  const data = await apiFetch<{ plan: PlanRecord }>(`/api/plans/${planId}`, {
+    method: 'PATCH',
+    body: updates,
+  })
+  return data.plan
 }
 
 /**
@@ -161,19 +148,16 @@ export async function replacePlanFile(
   })
   await putToPresigned(presigned, newFile)
 
-  const { data, error } = await supabase
-    .from('plans')
-    .update({ page_count: pageCount, storage: 'cloudru' })
-    .eq('id', plan.id)
-    .select('*')
-    .single()
-  if (error) throw new Error(`plans update: ${error.message}`)
+  const data = await apiFetch<{ plan: PlanRecord }>(`/api/plans/${plan.id}`, {
+    method: 'PATCH',
+    body: { page_count: pageCount, storage: 'cloudru' },
+  })
 
   // Инвалидируем локальный кэш
   const db = await getDB()
   await db.delete('plans_cache', plan.id)
 
-  return data as PlanRecord
+  return data.plan
 }
 
 /**
@@ -182,16 +166,14 @@ export async function replacePlanFile(
  * понятную ошибку.
  */
 export async function deletePlan(plan: PlanRecord): Promise<void> {
-  // 1. Удаляем из БД (FK violation ловим)
-  const { error } = await supabase
-    .from('plans')
-    .delete()
-    .eq('id', plan.id)
-  if (error) {
-    if (error.code === '23503') {
+  // 1. Удаляем из БД (FK violation возвращает 422 PLAN_IN_USE)
+  try {
+    await apiFetch(`/api/plans/${plan.id}`, { method: 'DELETE' })
+  } catch (e) {
+    if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === 'PLAN_IN_USE') {
       throw new Error('Невозможно удалить план: к нему привязаны отметки отчётов. Удалите связанные отчёты и повторите.')
     }
-    throw new Error(`plans delete: ${error.message}`)
+    throw e
   }
 
   // 2. Удаляем файл из объектного хранилища (best-effort).

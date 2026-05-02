@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import { getDB, type LocalPhoto } from '@/lib/db'
 import {
   photoKey,
@@ -16,14 +16,14 @@ export interface UploadPhotoResult {
 /**
  * Загружает фото и его thumbnail в приватный бакет Cloud.ru S3 через
  * короткоживущие presigned URL, затем вставляет строку в `report_photos`
- * (RLS проверит автора). Все три шага идемпотентны:
+ * (авторизация на стороне backend). Все три шага идемпотентны:
  *   - object keys детерминированы от photo.id и report.id (UUID, client-gen),
  *     поэтому повторная загрузка перезапишет ровно те же объекты;
  *   - INSERT в report_photos идёт через upsert по PK, чтобы повторный sync
  *     после частичной ошибки не падал.
  *
- * Никаких секретов хранилища на клиенте: пресигнинг делает Supabase Edge
- * Function `sign`, см. supabase/functions/sign/.
+ * Никаких секретов хранилища на клиенте: presign делает backend
+ * `POST /api/storage/presign` (см. server/src/routes/presign.ts).
  */
 export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult> {
   if (!photo.thumbBlob) {
@@ -56,11 +56,9 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
   ])
 
   // storage='cloudru' — новый объект всегда уходит в Cloud.ru.
-  // Default колонки уже 'cloudru' (см. миграцию 20260501_cloudru_storage),
-  // но указываем явно — это самодокументирующая страховка.
-  const { error } = await supabase.from('report_photos').upsert(
-    {
-      id: photo.id,
+  await apiFetch(`/api/report-photos/${photo.id}`, {
+    method: 'PUT',
+    body: {
       report_id: photo.reportId,
       r2_key: r2Key,
       thumb_r2_key: thumbR2Key,
@@ -69,9 +67,7 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
       taken_at: photo.takenAt,
       storage: 'cloudru',
     },
-    { onConflict: 'id' },
-  )
-  if (error) throw new Error(`report_photos insert: ${error.message}`)
+  })
 
   return { r2Key, thumbR2Key }
 }
@@ -105,8 +101,7 @@ export async function deleteRemotePhoto(
     // cleanup в S3 упал — продолжаем удаление row
   }
 
-  const { error } = await supabase.from('report_photos').delete().eq('id', photoId)
-  if (error) throw new Error(`report_photos delete: ${error.message}`)
+  await apiFetch(`/api/report-photos/${photoId}`, { method: 'DELETE' })
 }
 
 export async function markPhotoSynced(

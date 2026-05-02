@@ -42,11 +42,6 @@ Thumbs.db
 .env.production
 .env.*.local
 !.env.example
-.env.example
 
-# CLI миграции хранилища: содержит service_role и секреты R2/Cloud.ru
-.env.migrate
-scripts/migrate-storage/.env.migrate
-migration-errors.jsonl
-scripts/migrate-storage/migration-errors.jsonl
-scripts/migrate-storage/.env.migrate.example
+# Миграция БД Supabase → Yandex MDB: CSV содержат email + password hashes
+scripts/migrate-db/exports/

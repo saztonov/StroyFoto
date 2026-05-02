@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Flex, Form, Input, Result, Typography } from 'antd'
+import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
 import { mapAuthError, signUpWithEmail } from '@/services/auth'
 import { actions, auth } from '@/shared/i18n/ru'
+import { useAuth } from '@/app/providers/AuthProvider'
 
 interface FormValues {
   fullName: string
@@ -12,44 +13,23 @@ interface FormValues {
 
 export function RegisterPage() {
   const navigate = useNavigate()
+  const { setLocalSession } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false)
 
   const handleSubmit = async (values: FormValues) => {
     setError(null)
     setLoading(true)
     try {
       const result = await signUpWithEmail(values.email, values.password, values.fullName)
-      if (result.session) {
-        // Email-confirm выключен — сразу авторизованы, идём ждать активации.
-        navigate('/pending-activation', { replace: true })
-      } else {
-        // Email-confirm включён — нужна явная инструкция, не молчаливый редирект.
-        setNeedsEmailConfirm(true)
-      }
+      setLocalSession(result.user, result.profile)
+      // Backend всегда сразу возвращает session; проверка активации — на guard'ах.
+      navigate('/pending-activation', { replace: true })
     } catch (e) {
       setError(mapAuthError(e))
     } finally {
       setLoading(false)
     }
-  }
-
-  if (needsEmailConfirm) {
-    return (
-      <Card>
-        <Result
-          status="success"
-          title={auth.registerSuccessTitle}
-          subTitle={auth.checkEmail}
-          extra={
-            <Button type="primary" onClick={() => navigate('/login', { replace: true })}>
-              {auth.goToLogin}
-            </Button>
-          }
-        />
-      </Card>
-    )
   }
 
   return (

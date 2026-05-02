@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid'
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
@@ -96,38 +96,34 @@ async function migrateLegacyCacheOnce(): Promise<void> {
 
 export async function loadProjectsForUser(forceRefresh = false): Promise<Project[]> {
   const cache = await readCache<Project[]>('projects')
-  // Если кэш свежий и не форсируем — возвращаем без сети
   if (!forceRefresh && !cache.stale && cache.data) return cache.data
 
-  const { data, error } = await supabase
-    .from('projects')
-    .select('id,name,description,created_by,created_at,updated_at')
-    .order('name', { ascending: true })
-  if (error) {
+  try {
+    const data = await apiFetch<{ projects: Project[] }>('/api/projects')
+    const list = data.projects
+    await writeCache('projects', list)
+    return list
+  } catch (e) {
     if (cache.data) return cache.data
-    throw error
+    throw e
   }
-  const list = (data ?? []) as Project[]
-  await writeCache('projects', list)
-  return list
 }
 
 export async function loadWorkTypes(forceRefresh = false): Promise<WorkType[]> {
   const cache = await readCache<WorkType[]>('work_types')
   if (!forceRefresh && !cache.stale && cache.data) return cache.data
 
-  const { data, error } = await supabase
-    .from('work_types')
-    .select('id,name,is_active,created_by,created_at')
-    .eq('is_active', true)
-    .order('name', { ascending: true })
-  if (error) {
+  try {
+    const data = await apiFetch<{ workTypes: WorkType[] }>(
+      '/api/work-types?active=true',
+    )
+    const list = data.workTypes
+    await writeCache('work_types', list)
+    return list
+  } catch (e) {
     if (cache.data) return cache.data
-    throw error
+    throw e
   }
-  const list = (data ?? []) as WorkType[]
-  await writeCache('work_types', list)
-  return list
 }
 
 /**
@@ -135,9 +131,10 @@ export async function loadWorkTypes(forceRefresh = false): Promise<WorkType[]> {
  *  1) Если уже есть запись с таким именем (в кэше catalogs или локально) —
  *     возвращаем её без дублей.
  *  2) Иначе генерируем client UUID, пишем draft в `work_types_local`,
- *     ставим задачу в sync_queue (kind='work_type'). Sync loop делает
- *     `supabase.from('work_types').upsert({ id, name })` — с тем же UUID,
- *     так что на всех устройствах id сойдётся после очередного loadWorkTypes.
+ *     ставим задачу в sync_queue (kind='work_type'). Sync loop отправляет
+ *     `POST /api/work-types` (idempotent upsert по id или citext-уникальному
+ *     name) — с тем же UUID, так что на всех устройствах id сойдётся после
+ *     очередного loadWorkTypes.
  *  3) Опционально возвращаем свежий объект, который UI подставляет в список.
  *
  * Работает одинаково в online и offline — это сознательный выбор: никакой
@@ -209,18 +206,17 @@ export async function loadWorkAssignments(forceRefresh = false): Promise<WorkAss
   const cache = await readCache<WorkAssignment[]>('work_assignments')
   if (!forceRefresh && !cache.stale && cache.data) return cache.data
 
-  const { data, error } = await supabase
-    .from('work_assignments')
-    .select('id,name,is_active,created_by,created_at')
-    .eq('is_active', true)
-    .order('name', { ascending: true })
-  if (error) {
+  try {
+    const data = await apiFetch<{ workAssignments: WorkAssignment[] }>(
+      '/api/work-assignments?active=true',
+    )
+    const list = data.workAssignments
+    await writeCache('work_assignments', list)
+    return list
+  } catch (e) {
     if (cache.data) return cache.data
-    throw error
+    throw e
   }
-  const list = (data ?? []) as WorkAssignment[]
-  await writeCache('work_assignments', list)
-  return list
 }
 
 /**
@@ -290,35 +286,49 @@ export async function loadPerformers(forceRefresh = false): Promise<Performer[]>
   const cache = await readCache<Performer[]>('performers')
   if (!forceRefresh && !cache.stale && cache.data) return cache.data
 
-  const { data, error } = await supabase
-    .from('performers')
-    .select('id,name,kind,is_active,created_at')
-    .eq('is_active', true)
-    .order('name', { ascending: true })
-  if (error) {
+  try {
+    const data = await apiFetch<{ performers: Performer[] }>(
+      '/api/performers?active=true',
+    )
+    const list = data.performers
+    await writeCache('performers', list)
+    return list
+  } catch (e) {
     if (cache.data) return cache.data
-    throw error
+    throw e
   }
-  const list = (data ?? []) as Performer[]
-  await writeCache('performers', list)
-  return list
+}
+
+interface ServerPlanRow extends PlanRow {
+  uploaded_by: string | null
+  updated_at: string
 }
 
 export async function loadPlansForProject(projectId: string): Promise<PlanRow[]> {
-  const { data, error } = await supabase
-    .from('plans')
-    .select('id,project_id,name,floor,r2_key,storage,page_count,created_at')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-  if (error) {
+  try {
+    const data = await apiFetch<{ plans: ServerPlanRow[] }>(
+      `/api/projects/${projectId}/plans`,
+    )
+    const list: PlanRow[] = data.plans.map((p) => ({
+      id: p.id,
+      project_id: p.project_id,
+      name: p.name,
+      floor: p.floor,
+      building: p.building,
+      section: p.section,
+      r2_key: p.r2_key,
+      storage: p.storage,
+      page_count: p.page_count,
+      created_at: p.created_at,
+    }))
+    const cache = await readCache<Record<string, PlanRow[]>>('plans')
+    const existing = cache.data ?? {}
+    existing[projectId] = list
+    await writeCache('plans', existing)
+    return list
+  } catch (e) {
     const cache = await readCache<Record<string, PlanRow[]>>('plans')
     if (cache.data?.[projectId]) return cache.data[projectId]
-    throw error
+    throw e
   }
-  const list = (data ?? []) as PlanRow[]
-  const cache = await readCache<Record<string, PlanRow[]>>('plans')
-  const existing = cache.data ?? {}
-  existing[projectId] = list
-  await writeCache('plans', existing)
-  return list
 }

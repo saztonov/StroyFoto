@@ -84,9 +84,9 @@ export default defineConfig({
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // Supabase REST/Auth НЕ кэшируем через SW — при медленной сети SW может
-        // отдать устаревшие данные другого пользователя/сессии. Все офлайн-данные
-        // идут исключительно через явный IDB-кэш (remote_reports_cache, catalogs,
+        // /api/* НЕ кэшируем через SW — при медленной сети SW может отдать
+        // устаревшие данные другого пользователя/сессии. Все офлайн-данные идут
+        // исключительно через явный IDB-кэш (remote_reports_cache, catalogs,
         // plans_cache), который контролируется приложением.
         runtimeCaching: [
           {
@@ -147,7 +147,6 @@ export default defineConfig({
           ) {
             return 'vendor-antd'
           }
-          if (id.includes('@supabase') || id.includes('supabase-js')) return 'vendor-supabase'
           if (id.includes('idb')) return 'vendor-idb'
           if (id.includes('browser-image-compression')) return 'vendor-image'
           return undefined

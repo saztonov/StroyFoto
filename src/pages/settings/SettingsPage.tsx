@@ -11,7 +11,7 @@ import { getRetention, setRetention } from '@/services/deviceSettings'
 import { applyRetention } from '@/services/retention'
 import { usePwaInstall } from '@/shared/hooks/usePwaInstall'
 import { fullSync, type FullSyncProgress } from '@/services/fullSync'
-import { supabase } from '@/lib/supabase'
+import { updateMyFullName } from '@/services/auth'
 
 export function SettingsPage() {
   const { message, modal } = App.useApp()
@@ -31,8 +31,7 @@ export function SettingsPage() {
     if (!trimmed || !user) return
     setSavingName(true)
     try {
-      const { error } = await supabase.from('profiles').update({ full_name: trimmed }).eq('id', user.id)
-      if (error) throw new Error(error.message)
+      await updateMyFullName(trimmed)
       await refreshProfile()
       message.success('ФИО обновлено')
       setEditingName(false)

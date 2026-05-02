@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase'
+import { ApiError, apiFetch } from '@/lib/apiClient'
+import { restoreSession } from '@/services/auth'
 import { getDB, type SyncOp } from '@/lib/db'
 import {
   countPendingReports,
@@ -19,35 +20,34 @@ import { reconcile } from '@/services/reconcile'
 
 type ErrorClass = 'transient' | 'auth' | 'permanent'
 
-interface SupabaseError {
+interface ClassifiableError {
   code?: string
   message?: string
   status?: number
-  statusCode?: number
 }
 
-function isDuplicateKey(err: SupabaseError): boolean {
-  return err.code === '23505' || /duplicate key|23505/i.test(err.message ?? '')
-}
-
-function classifyError(err: SupabaseError): ErrorClass {
+function classifyError(err: ClassifiableError): ErrorClass {
+  const status = err.status ?? 0
+  if (status === 401) return 'auth'
+  if (status === 403) return 'permanent'
+  if (status === 400 || status === 422 || status === 409) return 'permanent'
+  // CONFLICT/FK/CHECK по коду от backend → permanent
   const code = err.code ?? ''
-  const msg = (err.message ?? '').toLowerCase()
-  const status = err.status ?? err.statusCode ?? 0
-
-  // Auth errors — refresh token and retry
-  if (status === 401 || /jwt expired|not authenticated|invalid.*token/i.test(msg)) {
-    return 'auth'
+  if (code === 'CONFLICT' || code === 'FK_VIOLATION' || code === 'CHECK_VIOLATION') {
+    return 'permanent'
   }
-
-  // Permanent errors — don't retry, fail immediately with readable message
-  if (status === 403 || /forbidden|rls|row.level.security/i.test(msg)) return 'permanent'
-  if (/^2[23]\d{3}$/.test(code) && code !== '23505') return 'permanent' // FK, unique (except dup key), check violations
-  if (/violates.*constraint|foreign key|check constraint/i.test(msg)) return 'permanent'
-  if (status === 400 || status === 422) return 'permanent' // validation
-
-  // Everything else is transient (network, timeout, 5xx)
+  // Network/5xx → transient
   return 'transient'
+}
+
+function toClassifiable(e: unknown): ClassifiableError {
+  if (e instanceof ApiError) {
+    return { code: e.code, message: e.message, status: e.status }
+  }
+  if (e instanceof Error) {
+    return { message: e.message }
+  }
+  return { message: String(e) }
 }
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
@@ -133,35 +133,36 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       performer_id: report.performerId,
       work_assignment_id: report.workAssignmentId,
       plan_id: report.planId,
-      author_id: report.authorId,
       description: report.description,
       taken_at: report.takenAt,
     }
-    // INSERT вместо upsert: upsert + RLS с подзапросами к той же таблице
-    // вызывает 500 на PostgREST. При повторной синхронизации (retry)
-    // row уже существует → 23505 (duplicate key), это ОК — считаем done.
-    const { error } = await supabase.from('reports').insert(payload)
-    if (error) {
-      if (isDuplicateKey(error)) return { done: true }
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    try {
+      await apiFetch('/api/reports', { method: 'POST', body: payload })
+      return { done: true }
+    } catch (e) {
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    return { done: true }
   }
 
   if (op.kind === 'mark') {
     const mark = await db.get('plan_marks', op.entityId)
     if (!mark) return { done: true }
-    const { error } = await supabase.from('report_plan_marks').insert({
-      report_id: mark.reportId,
-      plan_id: mark.planId,
-      page: mark.page,
-      x_norm: mark.xNorm,
-      y_norm: mark.yNorm,
-    })
-    if (error && !isDuplicateKey(error)) {
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    try {
+      await apiFetch(`/api/reports/${mark.reportId}/plan-mark`, {
+        method: 'PUT',
+        body: {
+          plan_id: mark.planId,
+          page: mark.page,
+          x_norm: mark.xNorm,
+          y_norm: mark.yNorm,
+        },
+      })
+      return { done: true }
+    } catch (e) {
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    return { done: true }
   }
 
   if (op.kind === 'report_update') {
@@ -174,42 +175,44 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       work_assignment_id: mutation.payload.workAssignmentId,
       description: mutation.payload.description,
       taken_at: mutation.payload.takenAt,
+      expectedUpdatedAt: mutation.baseUpdatedAt,
     }
     if (mutation.payload.planId !== undefined) {
       updatePayload.plan_id = mutation.payload.planId
     }
-    const { data, error } = await supabase
-      .from('reports')
-      .update(updatePayload)
-      .eq('id', mutation.reportId)
-      .eq('updated_at', mutation.baseUpdatedAt)
-      .select('id')
-    if (error) {
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
-    }
-    if (!data || data.length === 0) {
-      // Конфликт: отчёт изменён другим пользователем — permanent fail
+    try {
+      await apiFetch(`/api/reports/${mutation.reportId}`, {
+        method: 'PATCH',
+        body: updatePayload,
+      })
       await db.delete('report_mutations', mutation.id!)
       return { done: true }
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'CONFLICT') {
+        // OCC-конфликт — permanent (фронт перечитает актуальную версию).
+        await db.delete('report_mutations', mutation.id!)
+        return { done: true }
+      }
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    await db.delete('report_mutations', mutation.id!)
-    return { done: true }
   }
 
   if (op.kind === 'report_delete') {
     const mutation = await db.get('report_mutations', Number(op.entityId))
     if (!mutation) return { done: true }
-    const { error } = await supabase.from('reports').delete().eq('id', mutation.reportId)
-    if (error) {
-      // Если отчёт уже удалён — считаем успехом
-      if (/not found|no rows/i.test(error.message)) {
+    try {
+      await apiFetch(`/api/reports/${mutation.reportId}`, { method: 'DELETE' })
+      await db.delete('report_mutations', mutation.id!)
+      return { done: true }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
         await db.delete('report_mutations', mutation.id!)
         return { done: true }
       }
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    await db.delete('report_mutations', mutation.id!)
-    return { done: true }
   }
 
   if (op.kind === 'photo_delete') {
@@ -255,41 +258,40 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
   }
 
   if (op.kind === 'work_type') {
-    // Локальный work_type, созданный офлайн. После появления сети вставляем
-    // его в Supabase с тем же UUID — клиент уже ссылается на этот id в отчёте.
-    // Если на сервере уже есть запись с таким name (citext unique) — Supabase
-    // вернёт 23505; это нормально, работа с дубликатами решается на клиенте
-    // через сверку по name, а мы просто помечаем операцию завершённой.
+    // Локальный work_type, созданный офлайн. POST /api/work-types — backend
+    // делает idempotent upsert: дубликат по id или по name (citext unique)
+    // возвращает существующую запись.
     const local = await db.get('work_types_local', op.entityId)
     if (!local) return { done: true }
-    const { error } = await supabase.from('work_types').upsert(
-      { id: local.id, name: local.name, is_active: true },
-      { onConflict: 'id' },
-    )
-    if (error && !isDuplicateKey(error)) {
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    try {
+      await apiFetch('/api/work-types', {
+        method: 'POST',
+        body: { id: local.id, name: local.name },
+      })
+      local.syncStatus = 'synced'
+      await db.put('work_types_local', local)
+      return { done: true }
+    } catch (e) {
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    local.syncStatus = 'synced'
-    await db.put('work_types_local', local)
-    return { done: true }
   }
 
   if (op.kind === 'work_assignment') {
-    // Симметрично work_type: офлайн-черновик назначения работ → upsert по id
-    // на сервере. Дубликат по name (citext unique) обрабатывается так же —
-    // 23505 не считается ошибкой, операция помечается завершённой.
     const local = await db.get('work_assignments_local', op.entityId)
     if (!local) return { done: true }
-    const { error } = await supabase.from('work_assignments').upsert(
-      { id: local.id, name: local.name, is_active: true },
-      { onConflict: 'id' },
-    )
-    if (error && !isDuplicateKey(error)) {
-      return { done: false, error: error.message, errorCode: error.code, errorStatus: (error as SupabaseError).status }
+    try {
+      await apiFetch('/api/work-assignments', {
+        method: 'POST',
+        body: { id: local.id, name: local.name },
+      })
+      local.syncStatus = 'synced'
+      await db.put('work_assignments_local', local)
+      return { done: true }
+    } catch (e) {
+      const c = toClassifiable(e)
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
     }
-    local.syncStatus = 'synced'
-    await db.put('work_assignments_local', local)
-    return { done: true }
   }
 
   return { done: true }
@@ -334,12 +336,11 @@ async function tick() {
 
         if (errClass === 'auth') {
           // Токен протух — пробуем обновить и повторить немедленно
-          const { error: refreshError } = await supabase.auth.refreshSession()
-          if (refreshError) {
+          const restored = await restoreSession()
+          if (!restored) {
             setSnapshot({ state: 'error', lastError: 'Сессия истекла. Войдите заново.' })
             break
           }
-          // Сбрасываем backoff, повторяем эту операцию немедленно
           next.nextAttemptAt = Date.now()
           if (next.id != null) await db.put('sync_queue', next)
           continue

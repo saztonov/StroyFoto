@@ -37,9 +37,9 @@ function ProfileErrorScreen({ message }: { message: string }) {
 
 /** Пускает дальше только неавторизованных. Авторизованных — сразу на /reports. */
 export function RequireGuest() {
-  const { loading, session } = useAuth()
+  const { loading, user } = useAuth()
   if (loading) return <FullscreenSpinner />
-  if (session) return <Navigate to="/reports" replace />
+  if (user) return <Navigate to="/reports" replace />
   return <Outlet />
 }
 
@@ -52,11 +52,11 @@ interface RequireAuthProps {
  * Пропусти `allowInactive`, чтобы разрешить неактивному пользователю увидеть экран ожидания.
  */
 export function RequireAuth({ allowInactive = false }: RequireAuthProps) {
-  const { loading, session, profile, profileError } = useAuth()
+  const { loading, user, profile, profileError } = useAuth()
   const location = useLocation()
 
   if (loading) return <FullscreenSpinner />
-  if (!session) return <Navigate to="/login" replace state={{ from: location }} />
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />
 
   // Профиль не загрузился — показываем экран ошибки вместо случайного редиректа.
   if (profileError) return <ProfileErrorScreen message={profileError} />

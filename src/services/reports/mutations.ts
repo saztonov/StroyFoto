@@ -1,9 +1,12 @@
-import { supabase } from '@/lib/supabase'
+import { apiFetch, ApiError } from '@/lib/apiClient'
 import { getDB } from '@/lib/db'
 import { ConflictError, type ReportUpdateInput } from './types'
 
-export async function updateRemoteReport(id: string, input: ReportUpdateInput): Promise<void> {
-  const payload: Record<string, unknown> = {
+export async function updateRemoteReport(
+  id: string,
+  input: ReportUpdateInput,
+): Promise<void> {
+  const body: Record<string, unknown> = {
     work_type_id: input.workTypeId,
     performer_id: input.performerId,
     work_assignment_id: input.workAssignmentId,
@@ -11,56 +14,48 @@ export async function updateRemoteReport(id: string, input: ReportUpdateInput): 
     taken_at: input.takenAt,
   }
   if (input.planId !== undefined) {
-    payload.plan_id = input.planId
+    body.plan_id = input.planId
   }
-  let query = supabase
-    .from('reports')
-    .update(payload)
-    .eq('id', id)
-
-  // Optimistic concurrency: если передан expectedUpdatedAt, проверяем что
-  // отчёт не был изменён другим пользователем с момента загрузки.
   if (input.expectedUpdatedAt) {
-    query = query.eq('updated_at', input.expectedUpdatedAt)
+    body.expectedUpdatedAt = input.expectedUpdatedAt
   }
-
-  const { data, error } = await query.select('id')
-  if (error) throw new Error(error.message)
-  if (!data || data.length === 0) {
-    throw new ConflictError('Отчёт был изменён другим пользователем. Обновите страницу и попробуйте снова.')
+  try {
+    await apiFetch(`/api/reports/${id}`, { method: 'PATCH', body })
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'CONFLICT') {
+      throw new ConflictError(
+        'Отчёт был изменён другим пользователем. Обновите страницу и попробуйте снова.',
+      )
+    }
+    throw e
   }
 }
 
 /**
- * Заменяет метку на плане для отчёта: удаляет старую + вставляет новую.
- * Если mark = null — только удаление (отвязка метки).
+ * Заменяет метку на плане для отчёта. PUT/DELETE на backend; backend сам
+ * делает upsert по UNIQUE(report_id).
  */
 export async function replaceRemotePlanMark(
   reportId: string,
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null,
 ): Promise<void> {
-  // Удаляем существующую метку (idempotent — может не быть)
-  const { error: delErr } = await supabase
-    .from('report_plan_marks')
-    .delete()
-    .eq('report_id', reportId)
-  if (delErr) throw new Error(`plan mark delete: ${delErr.message}`)
-
   if (mark) {
-    const { error: insErr } = await supabase.from('report_plan_marks').insert({
-      report_id: reportId,
-      plan_id: mark.planId,
-      page: mark.page,
-      x_norm: mark.xNorm,
-      y_norm: mark.yNorm,
+    await apiFetch(`/api/reports/${reportId}/plan-mark`, {
+      method: 'PUT',
+      body: {
+        plan_id: mark.planId,
+        page: mark.page,
+        x_norm: mark.xNorm,
+        y_norm: mark.yNorm,
+      },
     })
-    if (insErr) throw new Error(`plan mark insert: ${insErr.message}`)
+  } else {
+    await apiFetch(`/api/reports/${reportId}/plan-mark`, { method: 'DELETE' })
   }
 }
 
 export async function deleteRemoteReport(id: string): Promise<void> {
-  const { error } = await supabase.from('reports').delete().eq('id', id)
-  if (error) throw new Error(error.message)
+  await apiFetch(`/api/reports/${id}`, { method: 'DELETE' })
 }
 
 /**

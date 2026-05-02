@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { User } from '@supabase/supabase-js'
+import type { AuthSessionUser } from '@/app/providers/AuthProvider'
 import { getDB } from '@/lib/db'
 import { reportDetails } from '@/shared/i18n/ru'
 import { getLocalReport, getPhotosForReport } from '@/services/localReports'
@@ -26,7 +26,7 @@ interface Result {
  * Загружает отчёт по id (сначала локальный черновик, потом remote с fallback
  * на IDB-кэш) и подписывается на realtime-изменения именно этого отчёта.
  */
-export function useReportData(id: string | undefined, user: User | null, profile: Profile | null): Result {
+export function useReportData(id: string | undefined, user: AuthSessionUser | null, profile: Profile | null): Result {
   const [data, setData] = useState<LoadedReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

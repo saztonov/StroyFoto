@@ -5,7 +5,7 @@ import type { UploadFile } from 'antd/es/upload/interface'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { nav, plansPage } from '@/shared/i18n/ru'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { supabase } from '@/lib/supabase'
+import { loadProjectsForUser } from '@/services/catalogs'
 import {
   deletePlan,
   downloadPlanPdf,
@@ -64,15 +64,12 @@ export function PlansPage() {
 
   useEffect(() => {
     void (async () => {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name')
-        .order('name')
-      if (error) {
-        message.error(error.message)
-        return
+      try {
+        const list = await loadProjectsForUser()
+        setProjects(list.map((p) => ({ id: p.id, name: p.name })))
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : String(e))
       }
-      setProjects((data ?? []) as ProjectOption[])
     })()
   }, [message])
 

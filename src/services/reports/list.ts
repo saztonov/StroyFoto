@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 import { listLocalReports } from '@/services/localReports'
 import { getDB } from '@/lib/db'
 import { cacheRemoteSnapshot } from './cache'
@@ -10,49 +10,52 @@ import {
   type RemoteReportRow,
 } from './types'
 
+interface AuthorNameRow {
+  author_id: string
+  full_name: string | null
+}
+
 /**
- * Батчем разрешает ФИО авторов через SECURITY DEFINER RPC `get_author_name`.
- * Функция видит только тех авторов, чьи отчёты пользователь имеет право читать;
- * остальные возвращают null, что корректно: имя просто не отобразится.
- * Кэширует результат в памяти на время вызова — отчёты одного автора встречаются
- * пачками.
+ * Резолвит ФИО авторов через GET /api/author-names. Backend фильтрует доступ
+ * (как старый SECURITY DEFINER `get_author_names`): возвращает имя только
+ * если автор связан с проектом, в котором состоит текущий пользователь,
+ * либо если запрашивающий — admin.
  */
-async function resolveAuthorNames(ids: Iterable<string>): Promise<Map<string, string | null>> {
+async function resolveAuthorNames(
+  ids: Iterable<string>,
+): Promise<Map<string, string | null>> {
   const unique = Array.from(new Set([...ids]))
   const result = new Map<string, string | null>()
-  // Инициализируем null для всех, чтобы отсутствующие ФИО не ломали UI
   for (const id of unique) result.set(id, null)
-
+  if (unique.length === 0) return result
   try {
-    // Батчевый RPC вместо N отдельных вызовов
-    const { data } = await supabase.rpc('get_author_names', { p_author_ids: unique })
-    if (data) {
-      for (const row of data as Array<{ author_id: string; full_name: string }>) {
-        result.set(row.author_id, row.full_name)
-      }
+    // Большие списки идут через POST, чтобы не упереться в URL-лимит.
+    const data =
+      unique.length > 80
+        ? await apiFetch<{ names: AuthorNameRow[] }>('/api/author-names', {
+            method: 'POST',
+            body: { ids: unique },
+          })
+        : await apiFetch<{ names: AuthorNameRow[] }>(
+            `/api/author-names?ids=${encodeURIComponent(unique.join(','))}`,
+          )
+    for (const row of data.names) {
+      result.set(row.author_id, row.full_name)
     }
   } catch {
-    // Fallback: если batch RPC не доступен (ещё не развёрнут), пробуем по одному
-    await Promise.all(
-      unique.map(async (id) => {
-        try {
-          const { data } = await supabase.rpc('get_author_name', { p_author_id: id })
-          result.set(id, (data as string | null) ?? null)
-        } catch {
-          // оставляем null
-        }
-      }),
-    )
+    // Молчаливый fallback: имена не отобразятся, но список не сломается.
   }
   return result
 }
 
-/**
- * Объединяет локальные и серверные отчёты по id. Локальная запись приоритетнее
- * (у неё актуальный syncStatus, включая pending). При офлайне сервер заменяется
- * кэшем из `remote_reports_cache`, чтобы история всё равно открывалась.
- */
-export async function loadMergedReports(cursor?: string): Promise<MergedReportsResult> {
+interface ListResponse {
+  items: RemoteReportRow[]
+  nextCursor: string | null
+}
+
+export async function loadMergedReports(
+  cursor?: string,
+): Promise<MergedReportsResult> {
   const local = await listLocalReports()
   const localCards = local.map(fromLocal)
   const localIds = new Set(localCards.map((r) => r.id))
@@ -61,23 +64,19 @@ export async function loadMergedReports(cursor?: string): Promise<MergedReportsR
 
   if (online) {
     try {
-      const fetchRemote = async () => {
-        let query = supabase
-          .from('reports')
-          .select('id,project_id,work_type_id,performer_id,work_assignment_id,plan_id,description,taken_at,author_id,created_at,updated_at')
-          .order('created_at', { ascending: false })
-          .limit(PAGE_SIZE)
-        if (cursor) {
-          query = query.lt('created_at', cursor)
-        }
-        const { data, error } = await query
-        if (error) throw error
-        return (data as RemoteReportRow[] | null) ?? []
+      const fetchRemote = async (): Promise<ListResponse> => {
+        const params = new URLSearchParams()
+        params.set('limit', String(PAGE_SIZE))
+        if (cursor) params.set('cursor', cursor)
+        return await apiFetch<ListResponse>(
+          `/api/reports?${params.toString()}`,
+        )
       }
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Remote fetch timeout')), FETCH_TIMEOUT_MS),
       )
-      const rows = await Promise.race([fetchRemote(), timeout])
+      const response = await Promise.race([fetchRemote(), timeout])
+      const rows = response.items
 
       const authorNames = await resolveAuthorNames(rows.map((r) => r.author_id))
       const remoteCards = rows
@@ -107,8 +106,8 @@ export async function loadMergedReports(cursor?: string): Promise<MergedReportsR
         ),
       )
 
-      const hasMore = rows.length === PAGE_SIZE
-      const nextCursor = rows.length > 0 ? rows[rows.length - 1].created_at : null
+      const hasMore = response.nextCursor !== null
+      const nextCursor = response.nextCursor
 
       // На первой странице включаем локальные; на последующих — только remote
       const cards = cursor

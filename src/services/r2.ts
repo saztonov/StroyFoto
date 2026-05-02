@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { apiFetch } from '@/lib/apiClient'
 
 /**
  * Идентификатор объектного хранилища, в котором лежит конкретный объект.
@@ -41,51 +41,16 @@ export interface PresignResponse {
 }
 
 /**
- * Запрашивает у Supabase Edge Function `sign` presigned URL.
- * Никаких секретов хранилища на клиенте — функция валидирует JWT и проверяет
- * права через supabase-js + RLS, после чего подписывает короткоживущий URL.
- *
- * Authorization передаём явно: @supabase/supabase-js v2 из коробки не всегда
- * прокидывает актуальный access_token в FunctionsClient после входа/refresh'а —
- * поэтому gateway с verify_jwt=true отдаёт 401 ещё до запуска функции (в логах
- * такие запросы видны с execution_id=null). Явная передача токена обходит эту
- * проблему и одновременно гарантирует, что мы используем именно свежий токен.
+ * Запрашивает у backend (POST /api/storage/presign) presigned URL.
+ * Никаких секретов хранилища на клиенте — backend валидирует JWT,
+ * проверяет права (автор отчёта / член проекта / админ), и подписывает
+ * короткоживущий URL через SigV4.
  */
 export async function requestPresigned(req: PresignRequest): Promise<PresignResponse> {
-  const { data: sessionData } = await supabase.auth.getSession()
-  const accessToken = sessionData.session?.access_token
-  if (!accessToken) {
-    throw new Error('Нет активной сессии Supabase для запроса presigned URL')
-  }
-
-  const { data, error } = await supabase.functions.invoke<PresignResponse>('sign', {
+  return apiFetch<PresignResponse>('/api/storage/presign', {
+    method: 'POST',
     body: req,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
   })
-  if (error) {
-    // FunctionsHttpError содержит response — попытаемся вытащить JSON-сообщение,
-    // чтобы пользователь видел «нет доступа к отчёту», а не голый «non-2xx».
-    const detail = await extractFunctionErrorMessage(error)
-    throw new Error(`presign: ${detail}`)
-  }
-  if (!data) throw new Error('presign: пустой ответ функции')
-  return data
-}
-
-async function extractFunctionErrorMessage(error: unknown): Promise<string> {
-  const anyErr = error as { message?: string; context?: { json?: () => Promise<unknown> } }
-  try {
-    const ctx = anyErr.context
-    if (ctx && typeof ctx.json === 'function') {
-      const body = (await ctx.json()) as { error?: string } | null
-      if (body && typeof body.error === 'string' && body.error) return body.error
-    }
-  } catch {
-    // Ignore — вернём fallback ниже.
-  }
-  return anyErr.message ?? 'unknown function error'
 }
 
 export function photoKey(reportId: string, photoId: string): string {

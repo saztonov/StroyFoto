@@ -138,9 +138,9 @@ export function StorageMigrationPage() {
           description={
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               <li>
-                Страница доступна только администратору. Edge Function `sign`
-                проверяет роль и не выпускает presigned URL к R2 для обычных
-                пользователей.
+                Страница доступна только администратору. Backend
+                `/api/storage/presign` проверяет роль и не выпускает presigned
+                URL к R2 для обычных пользователей.
               </li>
               <li>
                 Для каждого фото / плана со значением{' '}
@@ -155,7 +155,7 @@ export function StorageMigrationPage() {
               </li>
               <li>
                 Когда счётчик «Осталось переехать» = 0, секреты Cloudflare R2
-                в Supabase можно отзывать.
+                на сервере (server/.env) можно отзывать.
               </li>
             </ul>
           }
@@ -168,7 +168,7 @@ export function StorageMigrationPage() {
             type="success"
             showIcon
             message="Все объекты переехали в Cloud.ru"
-            description="Storage=r2 строк больше нет. Можно удалять секреты R2 из Supabase."
+            description="Storage=r2 строк больше нет. Можно удалять секреты R2 из конфигурации сервера."
           />
         )}
 

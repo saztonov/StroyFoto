@@ -1,21 +1,14 @@
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Базовый URL backend API. Поддерживается:
+//   - same-origin "/api" (production, reverse-proxy на тот же домен) — дефолт
+//   - абсолютный "http://localhost:4000/api" (dev, vite и api на разных портах)
+//   - VITE_API_URL без хвостового /api тоже допустимо (добавим автоматически).
+const rawApiUrl = import.meta.env.VITE_API_URL ?? '/api'
+const apiBaseUrl = rawApiUrl.replace(/\/$/, '')
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Не заданы переменные окружения VITE_SUPABASE_URL и/или VITE_SUPABASE_ANON_KEY. ' +
-      'Скопируйте .env.example в .env и заполните их.',
-  )
-}
-
-// Подпись presigned URL к Cloud.ru Object Storage (s3.cloud.ru) делает
-// Supabase Edge Function `sign` (см. supabase/functions/sign/). URL функции
-// собирается из VITE_SUPABASE_URL внутри supabase.functions.invoke —
-// отдельной переменной не требуется. Все секреты Cloud.ru S3 (CLOUDRU_*)
-// и легаси-секреты R2 (R2_*, нужны только для миграции исторических
-// объектов) задаются через `supabase secrets set` и хранятся в Supabase.
+// Все запросы фронта идут на собственный backend (Fastify). Подпись presigned
+// URL к Cloud.ru S3 / Cloudflare R2 делает endpoint POST /api/storage/presign —
+// секреты CLOUDRU_*/R2_* задаются на сервере и не покидают его.
 
 export const env = {
-  supabaseUrl,
-  supabaseAnonKey,
+  apiBaseUrl,
 } as const
