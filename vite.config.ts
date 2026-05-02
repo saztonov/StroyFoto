@@ -90,13 +90,11 @@ export default defineConfig({
         // plans_cache), который контролируется приложением.
         runtimeCaching: [
           {
-            // Изображения по presigned URL из объектного хранилища — кэшируем
-            // по pathname (querystring игнорим). Поддерживаем и Cloud.ru S3
-            // (текущий провайдер), и Cloudflare R2 (исторические объекты до
-            // миграции на Cloud.ru).
+            // Изображения по presigned URL из Cloud.ru Object Storage —
+            // кэшируем по pathname (querystring игнорим).
             urlPattern: ({ request, url }) =>
               request.destination === 'image' &&
-              /(^|\.)s3\.cloud\.ru$|r2\.cloudflarestorage\.com|\.r2\.dev/.test(url.host),
+              /(^|\.)s3\.cloud\.ru$/.test(url.host),
             handler: 'CacheFirst',
             options: {
               cacheName: 'storage-images',

@@ -11,35 +11,32 @@ export interface PhotoUpsertInput {
   user: AuthenticatedUser;
   id: string;
   report_id: string;
-  r2_key: string;
-  thumb_r2_key: string | null;
+  object_key: string;
+  thumb_object_key: string | null;
   width: number | null;
   height: number | null;
   taken_at: string | null;
-  storage: 'cloudru' | 'r2';
 }
 
 export interface PhotoDTO {
   id: string;
   report_id: string;
-  r2_key: string;
-  thumb_r2_key: string | null;
+  object_key: string;
+  thumb_object_key: string | null;
   width: number | null;
   height: number | null;
   taken_at: string | null;
-  storage: 'cloudru' | 'r2';
   created_at: string;
 }
 
 interface PhotoRow {
   id: string;
   report_id: string;
-  r2_key: string;
-  thumb_r2_key: string | null;
+  object_key: string;
+  thumb_object_key: string | null;
   width: number | null;
   height: number | null;
   taken_at: Date | null;
-  storage: 'cloudru' | 'r2';
   created_at: Date;
 }
 
@@ -47,18 +44,17 @@ function toDTO(row: PhotoRow): PhotoDTO {
   return {
     id: row.id,
     report_id: row.report_id,
-    r2_key: row.r2_key,
-    thumb_r2_key: row.thumb_r2_key,
+    object_key: row.object_key,
+    thumb_object_key: row.thumb_object_key,
     width: row.width,
     height: row.height,
     taken_at: row.taken_at?.toISOString() ?? null,
-    storage: row.storage,
     created_at: row.created_at.toISOString(),
   };
 }
 
-const COLS = `id, report_id, r2_key, thumb_r2_key, width, height,
-  taken_at, storage, created_at`;
+const COLS = `id, report_id, object_key, thumb_object_key, width, height,
+  taken_at, created_at`;
 
 export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
   const access = await loadReportForAccess(input.report_id);
@@ -67,37 +63,27 @@ export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
   }
   assertReportEditable(input.user, access);
 
-  if (input.storage === 'r2' && input.user.role !== 'admin') {
-    throw new AppError(
-      403,
-      'FORBIDDEN',
-      "Указывать storage='r2' может только администратор.",
-    );
-  }
-
   try {
     const result = await pool.query<PhotoRow>(
-      `INSERT INTO report_photos (id, report_id, r2_key, thumb_r2_key,
-                                  width, height, taken_at, storage)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8)
+      `INSERT INTO report_photos (id, report_id, object_key, thumb_object_key,
+                                  width, height, taken_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
-         report_id    = EXCLUDED.report_id,
-         r2_key       = EXCLUDED.r2_key,
-         thumb_r2_key = EXCLUDED.thumb_r2_key,
-         width        = EXCLUDED.width,
-         height       = EXCLUDED.height,
-         taken_at     = EXCLUDED.taken_at,
-         storage      = EXCLUDED.storage
+         report_id        = EXCLUDED.report_id,
+         object_key       = EXCLUDED.object_key,
+         thumb_object_key = EXCLUDED.thumb_object_key,
+         width            = EXCLUDED.width,
+         height           = EXCLUDED.height,
+         taken_at         = EXCLUDED.taken_at
        RETURNING ${COLS}`,
       [
         input.id,
         input.report_id,
-        input.r2_key,
-        input.thumb_r2_key,
+        input.object_key,
+        input.thumb_object_key,
         input.width,
         input.height,
         input.taken_at,
-        input.storage,
       ],
     );
     return toDTO(result.rows[0]);

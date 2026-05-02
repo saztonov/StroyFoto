@@ -19,13 +19,7 @@ export interface PlanRow {
   floor: string | null
   building: string | null
   section: string | null
-  r2_key: string
-  /**
-   * Хранилище, в котором лежит PDF. Может отсутствовать в кэше старых
-   * снимков; читать как 'cloudru'. Заполняется из колонки `storage` таблицы
-   * `plans` (введена в миграции 20260501_cloudru_storage).
-   */
-  storage?: 'cloudru' | 'r2'
+  object_key: string
   page_count: number | null
   created_at: string
 }
@@ -316,8 +310,7 @@ export async function loadPlansForProject(projectId: string): Promise<PlanRow[]>
       floor: p.floor,
       building: p.building,
       section: p.section,
-      r2_key: p.r2_key,
-      storage: p.storage,
+      object_key: p.object_key,
       page_count: p.page_count,
       created_at: p.created_at,
     }))

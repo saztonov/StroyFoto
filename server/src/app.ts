@@ -18,7 +18,6 @@ import plansRoutes from './routes/plans.js';
 import reportsRoutes from './routes/reports.js';
 import photosRoutes from './routes/photos.js';
 import authorNamesRoutes from './routes/authorNames.js';
-import storageMigrationRoutes from './routes/storageMigration.js';
 import presignRoutes from './routes/presign.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -62,7 +61,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(reportsRoutes, { prefix: '/api/reports' });
   await app.register(photosRoutes, { prefix: '/api/report-photos' });
   await app.register(authorNamesRoutes, { prefix: '/api/author-names' });
-  await app.register(storageMigrationRoutes, { prefix: '/api/storage-migration' });
   await app.register(presignRoutes, { prefix: '/api/storage/presign' });
 
   return app;

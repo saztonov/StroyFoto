@@ -50,9 +50,8 @@ export function ReportDetailsPage() {
         return {
           id: p.id,
           thumbUrl: p.thumbUrl,
-          r2Key: local?.r2Key ?? '',
-          thumbR2Key: local?.thumbR2Key ?? '',
-          storage: 'cloudru',
+          objectKey: local?.objectKey ?? '',
+          thumbObjectKey: local?.thumbObjectKey ?? '',
         }
       })
     }
@@ -62,9 +61,8 @@ export function ReportDetailsPage() {
         return {
           id: p.id,
           thumbUrl: p.thumbUrl,
-          r2Key: remote?.r2_key ?? '',
-          thumbR2Key: remote?.thumb_r2_key ?? '',
-          storage: remote?.storage ?? 'cloudru',
+          objectKey: remote?.object_key ?? '',
+          thumbObjectKey: remote?.thumb_object_key ?? '',
         }
       })
     }

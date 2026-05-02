@@ -30,13 +30,11 @@ export async function syncAllPlansForUser(
 ): Promise<{ downloaded: number; skipped: number; errors: number }> {
   const projects = await loadProjectsForUser()
 
-  // Собираем метаданные планов по всем проектам. Поле `storage` передаём
-  // дальше, чтобы downloadPlanPdf обращался к нужному провайдеру (cloudru/r2).
+  // Собираем метаданные планов по всем проектам.
   const allPlans: Array<{
     id: string
     project_id: string
-    r2_key: string
-    storage?: 'cloudru' | 'r2'
+    object_key: string
   }> = []
   for (const project of projects) {
     const plans = await loadPlansForProject(project.id)
@@ -44,8 +42,7 @@ export async function syncAllPlansForUser(
       allPlans.push({
         id: p.id,
         project_id: p.project_id,
-        r2_key: p.r2_key,
-        storage: p.storage ?? 'cloudru',
+        object_key: p.object_key,
       })
     }
   }

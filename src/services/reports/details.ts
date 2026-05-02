@@ -48,12 +48,11 @@ export async function loadRemoteReportById(
     cachedAt: Date.now(),
     photos: photos.map((p) => ({
       id: p.id,
-      r2Key: p.r2_key,
-      thumbR2Key: p.thumb_r2_key,
+      objectKey: p.object_key,
+      thumbObjectKey: p.thumb_object_key,
       width: p.width,
       height: p.height,
       takenAt: p.taken_at,
-      storage: p.storage ?? 'cloudru',
     })),
     mark: mark
       ? { planId: mark.plan_id, page: mark.page, xNorm: mark.x_norm, yNorm: mark.y_norm }

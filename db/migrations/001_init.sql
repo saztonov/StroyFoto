@@ -160,14 +160,14 @@ CREATE TABLE IF NOT EXISTS public.performers (
 );
 
 -- ============================================================================
--- plans: PDF-планы по проектам. Бинари в Cloud.ru S3 / R2 (legacy).
+-- plans: PDF-планы по проектам. Бинари в Cloud.ru Object Storage (s3.cloud.ru).
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.plans (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id  uuid        NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   name        text        NOT NULL,
-  r2_key      text        NOT NULL,
+  object_key  text        NOT NULL,
   page_count  integer     NULL,
   uploaded_by uuid        NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -175,9 +175,6 @@ CREATE TABLE IF NOT EXISTS public.plans (
   building    text        NULL,
   section     text        NULL,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  storage     text        NOT NULL DEFAULT 'cloudru',
-  CONSTRAINT plans_storage_chk
-    CHECK (storage IN ('cloudru', 'r2')),
   CONSTRAINT plans_page_count_check
     CHECK (page_count IS NULL OR page_count > 0)
 );
@@ -251,17 +248,14 @@ CREATE INDEX IF NOT EXISTS report_plan_marks_plan_idx
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.report_photos (
-  id            uuid        PRIMARY KEY,
-  report_id     uuid        NOT NULL REFERENCES public.reports(id) ON DELETE CASCADE,
-  r2_key        text        NOT NULL,
-  thumb_r2_key  text        NULL,
-  width         integer     NULL,
-  height        integer     NULL,
-  taken_at      timestamptz NULL,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  storage       text        NOT NULL DEFAULT 'cloudru',
-  CONSTRAINT report_photos_storage_chk
-    CHECK (storage IN ('cloudru', 'r2')),
+  id                uuid        PRIMARY KEY,
+  report_id         uuid        NOT NULL REFERENCES public.reports(id) ON DELETE CASCADE,
+  object_key        text        NOT NULL,
+  thumb_object_key  text        NULL,
+  width             integer     NULL,
+  height            integer     NULL,
+  taken_at          timestamptz NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT report_photos_width_check
     CHECK (width IS NULL OR width > 0),
   CONSTRAINT report_photos_height_check

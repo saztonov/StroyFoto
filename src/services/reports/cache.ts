@@ -30,12 +30,11 @@ export async function loadCachedRemoteReport(id: string): Promise<RemoteReportFu
     card: fromSnapshot(snap),
     photos: snap.photos.map((p) => ({
       id: p.id,
-      r2_key: p.r2Key,
-      thumb_r2_key: p.thumbR2Key ?? '',
+      object_key: p.objectKey,
+      thumb_object_key: p.thumbObjectKey ?? '',
       width: p.width,
       height: p.height,
       taken_at: p.takenAt,
-      storage: p.storage ?? 'cloudru',
     })),
     mark: snap.mark
       ? {

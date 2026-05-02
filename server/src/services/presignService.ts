@@ -6,7 +6,6 @@ import type { AuthenticatedUser } from '../auth/middleware.js';
 
 export type PresignOp = 'put' | 'get' | 'delete';
 export type PresignKind = 'photo' | 'photo_thumb' | 'plan';
-export type StorageProvider = 'cloudru' | 'r2';
 
 export interface PresignInput {
   op: PresignOp;
@@ -16,7 +15,6 @@ export interface PresignInput {
   projectId?: string;
   planId?: string;
   contentType?: string;
-  provider?: StorageProvider;
   user: AuthenticatedUser;
 }
 
@@ -25,7 +23,6 @@ export interface SignedUrl {
   method: 'PUT' | 'GET' | 'DELETE';
   headers: Record<string, string>;
   expiresAt: number;
-  provider: StorageProvider;
 }
 
 const ALLOWED_CT = new Set(['image/jpeg', 'application/pdf']);
@@ -105,50 +102,6 @@ async function presignCloudRu(
     method,
     headers,
     expiresAt: Math.floor(Date.now() / 1000) + expires,
-    provider: 'cloudru',
-  };
-}
-
-async function presignR2(
-  op: PresignOp,
-  key: string,
-  contentType?: string,
-): Promise<SignedUrl> {
-  const accountId = config.R2_ACCOUNT_ID;
-  const bucket = config.R2_BUCKET;
-  const ak = config.R2_ACCESS_KEY_ID;
-  const sk = config.R2_SECRET_ACCESS_KEY;
-  if (!accountId || !bucket || !ak || !sk) {
-    throw new AppError(
-      500,
-      'R2_NOT_CONFIGURED',
-      'R2 не настроен на сервере.',
-    );
-  }
-  const client = new AwsClient({
-    accessKeyId: ak,
-    secretAccessKey: sk,
-    service: 's3',
-    region: 'auto',
-  });
-  const method = methodFor(op);
-  const expires = op === 'delete' ? TTL_DELETE : TTL_PUT_GET;
-  const endpoint = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${encodeURI(key)}?X-Amz-Expires=${expires}`;
-  const init: RequestInit & { headers?: Record<string, string> } = { method };
-  if (op === 'put' && contentType) {
-    init.headers = { 'Content-Type': contentType };
-  }
-  const signed = await client.sign(new Request(endpoint, init), {
-    aws: { signQuery: true },
-  });
-  const headers: Record<string, string> = {};
-  if (op === 'put' && contentType) headers['Content-Type'] = contentType;
-  return {
-    url: signed.url,
-    method,
-    headers,
-    expiresAt: Math.floor(Date.now() / 1000) + expires,
-    provider: 'r2',
   };
 }
 
@@ -284,26 +237,6 @@ async function checkPlanAccess(input: {
 }
 
 export async function presign(input: PresignInput): Promise<SignedUrl> {
-  const provider: StorageProvider = input.provider ?? 'cloudru';
-
-  // Доступ к R2 — только админу, и только GET / DELETE.
-  if (provider === 'r2') {
-    if (input.user.role !== 'admin') {
-      throw new AppError(
-        403,
-        'FORBIDDEN',
-        'Доступ к R2 разрешён только администратору.',
-      );
-    }
-    if (input.op === 'put') {
-      throw new AppError(
-        403,
-        'FORBIDDEN',
-        'PUT в R2 запрещён: новые объекты грузятся в Cloud.ru.',
-      );
-    }
-  }
-
   if (input.op === 'put') {
     if (!input.contentType || !ALLOWED_CT.has(input.contentType)) {
       throw new AppError(
@@ -359,8 +292,5 @@ export async function presign(input: PresignInput): Promise<SignedUrl> {
     });
   }
 
-  if (provider === 'cloudru') {
-    return presignCloudRu(input.op, input.key, input.contentType);
-  }
-  return presignR2(input.op, input.key, input.contentType);
+  return presignCloudRu(input.op, input.key, input.contentType);
 }

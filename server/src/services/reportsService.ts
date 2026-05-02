@@ -58,12 +58,11 @@ function toListItem(row: ReportListRow): ReportListItemDTO {
 
 export interface PhotoNestedDTO {
   id: string;
-  r2_key: string;
-  thumb_r2_key: string | null;
+  object_key: string;
+  thumb_object_key: string | null;
   width: number | null;
   height: number | null;
   taken_at: string | null;
-  storage: 'cloudru' | 'r2';
 }
 
 export interface MarkNestedDTO {
@@ -131,12 +130,11 @@ const FULL_SQL = `
          r.plan_id, r.author_id, r.description, r.taken_at, r.created_at, r.updated_at,
          (SELECT coalesce(json_agg(json_build_object(
                    'id', p.id,
-                   'r2_key', p.r2_key,
-                   'thumb_r2_key', p.thumb_r2_key,
+                   'object_key', p.object_key,
+                   'thumb_object_key', p.thumb_object_key,
                    'width', p.width,
                    'height', p.height,
-                   'taken_at', p.taken_at,
-                   'storage', p.storage
+                   'taken_at', p.taken_at
                  ) ORDER BY p.created_at), '[]'::json)
             FROM report_photos p WHERE p.report_id = r.id) AS report_photos,
          (SELECT coalesce(json_agg(json_build_object(

@@ -22,7 +22,7 @@ const createSchema = z.object({
   floor: z.string().trim().max(100).nullable().optional(),
   building: z.string().trim().max(200).nullable().optional(),
   section: z.string().trim().max(200).nullable().optional(),
-  r2_key: z.string().min(1).max(500),
+  object_key: z.string().min(1).max(500),
   page_count: z.number().int().positive().nullable().optional(),
 });
 
@@ -32,7 +32,6 @@ const updateSchema = z.object({
   building: z.string().trim().max(200).nullable().optional(),
   section: z.string().trim().max(200).nullable().optional(),
   page_count: z.number().int().positive().nullable().optional(),
-  storage: z.enum(['cloudru', 'r2']).optional(),
 });
 
 const projectParamsSchema = z.object({ projectId: uuidSchema });
@@ -67,7 +66,7 @@ export default async function plansRoutes(
       floor: body.floor ?? null,
       building: body.building ?? null,
       section: body.section ?? null,
-      r2_key: body.r2_key,
+      object_key: body.object_key,
       page_count: body.page_count ?? null,
     });
     return { plan };
@@ -84,7 +83,6 @@ export default async function plansRoutes(
       building: body.building,
       section: body.section,
       page_count: body.page_count,
-      storage: body.storage,
     });
     return { plan };
   });

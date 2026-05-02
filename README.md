@@ -19,11 +19,10 @@
 - Собственный JWT: access-токен живёт в памяти браузера, refresh —
   в IndexedDB store `auth_session`; argon2id-хэш паролей на сервере
 - **Cloud.ru Object Storage** (`s3.cloud.ru`, регион `ru-central-1`)
-  для фото и PDF-планов; исторические объекты — в Cloudflare R2 до
-  миграции
+  для фото и PDF-планов
 - **Presign**: `POST /api/storage/presign`
   ([server/src/routes/presign.ts](server/src/routes/presign.ts), SigV4
-  через `aws4fetch`); секреты `CLOUDRU_*` / `R2_*` хранятся только в
+  через `aws4fetch`); секреты `CLOUDRU_*` хранятся только в
   `server/.env` и не попадают в клиент
 
 ## Быстрый старт
@@ -34,7 +33,7 @@ npm install
 
 # 2. Скопировать пример env-файлов
 cp .env.example .env                   # frontend (один VITE_API_URL)
-cp server/.env.example server/.env     # backend (DB, JWT, CLOUDRU/R2 секреты)
+cp server/.env.example server/.env     # backend (DB, JWT, CLOUDRU секреты)
 # затем отредактировать server/.env под свои значения
 
 # 3. Применить миграции БД (см. db/migrations/README.md)
@@ -72,10 +71,9 @@ npm run preview         # локальный предпросмотр собра
 Валидация и нормализация — в [src/shared/config/env.ts](src/shared/config/env.ts).
 
 **Backend** (`server/.env`) — см. `server/.env.example`. Минимальный
-набор: `DATABASE_URL`, `JWT_SECRET`, `CLOUDRU_TENANT_ID`,
+набор: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `CLOUDRU_TENANT_ID`,
 `CLOUDRU_KEY_ID`, `CLOUDRU_KEY_SECRET`, `CLOUDRU_BUCKET`,
-`ALLOWED_ORIGINS`, и опционально `R2_*` на время миграции исторических
-объектов.
+`CORS_ORIGINS`.
 
 ## База данных
 
@@ -168,30 +166,6 @@ plans/{projectId}/{planId}.pdf
 | Заголовки ответа   | `ETag`                                           |
 | Время кэширования  | `3000`                                           |
 
-### Перенос с Cloudflare R2 на Cloud.ru
-
-Раньше файлы лежали в Cloudflare R2. У таблиц `report_photos` и `plans`
-есть колонка `storage` со значениями `'r2'` (исторические объекты) или
-`'cloudru'` (новые). Перенести можно двумя способами.
-
-#### Вариант A: UI-миграция (`/admin/storage-migration`)
-
-1. Зайдите администратором.
-2. Откройте «Перенос на Cloud.ru».
-3. Нажмите «Запустить» — для каждой строки с `storage='r2'` страница
-   скачает файл из R2 (через presign с `provider:'r2'`, разрешён
-   только админу) и зальёт в Cloud.ru с тем же object key, поменяв
-   `storage` на `'cloudru'`.
-
-Подходит для любых объёмов: миграция идёт построчно, идемпотентна,
-безопасно перезапускается. Запускать имеет смысл из активной браузерной
-вкладки (chrome/edge/firefox), желательно с десктопа — мобильный браузер
-может усыпить таб.
-
-После обнуления счётчика «Осталось переехать» секреты R2 на сервере
-(`server/.env`) можно отозвать и удалить ветку `provider==='r2'` из
-кода presign-сервиса.
-
 ## Структура проекта
 
 ```
@@ -208,9 +182,9 @@ src/
 │   ├── authStorage.ts # refresh-token в IDB store auth_session
 │   ├── db.ts          # IndexedDB схема (idb)
 │   └── platform/      # CameraAdapter (точка расширения для Capacitor)
-└── services/       # auth, sync, reconcile, photos, r2, plans, catalogs,
-                    # localReports, retention, deviceSettings, storageQuota,
-                    # invalidation, admin, storageMigration, reports/*
+└── services/       # auth, sync, reconcile, photos, objectStorage, plans,
+                    # catalogs, localReports, retention, deviceSettings,
+                    # storageQuota, invalidation, admin, reports/*
 
 server/
 ├── src/
@@ -252,8 +226,7 @@ scripts/db/             # apply-migrations.sh (npm run migrate:db)
 Только для администратора:
 
 - `/admin/users`, `/admin/projects`, `/admin/work-types`,
-  `/admin/work-assignments`, `/admin/performers`,
-  `/admin/storage-migration`
+  `/admin/work-assignments`, `/admin/performers`
 
 Guard'ы — в [src/app/router/guards.tsx](src/app/router/guards.tsx).
 
@@ -277,10 +250,9 @@ Guard'ы — в [src/app/router/guards.tsx](src/app/router/guards.tsx).
 App shell, JS/CSS, иконки и PDF.js-воркер кэшируются Workbox'ом.
 Дополнительно настроен `runtimeCaching`:
 
-- **Изображения Cloud.ru S3 / R2** — `CacheFirst` (TTL 30 дней). Превью
+- **Изображения Cloud.ru S3** — `CacheFirst` (TTL 30 дней). Превью
   и фото уже просмотренных отчётов остаются доступны без сети. Шаблон
-  URL покрывает `s3.cloud.ru` и `*.r2.cloudflarestorage.com` /
-  `*.r2.dev`.
+  URL покрывает только `s3.cloud.ru`.
 - **`/api/*` НЕ кэшируется через SW** — все офлайн-данные идут
   исключительно через явный IDB-кэш (`remote_reports_cache`,
   `catalogs`, `plans_cache`), которым управляет приложение.
@@ -343,8 +315,7 @@ App shell, JS/CSS, иконки и PDF.js-воркер кэшируются Work
 - [ ] Прямой URL `/reports/:id` чужого проекта → «не найдено»
 - [ ] Попытка вызвать `/api/profile` без Bearer → 401, frontend
       делает logout
-- [ ] `POST /api/storage/presign` с `provider:'r2'` обычным юзером →
-      403; админом → 200 (только GET; PUT в R2 запрещён всегда)
+- [ ] `POST /api/storage/presign` без активного профиля → 403
 
 PWA:
 
@@ -387,21 +358,18 @@ Retention:
   для одного имени дадут одну запись (выигрывает первая через
   upsert-by-id, вторая помечается synced без записи; UI догонит после
   следующего `loadWorkTypes`).
-- R2/S3 timeout — 60с PUT / 45с GET. Большие файлы на медленном канале
+- S3 timeout — 60с PUT / 45с GET. Большие файлы на медленном канале
   ретраятся с backoff.
 
 ## Деплой
 
 - **Frontend**: `npm run build` → `dist/` раздаётся любым статиком
-  (Cloudflare Pages, Netlify, S3+CF). Требуется SPA-fallback на
-  `index.html`.
+  (Netlify, S3 + CDN). Требуется SPA-fallback на `index.html`.
 - **Backend**: `npm run server:build` → `npm run server:start`. На
   проде — отдельная VM или контейнер; `server/.env` или secrets-store
-  с `DATABASE_URL`, `JWT_SECRET`, `CLOUDRU_*`. Перед фронтом — reverse
-  proxy, который проксирует `/api/*` на Fastify-инстанс.
+  с `DATABASE_URL`, `JWT_ACCESS_SECRET`, `CLOUDRU_*`. Перед фронтом —
+  reverse proxy, который проксирует `/api/*` на Fastify-инстанс.
 - **БД**: применить миграции к Yandex MDB командой
   `DATABASE_URL=... npm run migrate:db`
   (эквивалент: `bash scripts/db/apply-migrations.sh`), затем bootstrap
   первого админа (см. выше).
-- **Перенос объектов с R2**: страница `/admin/storage-migration` под
-  админом — единственный способ.

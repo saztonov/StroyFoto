@@ -12,7 +12,6 @@ const bodySchema = z.object({
   projectId: uuidSchema.optional(),
   planId: uuidSchema.optional(),
   contentType: z.string().min(1).max(100).optional(),
-  provider: z.enum(['cloudru', 'r2']).optional(),
 });
 
 export default async function presignRoutes(
@@ -31,7 +30,6 @@ export default async function presignRoutes(
         projectId: body.projectId,
         planId: body.planId,
         contentType: body.contentType,
-        provider: body.provider,
         user: request.user!,
       });
     },

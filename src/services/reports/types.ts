@@ -1,5 +1,4 @@
 import type { SyncStatus } from '@/lib/db'
-import type { StorageProvider } from '@/services/r2'
 
 /**
  * Унифицированная карточка отчёта для списка/детальной страницы.
@@ -39,17 +38,11 @@ export interface RemoteReportRow {
 
 export interface RemoteReportPhoto {
   id: string
-  r2_key: string
-  thumb_r2_key: string
+  object_key: string
+  thumb_object_key: string
   width: number | null
   height: number | null
   taken_at: string | null
-  /**
-   * В каком хранилище лежат бинарные объекты. До миграции на Cloud.ru у
-   * исторических фото значение 'r2'; после — 'cloudru'. Может отсутствовать
-   * в кэше старых снимков → читать как 'cloudru'.
-   */
-  storage?: StorageProvider
 }
 
 export interface RemoteReportMark {

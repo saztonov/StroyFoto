@@ -16,10 +16,9 @@ interface AuthorNameRow {
 }
 
 /**
- * Резолвит ФИО авторов через GET /api/author-names. Backend фильтрует доступ
- * (как старый SECURITY DEFINER `get_author_names`): возвращает имя только
- * если автор связан с проектом, в котором состоит текущий пользователь,
- * либо если запрашивающий — admin.
+ * Резолвит ФИО авторов через GET /api/author-names. Backend фильтрует доступ:
+ * возвращает имя только если автор связан с проектом, в котором состоит
+ * текущий пользователь, либо если запрашивающий — admin.
  */
 async function resolveAuthorNames(
   ids: Iterable<string>,

@@ -5,12 +5,11 @@ import {
   photoThumbKey,
   putToPresigned,
   requestPresigned,
-  type StorageProvider,
-} from '@/services/r2'
+} from '@/services/objectStorage'
 
 export interface UploadPhotoResult {
-  r2Key: string
-  thumbR2Key: string
+  objectKey: string
+  thumbObjectKey: string
 }
 
 /**
@@ -30,21 +29,21 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
     throw new Error('uploadPhoto: remote-origin photo без thumbBlob нельзя загружать')
   }
   const thumbBlob = photo.thumbBlob
-  const r2Key = photoKey(photo.reportId, photo.id)
-  const thumbR2Key = photoThumbKey(photo.reportId, photo.id)
+  const objectKey = photoKey(photo.reportId, photo.id)
+  const thumbObjectKey = photoThumbKey(photo.reportId, photo.id)
 
   const [putOriginal, putThumb] = await Promise.all([
     requestPresigned({
       op: 'put',
       kind: 'photo',
-      key: r2Key,
+      key: objectKey,
       reportId: photo.reportId,
       contentType: 'image/jpeg',
     }),
     requestPresigned({
       op: 'put',
       kind: 'photo_thumb',
-      key: thumbR2Key,
+      key: thumbObjectKey,
       reportId: photo.reportId,
       contentType: 'image/jpeg',
     }),
@@ -55,43 +54,37 @@ export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult>
     putToPresigned(putThumb, thumbBlob),
   ])
 
-  // storage='cloudru' — новый объект всегда уходит в Cloud.ru.
   await apiFetch(`/api/report-photos/${photo.id}`, {
     method: 'PUT',
     body: {
       report_id: photo.reportId,
-      r2_key: r2Key,
-      thumb_r2_key: thumbR2Key,
+      object_key: objectKey,
+      thumb_object_key: thumbObjectKey,
       width: photo.width,
       height: photo.height,
       taken_at: photo.takenAt,
-      storage: 'cloudru',
     },
   })
 
-  return { r2Key, thumbR2Key }
+  return { objectKey, thumbObjectKey }
 }
 
 /**
- * Удаляет фото с сервера: row из `report_photos` + объекты из хранилища
+ * Удаляет фото с сервера: row из `report_photos` + объекты из Cloud.ru S3
  * (best-effort). DELETE через presigned URL; если хранилище вернёт ошибку —
  * не блокируем, DB-строка является source of truth.
- *
- * `storage` определяет, в каком бакете лежат объекты (cloudru/r2). Без
- * указания берётся 'cloudru'.
  */
 export async function deleteRemotePhoto(
   photoId: string,
   reportId: string,
-  r2Key: string,
-  thumbR2Key: string,
-  storage: StorageProvider = 'cloudru',
+  objectKey: string,
+  thumbObjectKey: string,
 ): Promise<void> {
   // Best-effort cleanup в объектном хранилище.
   try {
     const [delOriginal, delThumb] = await Promise.all([
-      requestPresigned({ op: 'delete', kind: 'photo', key: r2Key, reportId, provider: storage }),
-      requestPresigned({ op: 'delete', kind: 'photo_thumb', key: thumbR2Key, reportId, provider: storage }),
+      requestPresigned({ op: 'delete', kind: 'photo', key: objectKey, reportId }),
+      requestPresigned({ op: 'delete', kind: 'photo_thumb', key: thumbObjectKey, reportId }),
     ])
     await Promise.allSettled([
       fetch(delOriginal.url, { method: 'DELETE', headers: delOriginal.headers }),
@@ -106,15 +99,15 @@ export async function deleteRemotePhoto(
 
 export async function markPhotoSynced(
   photoId: string,
-  r2Key: string,
-  thumbR2Key: string,
+  objectKey: string,
+  thumbObjectKey: string,
 ): Promise<void> {
   const db = await getDB()
   const photo = await db.get('photos', photoId)
   if (!photo) return
   photo.syncStatus = 'synced'
-  photo.r2Key = r2Key
-  photo.thumbR2Key = thumbR2Key
+  photo.objectKey = objectKey
+  photo.thumbObjectKey = thumbObjectKey
   try {
     await db.put('photos', photo)
   } catch (e) {

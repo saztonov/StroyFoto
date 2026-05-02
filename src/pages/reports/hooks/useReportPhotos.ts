@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cacheRemotePhotoBlob, getCachedRemotePhotoBlob } from '@/services/reports'
-import { requestPresigned } from '@/services/r2'
+import { requestPresigned } from '@/services/objectStorage'
 import type { DisplayPhoto, LoadedReport } from '../types'
 
 interface Result {
@@ -76,16 +76,14 @@ export function useReportPhotos(data: LoadedReport | null): Result {
               requestPresigned({
                 op: 'get',
                 kind: 'photo_thumb',
-                key: p.thumb_r2_key,
+                key: p.thumb_object_key,
                 reportId: data.card.id,
-                provider: p.storage ?? 'cloudru',
               }),
               requestPresigned({
                 op: 'get',
                 kind: 'photo',
-                key: p.r2_key,
+                key: p.object_key,
                 reportId: data.card.id,
-                provider: p.storage ?? 'cloudru',
               }),
             ])
             const [fullResp, thumbResp] = await Promise.all([

@@ -1,17 +1,5 @@
 import { apiFetch } from '@/lib/apiClient'
 
-/**
- * Идентификатор объектного хранилища, в котором лежит конкретный объект.
- *  - `cloudru` — Cloud.ru Object Storage (s3.cloud.ru, ru-central-1).
- *    Активный провайдер: все новые загрузки уходят сюда.
- *  - `r2` — Cloudflare R2. Легаси-провайдер; используется только для чтения
- *    исторических объектов и во время разовой миграции
- *    (см. `src/pages/admin/StorageMigrationPage.tsx`).
- *
- * Значение хранится в столбце `storage` таблиц `report_photos` и `plans`.
- */
-export type StorageProvider = 'cloudru' | 'r2'
-
 export type StorageOp = 'put' | 'get' | 'delete'
 export type StorageKind = 'photo' | 'photo_thumb' | 'plan'
 
@@ -23,12 +11,6 @@ export interface PresignRequest {
   projectId?: string
   planId?: string
   contentType?: string
-  /**
-   * Провайдер хранилища. По умолчанию — `cloudru` (новый бакет в Cloud.ru).
-   * Передавайте `r2` только для чтения/удаления исторических объектов из
-   * Cloudflare R2 во время миграции.
-   */
-  provider?: StorageProvider
 }
 
 export interface PresignResponse {
@@ -36,15 +18,13 @@ export interface PresignResponse {
   method: 'PUT' | 'GET' | 'DELETE'
   headers: Record<string, string>
   expiresAt: number
-  /** Подтверждение, в каком хранилище был выпущен URL (echo от сервера). */
-  provider: StorageProvider
 }
 
 /**
- * Запрашивает у backend (POST /api/storage/presign) presigned URL.
- * Никаких секретов хранилища на клиенте — backend валидирует JWT,
- * проверяет права (автор отчёта / член проекта / админ), и подписывает
- * короткоживущий URL через SigV4.
+ * Запрашивает у backend (POST /api/storage/presign) presigned URL для
+ * Cloud.ru Object Storage. Никаких секретов хранилища на клиенте: backend
+ * валидирует JWT, проверяет права (автор отчёта / член проекта / админ),
+ * и подписывает короткоживущий URL через SigV4.
  */
 export async function requestPresigned(req: PresignRequest): Promise<PresignResponse> {
   return apiFetch<PresignResponse>('/api/storage/presign', {
@@ -107,11 +87,11 @@ export async function putToPresigned(
       body,
     },
     STORAGE_PUT_TIMEOUT_MS,
-    `S3 PUT (${presigned.provider})`,
+    'S3 PUT',
   )
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`S3 PUT (${presigned.provider}) ${res.status}: ${text || res.statusText}`)
+    throw new Error(`S3 PUT ${res.status}: ${text || res.statusText}`)
   }
 }
 
@@ -123,11 +103,11 @@ export async function getFromPresigned(presigned: PresignResponse): Promise<Blob
       headers: presigned.headers,
     },
     STORAGE_GET_TIMEOUT_MS,
-    `S3 GET (${presigned.provider})`,
+    'S3 GET',
   )
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`S3 GET (${presigned.provider}) ${res.status}: ${text || res.statusText}`)
+    throw new Error(`S3 GET ${res.status}: ${text || res.statusText}`)
   }
   return await res.blob()
 }

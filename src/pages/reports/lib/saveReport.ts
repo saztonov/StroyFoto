@@ -50,7 +50,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
       // 2. Удаляем фото (best-effort — ошибки не блокируют)
       for (const p of values.photosToRemove) {
         try {
-          await deleteRemotePhoto(p.id, id, p.r2Key, p.thumbR2Key, p.storage ?? 'cloudru')
+          await deleteRemotePhoto(p.id, id, p.objectKey, p.thumbObjectKey)
         } catch (e) {
           console.warn('photo delete failed (online):', p.id, e)
         }
@@ -138,9 +138,8 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     const rec: PhotoDeleteRecord = {
       id: p.id,
       reportId: id,
-      r2Key: p.r2Key,
-      thumbR2Key: p.thumbR2Key,
-      storage: p.storage ?? 'cloudru',
+      objectKey: p.objectKey,
+      thumbObjectKey: p.thumbObjectKey,
     }
     await tx.objectStore('photo_deletes').put(rec)
     await tx.objectStore('sync_queue').add({

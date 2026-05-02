@@ -20,10 +20,8 @@ import { PlanMarkPicker } from './PlanMarkPicker'
 export interface ExistingPhoto {
   id: string
   thumbUrl: string
-  r2Key: string
-  thumbR2Key: string
-  /** Хранилище объектов: 'cloudru' | 'r2'. Может отсутствовать → 'cloudru'. */
-  storage?: 'cloudru' | 'r2'
+  objectKey: string
+  thumbObjectKey: string
 }
 
 /** Результат редактирования — полный набор изменений */
@@ -34,7 +32,7 @@ export interface EditReportSaveInput {
   description: string | null
   takenAt: string | null
   planId: string | null | undefined // undefined = не менять
-  photosToRemove: Array<{ id: string; r2Key: string; thumbR2Key: string; storage?: 'cloudru' | 'r2' }>
+  photosToRemove: Array<{ id: string; objectKey: string; thumbObjectKey: string }>
   photosToAdd: DraftPhoto[]
   mark: PlanMarkValue | null | undefined // undefined = не менять
   markChanged: boolean
@@ -137,7 +135,7 @@ export function EditReportModal({
 
       const photosToRemove = existingPhotos
         .filter((p) => removedIds.has(p.id))
-        .map((p) => ({ id: p.id, r2Key: p.r2Key, thumbR2Key: p.thumbR2Key, storage: p.storage }))
+        .map((p) => ({ id: p.id, objectKey: p.objectKey, thumbObjectKey: p.thumbObjectKey }))
 
       // planId: если метка изменена — берём planId из mark; иначе undefined (не менять)
       let planId: string | null | undefined = undefined

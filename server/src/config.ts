@@ -35,11 +35,6 @@ const envSchema = z.object({
   CLOUDRU_BUCKET: z.string().optional(),
   CLOUDRU_ENDPOINT: z.string().default('https://s3.cloud.ru'),
   CLOUDRU_REGION: z.string().default('ru-central-1'),
-
-  R2_ACCOUNT_ID: z.string().optional(),
-  R2_ACCESS_KEY_ID: z.string().optional(),
-  R2_SECRET_ACCESS_KEY: z.string().optional(),
-  R2_BUCKET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

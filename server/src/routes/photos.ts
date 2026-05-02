@@ -13,12 +13,11 @@ const photoParamsSchema = z.object({ photoId: uuidSchema });
 
 const upsertSchema = z.object({
   report_id: uuidSchema,
-  r2_key: z.string().min(1).max(500),
-  thumb_r2_key: z.string().min(1).max(500).nullable().optional(),
+  object_key: z.string().min(1).max(500),
+  thumb_object_key: z.string().min(1).max(500).nullable().optional(),
   width: z.number().int().positive().nullable().optional(),
   height: z.number().int().positive().nullable().optional(),
   taken_at: isoDateSchema.nullable().optional(),
-  storage: z.enum(['cloudru', 'r2']).optional(),
 });
 
 export default async function photosRoutes(
@@ -33,12 +32,11 @@ export default async function photosRoutes(
       user: request.user!,
       id: photoId,
       report_id: body.report_id,
-      r2_key: body.r2_key,
-      thumb_r2_key: body.thumb_r2_key ?? null,
+      object_key: body.object_key,
+      thumb_object_key: body.thumb_object_key ?? null,
       width: body.width ?? null,
       height: body.height ?? null,
       taken_at: body.taken_at ?? null,
-      storage: body.storage ?? 'cloudru',
     });
     return { photo };
   });

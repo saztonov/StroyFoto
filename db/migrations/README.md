@@ -7,8 +7,10 @@
 
 ```
 db/migrations/
-├── 001_init.sql       # инициализация: extensions, типы, таблицы, индексы, триггеры
-└── README.md          # этот файл
+├── 001_init.sql                          # инициализация: extensions, типы, таблицы, индексы, триггеры
+├── 002_auth_refresh_tokens.sql           # таблица refresh_tokens
+├── 003_cloudru_only_object_keys.sql      # переименование r2_key → object_key, удаление колонки storage
+└── README.md                             # этот файл
 ```
 
 Все миграции — обычные `.sql` файлы, применяются по алфавиту имени. Каждая
@@ -98,7 +100,7 @@ COMMIT;
 | Таблицы | `app_users`, `profiles`, `projects`, `project_memberships`, `work_types`, `work_assignments`, `performers`, `plans`, `reports`, `report_plan_marks`, `report_photos` |
 | Триггеры `set_updated_at` | `app_users`, `profiles`, `projects`, `plans`, `reports` |
 | Индексы | `profiles(role)`, `project_memberships(user_id)`, `plans(project_id)`, `reports(project_id, created_at desc)`, `reports(author_id)`, `report_photos(report_id)`, `report_plan_marks(plan_id)`, уникальные `lower(projects.name)`, `report_plan_marks(report_id)` |
-| Constraints | `storage IN ('cloudru','r2')`, `page_count > 0 OR null`, `width/height > 0 OR null`, `report_plan_marks.page > 0`, `x_norm/y_norm ∈ [0,1]`, уникальные `(performers.kind, performers.name)`, `work_types.name`, `work_assignments.name` |
+| Constraints | `page_count > 0 OR null`, `width/height > 0 OR null`, `report_plan_marks.page > 0`, `x_norm/y_norm ∈ [0,1]`, уникальные `(performers.kind, performers.name)`, `work_types.name`, `work_assignments.name` |
 
 ## Откат
 

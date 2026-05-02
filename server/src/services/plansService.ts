@@ -15,8 +15,7 @@ export interface PlanDTO {
   floor: string | null;
   building: string | null;
   section: string | null;
-  r2_key: string;
-  storage: 'cloudru' | 'r2';
+  object_key: string;
   page_count: number | null;
   uploaded_by: string | null;
   created_at: string;
@@ -30,8 +29,7 @@ interface PlanRow {
   floor: string | null;
   building: string | null;
   section: string | null;
-  r2_key: string;
-  storage: 'cloudru' | 'r2';
+  object_key: string;
   page_count: number | null;
   uploaded_by: string | null;
   created_at: Date;
@@ -46,8 +44,7 @@ function toDTO(row: PlanRow): PlanDTO {
     floor: row.floor,
     building: row.building,
     section: row.section,
-    r2_key: row.r2_key,
-    storage: row.storage,
+    object_key: row.object_key,
     page_count: row.page_count,
     uploaded_by: row.uploaded_by,
     created_at: row.created_at.toISOString(),
@@ -56,7 +53,7 @@ function toDTO(row: PlanRow): PlanDTO {
 }
 
 const SELECT_COLUMNS = `id, project_id, name, floor, building, section,
-  r2_key, storage, page_count, uploaded_by, created_at, updated_at`;
+  object_key, page_count, uploaded_by, created_at, updated_at`;
 
 export async function listPlansForUser(
   user: AuthenticatedUser,
@@ -97,7 +94,7 @@ export async function createPlan(input: {
   floor: string | null;
   building: string | null;
   section: string | null;
-  r2_key: string;
+  object_key: string;
   page_count: number | null;
 }): Promise<PlanDTO> {
   await assertProjectExists(input.project_id);
@@ -105,9 +102,9 @@ export async function createPlan(input: {
   try {
     const result = await pool.query<PlanRow>(
       `INSERT INTO plans (id, project_id, name, floor, building, section,
-                          r2_key, page_count, uploaded_by, storage)
+                          object_key, page_count, uploaded_by)
        VALUES (coalesce($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6,
-               $7, $8, $9, 'cloudru')
+               $7, $8, $9)
        RETURNING ${SELECT_COLUMNS}`,
       [
         input.id ?? null,
@@ -116,7 +113,7 @@ export async function createPlan(input: {
         input.floor,
         input.building,
         input.section,
-        input.r2_key,
+        input.object_key,
         input.page_count,
         input.user.id,
       ],
@@ -151,25 +148,16 @@ export async function updatePlan(input: {
   building?: string | null;
   section?: string | null;
   page_count?: number | null;
-  storage?: 'cloudru' | 'r2';
 }): Promise<PlanDTO> {
   const plan = await loadPlan(input.id);
   await assertProjectMember(input.user, plan.project_id);
-  if (input.storage === 'r2' && input.user.role !== 'admin') {
-    throw new AppError(
-      403,
-      'FORBIDDEN',
-      "Указывать storage='r2' может только администратор.",
-    );
-  }
   if (
     input.user.role !== 'admin' &&
     plan.uploaded_by !== input.user.id &&
     (input.name !== undefined ||
       input.floor !== undefined ||
       input.building !== undefined ||
-      input.section !== undefined ||
-      input.storage !== undefined)
+      input.section !== undefined)
   ) {
     throw new AppError(
       403,
@@ -182,14 +170,12 @@ export async function updatePlan(input: {
   const setBuilding = input.building !== undefined;
   const setSection = input.section !== undefined;
   const setPageCount = input.page_count !== undefined;
-  const setStorage = input.storage !== undefined;
   if (
     !setName &&
     !setFloor &&
     !setBuilding &&
     !setSection &&
-    !setPageCount &&
-    !setStorage
+    !setPageCount
   ) {
     return toDTO(plan);
   }
@@ -200,8 +186,7 @@ export async function updatePlan(input: {
        floor      = CASE WHEN $4::boolean THEN $5::text     ELSE floor      END,
        building   = CASE WHEN $6::boolean THEN $7::text     ELSE building   END,
        section    = CASE WHEN $8::boolean THEN $9::text     ELSE section    END,
-       page_count = CASE WHEN $10::boolean THEN $11::int    ELSE page_count END,
-       storage    = CASE WHEN $12::boolean THEN $13::text   ELSE storage    END
+       page_count = CASE WHEN $10::boolean THEN $11::int    ELSE page_count END
      WHERE id = $1
      RETURNING ${SELECT_COLUMNS}`,
     [
@@ -216,8 +201,6 @@ export async function updatePlan(input: {
       setSection ? input.section : null,
       setPageCount,
       setPageCount ? input.page_count : null,
-      setStorage,
-      setStorage ? input.storage : null,
     ],
   );
   if (result.rowCount === 0) {

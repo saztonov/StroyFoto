@@ -31,8 +31,8 @@ export interface LocalPhoto {
   takenAt: string | null
   order: number
   syncStatus: SyncStatus
-  r2Key?: string | null
-  thumbR2Key?: string | null
+  objectKey?: string | null
+  thumbObjectKey?: string | null
   // local — пользовательский черновик, remote — скачанный кэш истории.
   // Retention чистит их по разным правилам; local никогда не удаляется до синка.
   origin: PhotoOrigin
@@ -131,17 +131,11 @@ export interface RemoteReportSnapshot {
   // фото-метаданные хранятся здесь, бинарные blobs — в store `photos` c origin='remote'
   photos: Array<{
     id: string
-    r2Key: string
-    thumbR2Key: string | null
+    objectKey: string
+    thumbObjectKey: string | null
     width: number | null
     height: number | null
     takenAt: string | null
-    /**
-     * В каком хранилище лежат blob'ы. До миграции у исторических фото 'r2',
-     * после — 'cloudru'. Поле необязательное, чтобы старые снимки кэша
-     * (снятые до апдейта) не ломали загрузку — отсутствие читать как 'cloudru'.
-     */
-    storage?: 'cloudru' | 'r2'
   }>
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null
 }
@@ -172,13 +166,8 @@ export interface CatalogRecord {
 export interface PhotoDeleteRecord {
   id: string // photo UUID
   reportId: string
-  r2Key: string
-  thumbR2Key: string
-  /**
-   * Хранилище, в котором лежат blob'ы. Если поле отсутствует (старые
-   * записи) — считаем 'cloudru' (новые загрузки уходят туда).
-   */
-  storage?: 'cloudru' | 'r2'
+  objectKey: string
+  thumbObjectKey: string
 }
 
 /**
@@ -298,7 +287,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 87
+const DB_VERSION = 88
 
 export function getDB() {
   if (!dbPromise) {
@@ -347,7 +336,7 @@ export function getDB() {
         ensureStore(db, 'photo_deletes', { keyPath: 'id' }, tx)
         ensureStore(db, 'mark_updates', { keyPath: 'reportId' }, tx)
 
-        // v87 — auth_session: refresh-токен после миграции на собственный backend
+        // auth_session: refresh-токен (v87+); v88 — переименование r2Key → objectKey
         ensureStore(db, 'auth_session', { keyPath: 'key' }, tx)
 
         const remoteNew = ensureStore(db, 'remote_reports_cache', { keyPath: 'id' }, tx)
@@ -371,13 +360,74 @@ export function getDB() {
         if (oldVersion > 0 && oldVersion < DB_VERSION) {
           void photos.openCursor().then(async function migrate(cursor): Promise<void> {
             if (!cursor) return
-            const v = cursor.value as LocalPhoto
-            if (!v.origin) {
-              cursor.update({ ...v, origin: 'local' })
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const v = cursor.value as any
+            const patch: Record<string, unknown> = {}
+            if (!v.origin) patch.origin = 'local'
+            // v88: r2Key → objectKey, thumbR2Key → thumbObjectKey
+            if (v.r2Key !== undefined) {
+              patch.objectKey = v.r2Key
+              patch.r2Key = undefined
             }
-            const next = await cursor.continue()
-            return migrate(next)
+            if (v.thumbR2Key !== undefined) {
+              patch.thumbObjectKey = v.thumbR2Key
+              patch.thumbR2Key = undefined
+            }
+            if (Object.keys(patch).length > 0) {
+              const next = { ...v, ...patch }
+              delete next.r2Key
+              delete next.thumbR2Key
+              cursor.update(next)
+            }
+            const nextCursor = await cursor.continue()
+            return migrate(nextCursor)
           })
+
+          // v88: photo_deletes — переносим r2Key/thumbR2Key → objectKey/thumbObjectKey, убираем storage
+          if (db.objectStoreNames.contains('photo_deletes' as never)) {
+            const pdStore = tx.objectStore('photo_deletes')
+            void pdStore.openCursor().then(async function migrate(cursor): Promise<void> {
+              if (!cursor) return
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const v = cursor.value as any
+              if (v.r2Key !== undefined || v.thumbR2Key !== undefined || v.storage !== undefined) {
+                const next = { ...v }
+                if (v.r2Key !== undefined) { next.objectKey = v.r2Key; delete next.r2Key }
+                if (v.thumbR2Key !== undefined) { next.thumbObjectKey = v.thumbR2Key; delete next.thumbR2Key }
+                if (v.storage !== undefined) delete next.storage
+                cursor.update(next)
+              }
+              const nextCursor = await cursor.continue()
+              return migrate(nextCursor)
+            })
+          }
+
+          // v88: remote_reports_cache — фото-метаданные тоже переименовываем
+          if (db.objectStoreNames.contains('remote_reports_cache' as never)) {
+            const rcStore = tx.objectStore('remote_reports_cache')
+            void rcStore.openCursor().then(async function migrate(cursor): Promise<void> {
+              if (!cursor) return
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const v = cursor.value as any
+              if (Array.isArray(v.photos) && v.photos.length > 0) {
+                let dirty = false
+                const photosNext = v.photos.map((p: Record<string, unknown>) => {
+                  if (p.r2Key !== undefined || p.thumbR2Key !== undefined || p.storage !== undefined) {
+                    dirty = true
+                    const next: Record<string, unknown> = { ...p }
+                    if (p.r2Key !== undefined) { next.objectKey = p.r2Key; delete next.r2Key }
+                    if (p.thumbR2Key !== undefined) { next.thumbObjectKey = p.thumbR2Key; delete next.thumbR2Key }
+                    if (p.storage !== undefined) delete next.storage
+                    return next
+                  }
+                  return p
+                })
+                if (dirty) cursor.update({ ...v, photos: photosNext })
+              }
+              const nextCursor = await cursor.continue()
+              return migrate(nextCursor)
+            })
+          }
         }
 
         // Диагностика keyPath критических stores — помогает быстро подтвердить,

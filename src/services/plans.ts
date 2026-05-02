@@ -6,8 +6,7 @@ import {
   planKey,
   putToPresigned,
   requestPresigned,
-  type StorageProvider,
-} from '@/services/r2'
+} from '@/services/objectStorage'
 import type { PlanRow } from '@/services/catalogs'
 
 export interface PlanRecord {
@@ -17,13 +16,7 @@ export interface PlanRecord {
   floor: string | null
   building: string | null
   section: string | null
-  r2_key: string
-  /**
-   * Где лежит PDF-файл: `cloudru` (текущий активный провайдер) или `r2`
-   * (исторические объекты, до миграции). Поле необязательно для совместимости:
-   * если отсутствует — считаем 'cloudru'.
-   */
-  storage?: StorageProvider
+  object_key: string
   page_count: number | null
   uploaded_by: string | null
   created_at: string
@@ -51,8 +44,7 @@ export function planRowToRecord(row: PlanRow): PlanRecord {
     floor: row.floor ?? null,
     building: row.building ?? null,
     section: row.section ?? null,
-    r2_key: row.r2_key,
-    storage: row.storage ?? 'cloudru',
+    object_key: row.object_key,
     page_count: row.page_count,
     uploaded_by: null,
     created_at: row.created_at,
@@ -62,7 +54,7 @@ export function planRowToRecord(row: PlanRow): PlanRecord {
 
 /**
  * Загружает PDF-план в приватный бакет Cloud.ru S3 и регистрирует его
- * через backend POST /api/plans. Все новые планы записываются с `storage='cloudru'`.
+ * через backend POST /api/plans.
  */
 export async function uploadPlanPdf(
   file: File,
@@ -95,7 +87,7 @@ export async function uploadPlanPdf(
       floor,
       building,
       section,
-      r2_key: key,
+      object_key: key,
       page_count: pageCount,
     },
   })
@@ -129,9 +121,7 @@ export async function updatePlan(
 }
 
 /**
- * Заменяет PDF-файл плана. Объект всегда перезаписывается в Cloud.ru:
- * если ранее план был в R2, после замены он окажется в Cloud.ru, поэтому
- * `storage` обновляется на 'cloudru'.
+ * Заменяет PDF-файл плана. Объект перезаписывается в Cloud.ru с тем же object key.
  */
 export async function replacePlanFile(
   plan: PlanRecord,
@@ -141,7 +131,7 @@ export async function replacePlanFile(
   const presigned = await requestPresigned({
     op: 'put',
     kind: 'plan',
-    key: plan.r2_key,
+    key: plan.object_key,
     projectId: plan.project_id,
     planId: plan.id,
     contentType: 'application/pdf',
@@ -150,7 +140,7 @@ export async function replacePlanFile(
 
   const data = await apiFetch<{ plan: PlanRecord }>(`/api/plans/${plan.id}`, {
     method: 'PATCH',
-    body: { page_count: pageCount, storage: 'cloudru' },
+    body: { page_count: pageCount },
   })
 
   // Инвалидируем локальный кэш
@@ -181,10 +171,9 @@ export async function deletePlan(plan: PlanRecord): Promise<void> {
     const presigned = await requestPresigned({
       op: 'delete',
       kind: 'plan',
-      key: plan.r2_key,
+      key: plan.object_key,
       projectId: plan.project_id,
       planId: plan.id,
-      provider: plan.storage ?? 'cloudru',
     })
     await fetch(presigned.url, { method: presigned.method, headers: presigned.headers })
   } catch {
@@ -198,8 +187,7 @@ export async function deletePlan(plan: PlanRecord): Promise<void> {
 
 /**
  * Возвращает PDF-blob: сначала смотрит локальный кэш, иначе тянет через
- * presigned GET и сохраняет в `plans_cache` для офлайна. Провайдер
- * хранилища берётся из колонки `storage` (по умолчанию — 'cloudru').
+ * presigned GET и сохраняет в `plans_cache` для офлайна.
  */
 export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
   const db = await getDB()
@@ -209,10 +197,9 @@ export async function downloadPlanPdf(plan: PlanRecord): Promise<Blob> {
   const presigned = await requestPresigned({
     op: 'get',
     kind: 'plan',
-    key: plan.r2_key,
+    key: plan.object_key,
     projectId: plan.project_id,
     planId: plan.id,
-    provider: plan.storage ?? 'cloudru',
   })
   const blob = await getFromPresigned(presigned)
   await db.put('plans_cache', { id: plan.id, blob, cachedAt: Date.now() })

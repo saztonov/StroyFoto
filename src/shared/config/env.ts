@@ -6,8 +6,8 @@ const rawApiUrl = import.meta.env.VITE_API_URL ?? '/api'
 const apiBaseUrl = rawApiUrl.replace(/\/$/, '')
 
 // Все запросы фронта идут на собственный backend (Fastify). Подпись presigned
-// URL к Cloud.ru S3 / Cloudflare R2 делает endpoint POST /api/storage/presign —
-// секреты CLOUDRU_*/R2_* задаются на сервере и не покидают его.
+// URL к Cloud.ru S3 делает endpoint POST /api/storage/presign — секреты
+// CLOUDRU_* задаются на сервере и не покидают его.
 
 export const env = {
   apiBaseUrl,
