@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyError, FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 
 export class AppError extends Error {
@@ -13,7 +13,7 @@ export class AppError extends Error {
 }
 
 export function registerErrorHandler(app: FastifyInstance): void {
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler<FastifyError>((error, request, reply) => {
     if (error instanceof AppError) {
       reply
         .code(error.statusCode)
