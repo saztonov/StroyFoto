@@ -12,7 +12,8 @@
     "server:build": "tsc -p server/tsconfig.json",
     "server:start": "node server/dist/server.js",
     "dev:all": "concurrently -n vite,api -c cyan,magenta \"npm:dev\" \"npm:server:dev\"",
-    "migrate:db": "bash scripts/db/apply-migrations.sh"
+    "migrate:db": "bash scripts/db/apply-migrations.sh",
+    "db:schema:pull": "tsx scripts/db/export-schema.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
