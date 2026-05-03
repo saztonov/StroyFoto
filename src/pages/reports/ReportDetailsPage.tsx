@@ -1,12 +1,14 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, App, Button, Result, Skeleton, Space } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, reportDetails } from '@/shared/i18n/ru'
-import { getDB, type ReportMutation, type SyncOp } from '@/lib/db'
+import { getDB, type ReportMutation, type SyncIssue, type SyncOp } from '@/lib/db'
 import { deleteRemoteReport, purgeLocalReportData } from '@/services/reports'
-import { emitReportChanged, emitReportsChanged } from '@/services/invalidation'
+import { emitReportChanged, emitReportsChanged, onReportsChanged } from '@/services/invalidation'
+import { ackSyncIssuesForReport, listSyncIssuesForReport } from '@/services/syncIssues'
+import { retryReport } from '@/services/sync'
 import { EditReportModal, type EditReportSaveInput, type ExistingPhoto } from './components/EditReportModal'
 import { Photo360Viewer } from './components/Photo360Viewer'
 import { ReportDetailsHeader } from './components/ReportDetailsHeader'
@@ -41,6 +43,46 @@ export function ReportDetailsPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [pano360Src, setPano360Src] = useState<string | null>(null)
+  const [issues, setIssues] = useState<SyncIssue[]>([])
+  const [retrying, setRetrying] = useState(false)
+
+  useEffect(() => {
+    if (!id) return
+    let alive = true
+    const refresh = () => {
+      listSyncIssuesForReport(id)
+        .then((list) => { if (alive) setIssues(list) })
+        .catch(() => undefined)
+    }
+    refresh()
+    const unsub = onReportsChanged(refresh)
+    return () => {
+      alive = false
+      unsub()
+    }
+  }, [id])
+
+  const handleAckIssues = useCallback(async () => {
+    if (!id) return
+    await ackSyncIssuesForReport(id)
+    setIssues([])
+    refresh()
+  }, [id, refresh])
+
+  const handleRetry = useCallback(async () => {
+    if (!id) return
+    setRetrying(true)
+    try {
+      const found = await retryReport(id)
+      if (!found) {
+        message.info('Очередь синхронизации для этого отчёта пуста — нечего повторять.')
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRetrying(false)
+    }
+  }, [id, message])
 
   // Подготовка данных для EditReportModal
   const existingPhotosForModal = useMemo<ExistingPhoto[]>(() => {
@@ -244,6 +286,52 @@ export function ReportDetailsPage() {
       />
 
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {issues.length > 0 && (
+          <Alert
+            type={issues.some((i) => i.kind === 'conflict') ? 'warning' : 'error'}
+            showIcon
+            message={
+              issues[0].kind === 'conflict'
+                ? 'Изменения отменены: версия отчёта на сервере новее'
+                : 'Не удалось синхронизировать изменения'
+            }
+            description={
+              <>
+                {issues.slice(0, 3).map((i) => (
+                  <div key={i.id ?? i.detectedAt}>{i.message}</div>
+                ))}
+              </>
+            }
+            action={
+              <Space direction="vertical" size={4}>
+                <Button size="small" type="primary" onClick={handleAckIssues}>
+                  Понятно
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={retrying}
+                  onClick={handleRetry}
+                >
+                  Повторить
+                </Button>
+              </Space>
+            }
+          />
+        )}
+        {data.card.syncStatus === 'failed' && issues.length === 0 && (
+          <Alert
+            type="error"
+            showIcon
+            message="Отчёт не синхронизирован"
+            description={data.card.lastError ?? 'Ошибка синхронизации'}
+            action={
+              <Button size="small" icon={<ReloadOutlined />} loading={retrying} onClick={handleRetry}>
+                Повторить
+              </Button>
+            }
+          />
+        )}
         {data.card.remoteOnly && (
           <Alert type="info" showIcon message={reportDetails.remoteOnlyInfo} />
         )}

@@ -98,12 +98,14 @@ const PhotoTile = memo(function PhotoTile({
           icon={<ArrowUpOutlined />}
           onClick={() => onMove(index, -1)}
           disabled={index === 0}
+          style={{ minWidth: 32, minHeight: 32 }}
         />
         <Button
           size="small"
           icon={<ArrowDownOutlined />}
           onClick={() => onMove(index, 1)}
           disabled={index === total - 1}
+          style={{ minWidth: 32, minHeight: 32 }}
         />
       </Flex>
       <Button
@@ -111,7 +113,7 @@ const PhotoTile = memo(function PhotoTile({
         danger
         icon={<DeleteOutlined />}
         onClick={() => onRemove(photo.id)}
-        style={{ position: 'absolute', top: 4, right: 4 }}
+        style={{ position: 'absolute', top: 4, right: 4, minWidth: 32, minHeight: 32 }}
       />
     </div>
   )

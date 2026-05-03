@@ -52,7 +52,19 @@ function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
 }
 
 export default async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/register', async (request) => {
+  // Жёсткий лимит на login/register: защита от brute-force и spam-регистраций.
+  // 10 попыток в минуту с одного IP — для нормального пользователя более чем
+  // достаточно, для атакующего с одного IP — заметно дольше.
+  const sensitiveAuthLimit = {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  } as const;
+
+  app.post('/register', sensitiveAuthLimit, async (request) => {
     const body = parseBody(registerSchema, request.body);
     return register(
       {
@@ -64,7 +76,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     );
   });
 
-  app.post('/login', async (request) => {
+  app.post('/login', sensitiveAuthLimit, async (request) => {
     const body = parseBody(loginSchema, request.body);
     return login(
       { email: body.email, password: body.password },

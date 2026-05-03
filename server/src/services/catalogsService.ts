@@ -19,7 +19,10 @@ interface NamedDictRow {
   name: string;
   is_active: boolean;
   created_by: string | null;
-  created_at: Date;
+  // Все SELECT'ы для словарей кастят created_at::text — pg-driver иначе
+  // конвертирует в Date. Это не критично для UI, но единообразие с
+  // reports/photos упрощает клиент (везде ISO-string).
+  created_at: string;
 }
 
 function toDictDTO(row: NamedDictRow): NamedDictDTO {
@@ -28,7 +31,7 @@ function toDictDTO(row: NamedDictRow): NamedDictDTO {
     name: row.name,
     is_active: row.is_active,
     created_by: row.created_by,
-    created_at: row.created_at.toISOString(),
+    created_at: row.created_at,
   };
 }
 
@@ -40,7 +43,7 @@ export async function listActiveDict(
   kind: 'work_types' | 'work_assignments',
 ): Promise<NamedDictDTO[]> {
   const result = await pool.query<NamedDictRow>(
-    `SELECT id, name::text AS name, is_active, created_by, created_at
+    `SELECT id, name::text AS name, is_active, created_by, created_at::text AS created_at
        FROM ${tableExpr(kind)}
       WHERE is_active = true
       ORDER BY name ASC
@@ -53,7 +56,7 @@ export async function listAllDict(
   kind: 'work_types' | 'work_assignments',
 ): Promise<NamedDictDTO[]> {
   const result = await pool.query<NamedDictRow>(
-    `SELECT id, name::text AS name, is_active, created_by, created_at
+    `SELECT id, name::text AS name, is_active, created_by, created_at::text AS created_at
        FROM ${tableExpr(kind)}
       ORDER BY name ASC
       LIMIT 1000`,
@@ -80,7 +83,7 @@ export async function upsertDictPublic(input: {
   // Try by id first if provided.
   if (input.id) {
     const existing = await pool.query<NamedDictRow>(
-      `SELECT id, name::text AS name, is_active, created_by, created_at
+      `SELECT id, name::text AS name, is_active, created_by, created_at::text AS created_at
          FROM ${tableExpr(input.kind)} WHERE id = $1`,
       [input.id],
     );
@@ -91,7 +94,7 @@ export async function upsertDictPublic(input: {
 
   // Try by name (citext unique).
   const byName = await pool.query<NamedDictRow>(
-    `SELECT id, name::text AS name, is_active, created_by, created_at
+    `SELECT id, name::text AS name, is_active, created_by, created_at::text AS created_at
        FROM ${tableExpr(input.kind)} WHERE name = $1`,
     [name],
   );
@@ -103,14 +106,14 @@ export async function upsertDictPublic(input: {
     const result = await pool.query<NamedDictRow>(
       `INSERT INTO ${tableExpr(input.kind)} (id, name, is_active, created_by)
        VALUES (coalesce($1::uuid, gen_random_uuid()), $2, true, $3)
-       RETURNING id, name::text AS name, is_active, created_by, created_at`,
+       RETURNING id, name::text AS name, is_active, created_by, created_at::text AS created_at`,
       [input.id, name, input.createdBy],
     );
     return toDictDTO(result.rows[0]);
   } catch (err) {
     // Race: select again.
     const races = await pool.query<NamedDictRow>(
-      `SELECT id, name::text AS name, is_active, created_by, created_at
+      `SELECT id, name::text AS name, is_active, created_by, created_at::text AS created_at
          FROM ${tableExpr(input.kind)} WHERE name = $1`,
       [name],
     );
@@ -131,7 +134,7 @@ export async function createDictAdmin(input: {
     const result = await pool.query<NamedDictRow>(
       `INSERT INTO ${tableExpr(input.kind)} (name, is_active, created_by)
        VALUES ($1, true, $2)
-       RETURNING id, name::text AS name, is_active, created_by, created_at`,
+       RETURNING id, name::text AS name, is_active, created_by, created_at::text AS created_at`,
       [name, input.createdBy],
     );
     return toDictDTO(result.rows[0]);
@@ -156,7 +159,7 @@ export async function renameDictAdmin(input: {
       `UPDATE ${tableExpr(input.kind)}
           SET name = $1
         WHERE id = $2
-        RETURNING id, name::text AS name, is_active, created_by, created_at`,
+        RETURNING id, name::text AS name, is_active, created_by, created_at::text AS created_at`,
       [name, input.id],
     );
     if (result.rowCount === 0) {
@@ -182,7 +185,7 @@ export async function setDictActiveAdmin(input: {
     `UPDATE ${tableExpr(input.kind)}
         SET is_active = $1
       WHERE id = $2
-      RETURNING id, name::text AS name, is_active, created_by, created_at`,
+      RETURNING id, name::text AS name, is_active, created_by, created_at::text AS created_at`,
     [input.isActive, input.id],
   );
   if (result.rowCount === 0) {
@@ -210,7 +213,8 @@ interface PerformerRow {
   name: string;
   kind: PerformerKind;
   is_active: boolean;
-  created_at: Date;
+  // pg-types для timestamptz: raw-string (см. db.ts).
+  created_at: string;
 }
 
 function toPerformerDTO(row: PerformerRow): PerformerDTO {
@@ -219,13 +223,13 @@ function toPerformerDTO(row: PerformerRow): PerformerDTO {
     name: row.name,
     kind: row.kind,
     is_active: row.is_active,
-    created_at: row.created_at.toISOString(),
+    created_at: row.created_at,
   };
 }
 
 export async function listActivePerformers(): Promise<PerformerDTO[]> {
   const result = await pool.query<PerformerRow>(
-    `SELECT id, name::text AS name, kind, is_active, created_at
+    `SELECT id, name::text AS name, kind, is_active, created_at::text AS created_at
        FROM performers
       WHERE is_active = true
       ORDER BY kind ASC, name ASC
@@ -236,7 +240,7 @@ export async function listActivePerformers(): Promise<PerformerDTO[]> {
 
 export async function listAllPerformers(): Promise<PerformerDTO[]> {
   const result = await pool.query<PerformerRow>(
-    `SELECT id, name::text AS name, kind, is_active, created_at
+    `SELECT id, name::text AS name, kind, is_active, created_at::text AS created_at
        FROM performers
       ORDER BY kind ASC, name ASC
       LIMIT 1000`,
@@ -253,7 +257,7 @@ export async function createPerformer(input: {
     const result = await pool.query<PerformerRow>(
       `INSERT INTO performers (name, kind, is_active)
        VALUES ($1, $2::performer_kind, true)
-       RETURNING id, name::text AS name, kind, is_active, created_at`,
+       RETURNING id, name::text AS name, kind, is_active, created_at::text AS created_at`,
       [name, input.kind],
     );
     return toPerformerDTO(result.rows[0]);
@@ -283,7 +287,7 @@ export async function updatePerformer(input: {
          name = CASE WHEN $2::boolean THEN $3::text          ELSE name END,
          kind = CASE WHEN $4::boolean THEN $5::performer_kind ELSE kind END
        WHERE id = $1
-       RETURNING id, name::text AS name, kind, is_active, created_at`,
+       RETURNING id, name::text AS name, kind, is_active, created_at::text AS created_at`,
       [
         input.id,
         setName,
@@ -312,7 +316,7 @@ export async function setPerformerActive(input: {
 }): Promise<PerformerDTO> {
   const result = await pool.query<PerformerRow>(
     `UPDATE performers SET is_active = $1 WHERE id = $2
-     RETURNING id, name::text AS name, kind, is_active, created_at`,
+     RETURNING id, name::text AS name, kind, is_active, created_at::text AS created_at`,
     [input.isActive, input.id],
   );
   if (result.rowCount === 0) {
@@ -323,7 +327,7 @@ export async function setPerformerActive(input: {
 
 export async function getPerformerById(id: string): Promise<PerformerDTO> {
   const result = await pool.query<PerformerRow>(
-    `SELECT id, name::text AS name, kind, is_active, created_at
+    `SELECT id, name::text AS name, kind, is_active, created_at::text AS created_at
        FROM performers WHERE id = $1`,
     [id],
   );

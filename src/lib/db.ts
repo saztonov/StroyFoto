@@ -89,12 +89,17 @@ export interface LocalWorkAssignment {
  * Мутация существующего отчёта, поставленная в очередь офлайн.
  * Для update содержит payload с новыми значениями + baseUpdatedAt для OCC.
  * Для delete — payload null.
+ *
+ * batchId связывает все офлайн-операции одного «save» (мутация отчёта,
+ * удаления фото, метка). При CONFLICT на PATCH весь пакет откатывается
+ * целиком — без него удалялись бы фото из устаревшей серверной версии.
  */
 export interface ReportMutation {
   id?: number // auto-increment
   kind: 'update' | 'delete'
   reportId: string
   baseUpdatedAt: string
+  batchId?: string | null
   payload: {
     workTypeId: string
     performerId: string
@@ -168,6 +173,7 @@ export interface PhotoDeleteRecord {
   reportId: string
   objectKey: string
   thumbObjectKey: string
+  batchId?: string | null
 }
 
 /**
@@ -180,6 +186,25 @@ export interface MarkUpdateRecord {
   page: number | null
   xNorm: number | null
   yNorm: number | null
+  batchId?: string | null
+}
+
+/**
+ * Видимый пользователю sync issue: конфликт OCC, FK_VIOLATION, permanent
+ * ошибка. Заменяет «тихое» удаление мутации — теперь юзер знает, что
+ * именно отвалилось и может пересоздать правки.
+ */
+export type SyncIssueKind = 'conflict' | 'fk_violation' | 'permanent' | 'photo_mismatch'
+
+export interface SyncIssue {
+  id?: number
+  reportId: string
+  kind: SyncIssueKind
+  message: string
+  detectedAt: number
+  ackAt?: number | null
+  // Какой батч был отброшен (если применимо) — для диагностики.
+  batchId?: string | null
 }
 
 /**
@@ -261,6 +286,11 @@ interface StroyFotoDB extends DBSchema {
     key: string
     value: AuthSessionRecord
   }
+  sync_issues: {
+    key: number
+    value: SyncIssue
+    indexes: { by_report: string }
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<StroyFotoDB>> | null = null
@@ -291,7 +321,7 @@ function ensureStore(
   return db.createObjectStore(name as any, opts)
 }
 
-const DB_VERSION = 88
+const DB_VERSION = 89
 
 export function getDB() {
   if (!dbPromise) {
@@ -347,6 +377,18 @@ export function getDB() {
         if (remoteNew) {
           remoteNew.createIndex('by_project', 'projectId')
           remoteNew.createIndex('by_created', 'createdAt')
+        }
+
+        // v89: store для видимых пользователю sync issues (replaces silent OCC drops).
+        // batchId на report_mutations/photo_deletes/mark_updates существует
+        // как optional поле — миграция данных не требуется, новые операции
+        // получат батч, старые останутся без него (legacy-fallback в sync.ts).
+        const issuesNew = ensureStore(db, 'sync_issues', {
+          keyPath: 'id',
+          autoIncrement: true,
+        }, tx)
+        if (issuesNew) {
+          issuesNew.createIndex('by_report', 'reportId')
         }
 
         // Ensure indexes that may be missing on pre-existing stores

@@ -92,7 +92,7 @@ export function MobileLayout() {
 
       <UpdateBanner />
       <SyncBanner />
-      <Content style={{ padding: 16, paddingBottom: 80 }}>
+      <Content style={{ padding: 16, paddingBottom: 'calc(80px + env(safe-area-inset-bottom))' }}>
         <Outlet />
       </Content>
 
@@ -157,10 +157,10 @@ export function MobileLayout() {
         placement="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={280}
+        width="min(280px, 100vw)"
       >
         <Flex vertical gap={12}>
-          <Typography.Text type="secondary">
+          <Typography.Text type="secondary" ellipsis style={{ display: 'block' }}>
             {profile?.full_name ?? profile?.id ?? ''}
           </Typography.Text>
           <Menu

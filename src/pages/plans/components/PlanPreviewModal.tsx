@@ -2,6 +2,7 @@ import { Button, Flex, Modal, Spin, Typography } from 'antd'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { plansPage } from '@/shared/i18n/ru'
 import { planDisplayName, type PlanRecord } from '@/services/plans'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import { ZoomablePdfPreview } from './ZoomablePdfPreview'
 
 interface Props {
@@ -25,14 +26,30 @@ export function PlanPreviewModal({
   onPageCountReady,
   onClose,
 }: Props) {
+  const isDesktop = useIsDesktop()
   return (
     <Modal
       title={plan ? planDisplayName(plan) : plansPage.previewTitle}
       open={!!plan}
       onCancel={onClose}
       footer={null}
-      width="90vw"
-      style={{ maxWidth: 960, top: 20 }}
+      width={isDesktop ? '90vw' : '100vw'}
+      style={
+        isDesktop
+          ? { maxWidth: 960, top: 20 }
+          : { top: 0, maxWidth: '100vw', margin: 0, paddingBottom: 0 }
+      }
+      styles={
+        isDesktop
+          ? undefined
+          : {
+              body: {
+                padding: 8,
+                maxHeight: 'calc(100dvh - 64px)',
+                overflowY: 'auto',
+              },
+            }
+      }
       destroyOnHidden
     >
       {loading && (

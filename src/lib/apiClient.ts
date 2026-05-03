@@ -75,6 +75,45 @@ function joinUrl(path: string): string {
   return env.apiBaseUrl + (path.startsWith('/') ? path : `/${path}`)
 }
 
+// Дефолтные таймауты. На GPRS/слабом 3G fetch без AbortController может
+// зависнуть на минуты, блокируя весь sync-loop (sync.ts: `if (running) return`).
+// Перекрывается через ApiFetchOptions.timeoutMs.
+const DEFAULT_API_TIMEOUT_MS = 30_000
+const REFRESH_TIMEOUT_MS = 15_000
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  label: string,
+): Promise<Response> {
+  // Если caller уже передал signal — оборачиваем оба сигнала. Иначе используем
+  // только наш таймаут.
+  const controller = new AbortController()
+  const externalSignal = init.signal
+  const onExternalAbort = () => controller.abort(externalSignal?.reason)
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason)
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
+  }
+  const timer = setTimeout(() => controller.abort(new Error(`${label} timeout ${timeoutMs}ms`)), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      // Оба источника — наш timeout и external abort — превращаем в ApiError(0, 'TIMEOUT').
+      // Sync-loop classify его как transient → exponential backoff retry.
+      throw new ApiError(0, 'TIMEOUT', `${label} timeout after ${timeoutMs}ms`)
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort)
+    }
+  }
+}
+
 let refreshing: Promise<boolean> | null = null
 
 async function tryRefresh(): Promise<boolean> {
@@ -84,11 +123,16 @@ async function tryRefresh(): Promise<boolean> {
       const session = await loadAuthSession()
       if (!session?.refreshToken) return false
       const url = joinUrl('/api/auth/refresh')
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: session.refreshToken }),
-      })
+      const res = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: session.refreshToken }),
+        },
+        REFRESH_TIMEOUT_MS,
+        'API refresh',
+      )
       if (!res.ok) return false
       const data = (await res.json()) as SessionResponse
       const refreshExpiresAt =
@@ -124,6 +168,8 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   auth?: boolean
   /** Если true — не пытаемся обновить access по 401 (используется в самом /refresh). */
   skipRefresh?: boolean
+  /** Таймаут запроса в мс. По умолчанию 30 секунд. */
+  timeoutMs?: number
 }
 
 async function performFetch(
@@ -144,7 +190,8 @@ async function performFetch(
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   }
-  return fetch(url, init)
+  const timeoutMs = options.timeoutMs ?? DEFAULT_API_TIMEOUT_MS
+  return fetchWithTimeout(url, init, timeoutMs, `API ${options.method ?? 'GET'} ${path}`)
 }
 
 export async function apiFetch<T>(

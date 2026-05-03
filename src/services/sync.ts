@@ -1,7 +1,8 @@
 import { ApiError, apiFetch } from '@/lib/apiClient'
 import { restoreSession } from '@/services/auth'
-import { getDB, type SyncOp } from '@/lib/db'
+import { getDB, type ReportMutation, type SyncOp } from '@/lib/db'
 import {
+  applyServerTimestamps,
   countPendingReports,
   markReportSyncedIfComplete,
   updateReportStatus,
@@ -12,6 +13,9 @@ import { applyRetention } from '@/services/retention'
 import { warnIfQuotaHigh } from '@/services/storageQuota'
 import { emitReportsChanged } from '@/services/invalidation'
 import { reconcile } from '@/services/reconcile'
+import { recordSyncIssue } from '@/services/syncIssues'
+import { discardOfflineBatch } from '@/services/syncBatch'
+import { bumpReportSyncOps, remapCatalogId } from '@/services/catalogRemap'
 
 // ---------------------------------------------------------------------------
 // Классификация ошибок: transient → retry, auth → refresh + retry,
@@ -31,12 +35,15 @@ function classifyError(err: ClassifiableError): ErrorClass {
   if (status === 401) return 'auth'
   if (status === 403) return 'permanent'
   if (status === 400 || status === 422 || status === 409) return 'permanent'
-  // CONFLICT/FK/CHECK по коду от backend → permanent
+  // CONFLICT/FK/CHECK по коду от backend → permanent.
+  // PHOTO_REPORT_MISMATCH — то же permanent: фото уже привязано к чужому отчёту.
+  // TIMEOUT — transient (apiClient бросает ApiError(0, 'TIMEOUT')).
   const code = err.code ?? ''
-  if (code === 'CONFLICT' || code === 'FK_VIOLATION' || code === 'CHECK_VIOLATION') {
+  if (code === 'CONFLICT' || code === 'FK_VIOLATION' || code === 'CHECK_VIOLATION' ||
+      code === 'PHOTO_REPORT_MISMATCH') {
     return 'permanent'
   }
-  // Network/5xx → transient
+  // Network/5xx/TIMEOUT → transient
   return 'transient'
 }
 
@@ -106,6 +113,45 @@ interface ProcessResult {
   errorStatus?: number
 }
 
+/**
+ * При OCC-конфликте откатываем весь батч офлайн-правок одним пакетом
+ * (politika «server wins»). Это значит что mutation + связанные
+ * photo_deletes + mark_update под одним batchId удаляются вместе, а
+ * пользователь получает sync_issue «Изменения отменены».
+ *
+ * Для legacy-записей без batchId удаляется только сама мутация — старое
+ * поведение, чтобы не сломать миграцию.
+ *
+ * После rollback запускаем reconcile, чтобы UI получил актуальную
+ * серверную версию отчёта.
+ */
+async function handleConflict(
+  mutation: ReportMutation,
+  serverMessage: string | null,
+): Promise<void> {
+  const db = await getDB()
+  if (mutation.batchId) {
+    try {
+      await discardOfflineBatch(mutation.batchId)
+    } catch (e) {
+      console.warn('discardOfflineBatch failed for batch', mutation.batchId, e)
+    }
+  } else {
+    // legacy путь — просто удаляем эту мутацию
+    if (mutation.id != null) {
+      try { await db.delete('report_mutations', mutation.id) } catch { /* ignore */ }
+    }
+  }
+  await recordSyncIssue({
+    reportId: mutation.reportId,
+    kind: 'conflict',
+    message: serverMessage ?? 'Изменения отменены: версия отчёта на сервере новее. Внесите правки заново.',
+    batchId: mutation.batchId ?? null,
+  })
+  // Подтянем актуальную серверную версию, чтобы UI её сразу увидел.
+  void reconcile().catch(() => undefined)
+}
+
 async function processOp(op: SyncOp): Promise<ProcessResult> {
   const db = await getDB()
 
@@ -137,7 +183,19 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       taken_at: report.takenAt,
     }
     try {
-      await apiFetch('/api/reports', { method: 'POST', body: payload })
+      // Принимаем полный объект с серверными created_at/updated_at —
+      // последующие PATCH должны идти с правильным OCC-токеном (точное
+      // строковое значение updated_at из Postgres, без потерь миллисекунд
+      // на JS Date round-trip). Без этого свежесозданный отчёт сразу при
+      // первой правке ловит ложный CONFLICT.
+      const resp = await apiFetch<{ report?: { created_at?: string; updated_at?: string } }>(
+        '/api/reports',
+        { method: 'POST', body: payload },
+      )
+      const r = resp?.report
+      if (r?.created_at && r?.updated_at) {
+        await applyServerTimestamps(report.id, r.created_at, r.updated_at)
+      }
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
@@ -175,6 +233,8 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       work_assignment_id: mutation.payload.workAssignmentId,
       description: mutation.payload.description,
       taken_at: mutation.payload.takenAt,
+      // baseUpdatedAt — точная серверная строка timestamptz (см. #4),
+      // сервер примет как text и кастит в timestamptz сам.
       expectedUpdatedAt: mutation.baseUpdatedAt,
     }
     if (mutation.payload.planId !== undefined) {
@@ -189,8 +249,11 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       return { done: true }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'CONFLICT') {
-        // OCC-конфликт — permanent (фронт перечитает актуальную версию).
-        await db.delete('report_mutations', mutation.id!)
+        // OCC-конфликт — server wins. Откатываем весь пакет (mutation +
+        // photo_deletes + mark_update под одним batchId), чтобы не применять
+        // куски устаревшего пакета к ушедшей вперёд серверной версии.
+        // Создаём sync_issue, чтобы пользователь увидел причину.
+        await handleConflict(mutation, e.message)
         return { done: true }
       }
       const c = toClassifiable(e)
@@ -261,15 +324,31 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     // Локальный work_type, созданный офлайн. POST /api/work-types — backend
     // делает idempotent upsert: дубликат по id или по name (citext unique)
     // возвращает существующую запись.
+    //
+    // КРИТИЧНО: если другой пользователь уже создал work_type с тем же
+    // названием на сервере, backend вернёт его существующий UUID (не наш
+    // local UUID). Без ремапа отчёт A потом упал бы с FK_VIOLATION.
     const local = await db.get('work_types_local', op.entityId)
     if (!local) return { done: true }
     try {
-      await apiFetch('/api/work-types', {
+      const resp = await apiFetch<{ workType?: { id: string } }>('/api/work-types', {
         method: 'POST',
         body: { id: local.id, name: local.name },
       })
-      local.syncStatus = 'synced'
-      await db.put('work_types_local', local)
+      const serverId = resp?.workType?.id
+      if (serverId && serverId !== local.id) {
+        const result = await remapCatalogId({
+          kind: 'work_type',
+          oldId: local.id,
+          newId: serverId,
+        })
+        // Зависевшие от этого справочника отчёты должны уйти в этом же тике
+        // с правильным id, иначе они застрянут в backoff с FK_VIOLATION.
+        await bumpReportSyncOps(result.remappedReports)
+      } else {
+        local.syncStatus = 'synced'
+        await db.put('work_types_local', local)
+      }
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
@@ -281,12 +360,22 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const local = await db.get('work_assignments_local', op.entityId)
     if (!local) return { done: true }
     try {
-      await apiFetch('/api/work-assignments', {
+      const resp = await apiFetch<{ workAssignment?: { id: string } }>('/api/work-assignments', {
         method: 'POST',
         body: { id: local.id, name: local.name },
       })
-      local.syncStatus = 'synced'
-      await db.put('work_assignments_local', local)
+      const serverId = resp?.workAssignment?.id
+      if (serverId && serverId !== local.id) {
+        const result = await remapCatalogId({
+          kind: 'work_assignment',
+          oldId: local.id,
+          newId: serverId,
+        })
+        await bumpReportSyncOps(result.remappedReports)
+      } else {
+        local.syncStatus = 'synced'
+        await db.put('work_assignments_local', local)
+      }
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
@@ -297,6 +386,12 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
   return { done: true }
 }
 
+// Circuit breaker: если подряд CONSECUTIVE_TRANSIENT_LIMIT транзиент-ошибок —
+// сворачиваем tick. Раньше break случался на ПЕРВОЙ transient ошибке, и при
+// флапающей сети 99 операций в очереди ждали следующего тика (30с). Теперь
+// одна неудача не блокирует остальную очередь, но и мёртвую сеть не молотим.
+const CONSECUTIVE_TRANSIENT_LIMIT = 3
+
 async function tick() {
   if (running) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -305,6 +400,7 @@ async function tick() {
   }
   running = true
   let pushedAny = false
+  let consecutiveTransient = 0
   setSnapshot({ state: 'syncing' })
   try {
     const db = await getDB()
@@ -324,8 +420,11 @@ async function tick() {
       const result = await processOp(next)
       if (result.done) {
         pushedAny = true
+        consecutiveTransient = 0 // успех сбрасывает circuit breaker
         if (next.id != null) await db.delete('sync_queue', next.id)
         // После успеха проверяем, можно ли агрегированно пометить отчёт synced.
+        // markReportSyncedIfComplete атомарен (см. localReports.ts) — race
+        // с параллельным add() в sync_queue безопасен.
         const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
         if (rid) await markReportSyncedIfComplete(rid)
       } else {
@@ -337,6 +436,7 @@ async function tick() {
         })
 
         if (errClass === 'auth') {
+          consecutiveTransient = 0
           // Токен протух — пробуем обновить и повторить немедленно
           const restored = await restoreSession()
           if (!restored) {
@@ -349,13 +449,11 @@ async function tick() {
         }
 
         if (errClass === 'permanent') {
-          // Permanent-ошибка: не ретраим, сразу fail
-          if (next.id != null) await db.delete('sync_queue', next.id)
-          const rid = next.reportId ?? (next.kind === 'report' || next.kind === 'mark' ? next.entityId : null)
-          if (rid) {
-            await updateReportStatus(rid, 'failed', result.error ?? 'Постоянная ошибка')
-          }
-          setSnapshot({ lastError: result.error ?? null })
+          consecutiveTransient = 0
+          // Permanent-ошибка: не ретраим. Если эта операция была частью
+          // батча правок (есть batchId) — откатываем весь батч и заводим
+          // sync_issue. Иначе старое поведение: просто помечаем отчёт failed.
+          await handlePermanentFailure(next, result)
           continue // переходим к следующей операции, не ломаем весь цикл
         }
 
@@ -384,7 +482,16 @@ async function tick() {
           }
         }
         setSnapshot({ lastError: result.error ?? null })
-        break // transient error — не долбим сеть подряд
+        consecutiveTransient += 1
+        if (consecutiveTransient >= CONSECUTIVE_TRANSIENT_LIMIT) {
+          // Сеть, видимо, действительно мёртвая — экономим батарею до
+          // следующего тика, но обработали уже несколько других операций
+          // (если первая упала, мы продолжали), а не одну единственную.
+          break
+        }
+        // Не break — продолжаем обрабатывать остальные операции (другие фото,
+        // другие отчёты могут пройти даже если эта зависла).
+        continue
       }
     }
     setSnapshot({ state: 'idle' })
@@ -406,6 +513,53 @@ async function tick() {
   }
 }
 
+/**
+ * Permanent-ошибка от сервера: запись sync_issue, удаление операции из
+ * очереди, помечание отчёта как failed. Если операция связана с batch'ем
+ * правок (например, photo_delete с batchId) — откатываем весь батч.
+ */
+async function handlePermanentFailure(op: SyncOp, result: ProcessResult): Promise<void> {
+  const db = await getDB()
+  const rid = op.reportId ?? (op.kind === 'report' || op.kind === 'mark' ? op.entityId : null)
+
+  // Если у operation есть batchId — пытаемся найти его и откатить весь пакет.
+  let batchId: string | null = null
+  if (op.kind === 'report_update' || op.kind === 'report_delete') {
+    const mutation = await db.get('report_mutations', Number(op.entityId))
+    batchId = mutation?.batchId ?? null
+  } else if (op.kind === 'photo_delete') {
+    const pd = await db.get('photo_deletes', op.entityId)
+    batchId = pd?.batchId ?? null
+  } else if (op.kind === 'mark_update') {
+    const mu = await db.get('mark_updates', op.entityId)
+    batchId = mu?.batchId ?? null
+  }
+
+  if (batchId) {
+    try { await discardOfflineBatch(batchId) } catch (e) {
+      console.warn('discardOfflineBatch on permanent failed', batchId, e)
+    }
+  } else if (op.id != null) {
+    try { await db.delete('sync_queue', op.id) } catch { /* ignore */ }
+  }
+
+  if (rid) {
+    const issueKind = result.errorCode === 'PHOTO_REPORT_MISMATCH'
+      ? 'photo_mismatch'
+      : result.errorCode === 'FK_VIOLATION'
+        ? 'fk_violation'
+        : 'permanent'
+    await recordSyncIssue({
+      reportId: rid,
+      kind: issueKind,
+      message: result.error ?? 'Постоянная ошибка синхронизации',
+      batchId,
+    })
+    await updateReportStatus(rid, 'failed', result.error ?? 'Постоянная ошибка')
+  }
+  setSnapshot({ lastError: result.error ?? null })
+}
+
 export function triggerSync() {
   void tick()
 }
@@ -413,6 +567,43 @@ export function triggerSync() {
 /** Запускает один цикл синхронизации и ждёт его завершения. */
 export async function runSyncOnce(): Promise<void> {
   await tick()
+}
+
+/**
+ * Per-report retry: переставляет nextAttemptAt = now() и сбрасывает attempts
+ * для всех sync_queue items, привязанных к указанному отчёту. Используется
+ * кнопкой «Повторить» на карточке отчёта.
+ *
+ * Возвращает true если найдены и переставлены ops; false если очередь
+ * для этого отчёта пуста (отчёт уже синхронизирован или его нет).
+ */
+export async function retryReport(reportId: string): Promise<boolean> {
+  const db = await getDB()
+  const tx = db.transaction(['sync_queue', 'reports'], 'readwrite')
+  const ops = await tx.objectStore('sync_queue').index('by_report').getAll(reportId)
+  if (ops.length === 0) {
+    await tx.done
+    return false
+  }
+  const nowMs = Date.now()
+  for (const op of ops) {
+    if (op.id == null) continue
+    op.attempts = 0
+    op.lastError = null
+    op.nextAttemptAt = nowMs
+    await tx.objectStore('sync_queue').put(op)
+  }
+  // Сбрасываем failed → pending у самого отчёта, чтобы UI обновился
+  // правильно сразу до завершения retry.
+  const report = await tx.objectStore('reports').get(reportId)
+  if (report && report.syncStatus === 'failed') {
+    report.syncStatus = 'pending'
+    report.lastError = null
+    await tx.objectStore('reports').put(report)
+  }
+  await tx.done
+  triggerSync()
+  return true
 }
 
 function handleOnline() {

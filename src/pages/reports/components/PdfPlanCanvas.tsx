@@ -51,6 +51,31 @@ export function PdfPlanCanvas({
   const [loading, setLoading] = useState(false)
   const [renderedSize, setRenderedSize] = useState<{ w: number; h: number } | null>(null)
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null)
+  // Текущая измеренная ширина контейнера. Меняется при повороте экрана,
+  // открытии/закрытии клавиатуры, ресайзе модалки. Используется как зависимость
+  // основного эффекта рендера, чтобы PDF перерисовывался под новую ширину.
+  const [containerWidth, setContainerWidth] = useState<number | null>(null)
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper || typeof ResizeObserver === 'undefined') return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let lastWidth = 0
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      const w = Math.round(entry.contentRect.width)
+      if (w === lastWidth || w === 0) return
+      lastWidth = w
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setContainerWidth(w), 150)
+    })
+    ro.observe(wrapper)
+    return () => {
+      ro.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
 
   // Переконвертируем Blob в ArrayBuffer один раз на blob — иначе pdf.js
   // ест память на каждый ререндер при одном и том же файле.
@@ -99,15 +124,15 @@ export function PdfPlanCanvas({
           doc.destroy()
           return
         }
-        const containerWidth = Math.min(
-          maxWidth,
-          wrapper.getBoundingClientRect().width || maxWidth,
-        )
+        const measured = wrapper.getBoundingClientRect().width || maxWidth
+        const targetWidth = Math.min(maxWidth, measured)
         const baseViewport = pdfPage.getViewport({ scale: 1 })
-        const scale = containerWidth / baseViewport.width
+        const scale = targetWidth / baseViewport.width
         const viewport = pdfPage.getViewport({ scale })
 
-        const dpr = window.devicePixelRatio || 1
+        // Cap DPR=2: на iPhone 14 Pro DPR=3 даёт x9 пикселей на canvas
+        // (~9 МБ памяти на страницу плана) без заметного выигрыша по чёткости.
+        const dpr = Math.min(window.devicePixelRatio || 1, 2)
         canvas.width = Math.floor(viewport.width * dpr)
         canvas.height = Math.floor(viewport.height * dpr)
         canvas.style.width = `${Math.floor(viewport.width)}px`
@@ -145,7 +170,7 @@ export function PdfPlanCanvas({
         // ignore
       }
     }
-  }, [bytes, page, maxWidth, onPageCountReady])
+  }, [bytes, page, maxWidth, onPageCountReady, containerWidth])
 
   const pointStyle = useMemo(() => {
     if (!value || !renderedSize) return null

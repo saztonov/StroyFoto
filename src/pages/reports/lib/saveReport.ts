@@ -1,3 +1,4 @@
+import { v4 as uuid } from 'uuid'
 import {
   getDB,
   type MarkUpdateRecord,
@@ -97,7 +98,11 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     }
   }
 
-  // Offline или сетевая ошибка — ставим всё в очередь
+  // Offline или сетевая ошибка — ставим всё в очередь.
+  // batchId связывает все операции одного сохранения. При CONFLICT на PATCH
+  // sync.ts откатит весь батч атомарно — иначе photo_delete и mark_update
+  // применились бы к ушедшей вперёд серверной версии.
+  const batchId = uuid()
   const db = await getDB()
   const tx = db.transaction(
     ['report_mutations', 'sync_queue', 'photo_deletes', 'mark_updates', 'photos'],
@@ -110,6 +115,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     kind: 'update',
     reportId: id,
     baseUpdatedAt: data.card.updatedAt ?? data.card.createdAt,
+    batchId,
     payload: {
       workTypeId: values.workTypeId,
       performerId: values.performerId,
@@ -133,13 +139,15 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     lastError: null,
   })
 
-  // 2. Удаление фото
+  // 2. Удаление фото — все под одним batchId, чтобы при OCC-конфликте
+  // откатились вместе с мутацией.
   for (const p of values.photosToRemove) {
     const rec: PhotoDeleteRecord = {
       id: p.id,
       reportId: id,
       objectKey: p.objectKey,
       thumbObjectKey: p.thumbObjectKey,
+      batchId,
     }
     await tx.objectStore('photo_deletes').put(rec)
     await tx.objectStore('sync_queue').add({
@@ -152,7 +160,9 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     })
   }
 
-  // 3. Новые фото
+  // 3. Новые фото — НЕ привязываем к batchId: добавление фото не зависит
+  // от OCC и должно сохраниться даже если PATCH полей упал по конфликту
+  // (фото — отдельная сущность, ON CONFLICT в server upsert идемпотентен).
   for (let i = 0; i < values.photosToAdd.length; i++) {
     const p = values.photosToAdd[i]
     await tx.objectStore('photos').put({
@@ -177,7 +187,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     })
   }
 
-  // 4. Метка
+  // 4. Метка — также под одним batchId.
   if (values.markChanged) {
     const markRec: MarkUpdateRecord = {
       reportId: id,
@@ -185,6 +195,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
       page: values.mark?.page ?? null,
       xNorm: values.mark?.xNorm ?? null,
       yNorm: values.mark?.yNorm ?? null,
+      batchId,
     }
     await tx.objectStore('mark_updates').put(markRec)
     await tx.objectStore('sync_queue').add({

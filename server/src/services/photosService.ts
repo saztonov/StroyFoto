@@ -36,8 +36,9 @@ interface PhotoRow {
   thumb_object_key: string | null;
   width: number | null;
   height: number | null;
-  taken_at: Date | null;
-  created_at: Date;
+  // SELECT кастит таймштампы в text — см. COLS ниже.
+  taken_at: string | null;
+  created_at: string;
 }
 
 function toDTO(row: PhotoRow): PhotoDTO {
@@ -48,13 +49,13 @@ function toDTO(row: PhotoRow): PhotoDTO {
     thumb_object_key: row.thumb_object_key,
     width: row.width,
     height: row.height,
-    taken_at: row.taken_at?.toISOString() ?? null,
-    created_at: row.created_at.toISOString(),
+    taken_at: row.taken_at,
+    created_at: row.created_at,
   };
 }
 
 const COLS = `id, report_id, object_key, thumb_object_key, width, height,
-  taken_at, created_at`;
+  taken_at::text AS taken_at, created_at::text AS created_at`;
 
 export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
   const access = await loadReportForAccess(input.report_id);
@@ -64,17 +65,23 @@ export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
   assertReportEditable(input.user, access);
 
   try {
+    // ON CONFLICT — позволяем обновить ту же фотографию (sync retry безопасен).
+    // НО: WHERE EXCLUDED.report_id = report_photos.report_id защищает от
+    // ситуации, когда из-за race/бага клиента та же photoId уйдёт под чужой
+    // report — иначе фото молча перепрыгнуло бы между отчётами, потеряв связь
+    // с оригиналом. Если строк затронуто 0 — бросаем PHOTO_REPORT_MISMATCH,
+    // клиент классифицирует как permanent и создаёт sync_issue.
     const result = await pool.query<PhotoRow>(
       `INSERT INTO report_photos (id, report_id, object_key, thumb_object_key,
                                   width, height, taken_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
-         report_id        = EXCLUDED.report_id,
          object_key       = EXCLUDED.object_key,
          thumb_object_key = EXCLUDED.thumb_object_key,
          width            = EXCLUDED.width,
          height           = EXCLUDED.height,
          taken_at         = EXCLUDED.taken_at
+       WHERE report_photos.report_id = EXCLUDED.report_id
        RETURNING ${COLS}`,
       [
         input.id,
@@ -86,8 +93,18 @@ export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
         input.taken_at,
       ],
     );
+    if (result.rowCount === 0) {
+      // INSERT потерпел ON CONFLICT, но WHERE не пустил UPDATE — значит
+      // эта photoId уже принадлежит другому отчёту.
+      throw new AppError(
+        409,
+        'PHOTO_REPORT_MISMATCH',
+        'Эта фотография уже привязана к другому отчёту.',
+      );
+    }
     return toDTO(result.rows[0]);
   } catch (err) {
+    if (err instanceof AppError) throw err;
     mapPgError(err);
   }
 }

@@ -20,6 +20,12 @@ export interface ReportCard {
   updatedAt: string | null
   syncStatus: SyncStatus
   remoteOnly: boolean
+  /**
+   * Последняя ошибка синхронизации (только для локальных отчётов).
+   * Пробрасывается в карточку из LocalReport.lastError, чтобы UI мог
+   * показать причину failed-статуса без отдельного fetch'а.
+   */
+  lastError?: string | null
 }
 
 export interface RemoteReportRow {

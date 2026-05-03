@@ -48,8 +48,32 @@ export function planKey(projectId: string, planId: string): string {
 // Таймаут на S3 PUT/GET: мобильные сети иногда «залипают» на минуты,
 // мы не хотим, чтобы зависший запрос блокировал весь батч синхронизации.
 // При timeout fetch бросает AbortError → sync-loop увеличит backoff и повторит.
-const STORAGE_PUT_TIMEOUT_MS = 60_000
+//
+// PUT поднят с 60с до 180с — на GPRS (50KB/s) полуторамегабайтное фото
+// может качаться ~30с уже без буферов; при просадках сети 60с не хватало
+// и мы попадали в бесконечный backoff заново качая весь файл.
+const STORAGE_PUT_TIMEOUT_MS = 180_000
 const STORAGE_GET_TIMEOUT_MS = 45_000
+
+// Если presigned URL истечёт меньше чем через PRESIGN_EXPIRY_BUFFER_MS —
+// бросаем PRESIGN_EXPIRED_BEFORE_USE, чтобы caller перевыпустил подпись
+// до того как сделает заведомо обречённый PUT/GET.
+const PRESIGN_EXPIRY_BUFFER_MS = 5_000
+
+export class PresignExpiredError extends Error {
+  code = 'PRESIGN_EXPIRED_BEFORE_USE' as const
+  constructor() {
+    super('Presigned URL expired before use')
+    this.name = 'PresignExpiredError'
+  }
+}
+
+function ensurePresignFresh(presigned: PresignResponse, neededMs: number): void {
+  if (!presigned.expiresAt) return
+  if (Date.now() + neededMs + PRESIGN_EXPIRY_BUFFER_MS > presigned.expiresAt) {
+    throw new PresignExpiredError()
+  }
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -74,11 +98,16 @@ async function fetchWithTimeout(
 /**
  * PUT blob по presigned URL. Возвращает только при HTTP 2xx — иначе бросает,
  * чтобы sync-движок увеличил backoff.
+ *
+ * Перед PUT проверяем, что URL проживёт хотя бы STORAGE_PUT_TIMEOUT_MS — иначе
+ * после долгого ожидания в очереди мы попадём на 403 Forbidden (URL expired)
+ * и потеряем backoff впустую.
  */
 export async function putToPresigned(
   presigned: PresignResponse,
   body: Blob,
 ): Promise<void> {
+  ensurePresignFresh(presigned, STORAGE_PUT_TIMEOUT_MS)
   const res = await fetchWithTimeout(
     presigned.url,
     {
@@ -96,6 +125,7 @@ export async function putToPresigned(
 }
 
 export async function getFromPresigned(presigned: PresignResponse): Promise<Blob> {
+  ensurePresignFresh(presigned, STORAGE_GET_TIMEOUT_MS)
   const res = await fetchWithTimeout(
     presigned.url,
     {

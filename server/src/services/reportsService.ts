@@ -35,9 +35,11 @@ interface ReportListRow {
   plan_id: string | null;
   author_id: string;
   description: string | null;
-  taken_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
+  // taken_at, created_at, updated_at кастятся к ::text в SELECT'ах,
+  // чтобы сохранить микросекунды Postgres для точного OCC-сравнения.
+  taken_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 function toListItem(row: ReportListRow): ReportListItemDTO {
@@ -50,9 +52,9 @@ function toListItem(row: ReportListRow): ReportListItemDTO {
     plan_id: row.plan_id,
     author_id: row.author_id,
     description: row.description,
-    taken_at: row.taken_at?.toISOString() ?? null,
-    created_at: row.created_at.toISOString(),
-    updated_at: row.updated_at.toISOString(),
+    taken_at: row.taken_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   };
 }
 
@@ -84,8 +86,17 @@ interface ReportFullRow extends ReportListRow {
   author_name: string | null;
 }
 
+// to_jsonb() в SELECT возвращает поле taken_at вложенного report_photos
+// уже как string, так что mapping в FullDTO не нужен.
+
+// taken_at/created_at/updated_at кастятся в text — иначе pg-driver
+// конвертирует в JS Date с потерей микросекунд, и OCC через WHERE updated_at = $N
+// иногда даёт ложное несовпадение для свежих ответов сервера.
 const LIST_COLUMNS = `id, project_id, work_type_id, performer_id, work_assignment_id,
-  plan_id, author_id, description, taken_at, created_at, updated_at`;
+  plan_id, author_id, description,
+  taken_at::text AS taken_at,
+  created_at::text AS created_at,
+  updated_at::text AS updated_at`;
 
 async function assertPlanInProject(
   planId: string,
@@ -104,30 +115,72 @@ async function assertPlanInProject(
   }
 }
 
+interface CursorPayload {
+  createdAt: string;
+  id: string;
+}
+
+function encodeCursor(payload: CursorPayload): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string | null): CursorPayload | null {
+  if (!raw) return null;
+  try {
+    const json = Buffer.from(raw, 'base64url').toString('utf8');
+    const obj = JSON.parse(json) as Partial<CursorPayload>;
+    if (typeof obj.createdAt !== 'string' || typeof obj.id !== 'string') {
+      return null;
+    }
+    return { createdAt: obj.createdAt, id: obj.id };
+  } catch {
+    return null;
+  }
+}
+
 export async function listReports(input: {
   user: AuthenticatedUser;
   cursor: string | null;
   limit: number;
 }): Promise<{ items: ReportListItemDTO[]; nextCursor: string | null }> {
   const projectIds = await getUserProjectIds(input.user);
+  // Стабильный keyset cursor: (created_at DESC, id DESC). Без вторичного
+  // ключа отчёты с одинаковым created_at могут терять страницу или
+  // дублироваться. Cursor opaque — клиент гоняет его обратно как есть.
+  const cursorPayload = decodeCursor(input.cursor);
   const result = await pool.query<ReportListRow>(
     `SELECT ${LIST_COLUMNS}
        FROM reports
       WHERE ($1::uuid[] IS NULL OR project_id = ANY($1::uuid[]))
-        AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
-      ORDER BY created_at DESC
-      LIMIT $3`,
-    [projectIds, input.cursor, input.limit],
+        AND (
+          $2::timestamptz IS NULL
+          OR created_at < $2::timestamptz
+          OR (created_at = $2::timestamptz AND id < $3::uuid)
+        )
+      ORDER BY created_at DESC, id DESC
+      LIMIT $4`,
+    [
+      projectIds,
+      cursorPayload?.createdAt ?? null,
+      cursorPayload?.id ?? null,
+      input.limit,
+    ],
   );
   const items = result.rows.map(toListItem);
+  const last = items[items.length - 1];
   const nextCursor =
-    items.length === input.limit ? items[items.length - 1].created_at : null;
+    items.length === input.limit && last
+      ? encodeCursor({ createdAt: last.created_at, id: last.id })
+      : null;
   return { items, nextCursor };
 }
 
 const FULL_SQL = `
   SELECT r.id, r.project_id, r.work_type_id, r.performer_id, r.work_assignment_id,
-         r.plan_id, r.author_id, r.description, r.taken_at, r.created_at, r.updated_at,
+         r.plan_id, r.author_id, r.description,
+         r.taken_at::text AS taken_at,
+         r.created_at::text AS created_at,
+         r.updated_at::text AS updated_at,
          (SELECT coalesce(json_agg(json_build_object(
                    'id', p.id,
                    'object_key', p.object_key,
@@ -282,6 +335,9 @@ export async function updateReportWithOcc(
   }
 
   try {
+    // expectedUpdatedAt передаётся как text — сравниваем после cast в timestamptz
+    // на стороне Postgres, чтобы не терять микросекунды через JS Date.
+    // Клиент хранит исходную строку из ответа сервера (db.ts → setTypeParser).
     const result = await pool.query<{ id: string }>(
       `UPDATE reports SET
          work_type_id       = CASE WHEN $2::boolean THEN $3::uuid ELSE work_type_id END,
@@ -291,7 +347,7 @@ export async function updateReportWithOcc(
          taken_at           = CASE WHEN $10::boolean THEN $11::timestamptz ELSE taken_at END,
          plan_id            = CASE WHEN $12::boolean THEN $13::uuid ELSE plan_id END
        WHERE id = $1
-         AND ($14::timestamptz IS NULL OR updated_at = $14::timestamptz)
+         AND ($14::text IS NULL OR updated_at = $14::text::timestamptz)
        RETURNING id`,
       [
         input.id,

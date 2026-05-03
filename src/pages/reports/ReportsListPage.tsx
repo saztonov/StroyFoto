@@ -21,6 +21,7 @@ import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import { onReportsChanged } from '@/services/invalidation'
 import { loadMergedReports, type ReportCard } from '@/services/reports'
+import { listOpenSyncIssues } from '@/services/syncIssues'
 import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -34,6 +35,7 @@ interface ReportCardItemProps {
   workTypeName: string | null
   workAssignmentName: string | null
   performerName: string | null
+  hasIssue: boolean
   onOpen: (id: string) => void
 }
 
@@ -43,6 +45,7 @@ const ReportCardItem = memo(function ReportCardItem({
   workTypeName,
   workAssignmentName,
   performerName,
+  hasIssue,
   onOpen,
 }: ReportCardItemProps) {
   const s = SYNC_STATUS_LABEL[report.syncStatus] ?? { text: report.syncStatus ?? '—', color: 'default' }
@@ -56,30 +59,41 @@ const ReportCardItem = memo(function ReportCardItem({
         border: '1px solid var(--ant-color-border-secondary)',
         background: 'var(--ant-color-bg-container)',
         height: '100%',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
-      <Space size={8} wrap>
+      <Space size={8} wrap style={{ minWidth: 0 }}>
         <Badge status={report.syncStatus === 'synced' ? 'success' : 'processing'} />
-        <Typography.Text strong>{projectName}</Typography.Text>
+        <Typography.Text strong style={{ overflowWrap: 'anywhere' }}>
+          {projectName}
+        </Typography.Text>
         <Typography.Text type="secondary">
           {dayjs(report.createdAt).format('DD.MM.YYYY HH:mm')}
         </Typography.Text>
       </Space>
       <div style={{ marginTop: 6 }}>
-        <Space size={8} wrap>
+        <Space size={8} wrap style={{ minWidth: 0 }}>
           <Tag color={s.color}>{s.text}</Tag>
+          {hasIssue && <Tag color="volcano">Конфликт</Tag>}
           {report.remoteOnly && <Tag color="default">{reportsList.remoteTag}</Tag>}
           {performerName && (
-            <Typography.Text type="secondary">{performerName}</Typography.Text>
+            <Typography.Text type="secondary" style={{ overflowWrap: 'anywhere' }}>
+              {performerName}
+            </Typography.Text>
           )}
           {workTypeName && (
-            <Typography.Text type="secondary">{workTypeName}</Typography.Text>
+            <Typography.Text type="secondary" style={{ overflowWrap: 'anywhere' }}>
+              {workTypeName}
+            </Typography.Text>
           )}
           {workAssignmentName && (
-            <Typography.Text type="secondary">{workAssignmentName}</Typography.Text>
+            <Typography.Text type="secondary" style={{ overflowWrap: 'anywhere' }}>
+              {workAssignmentName}
+            </Typography.Text>
           )}
           {report.description && (
-            <Typography.Text type="secondary" ellipsis style={{ maxWidth: 240 }}>
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: '100%' }}>
               {report.description}
             </Typography.Text>
           )}
@@ -106,6 +120,7 @@ export function ReportsListPage() {
   const [selectedMonths, setSelectedMonths] = useState<string[]>([])
   const [workTypeIds, setWorkTypeIds] = useState<string[]>([])
   const [viewMode, setViewMode] = useState<'date' | 'performer'>('date')
+  const [issueReportIds, setIssueReportIds] = useState<Set<string>>(new Set())
 
   const monthOptions = useMemo(() => {
     const now = dayjs()
@@ -149,7 +164,16 @@ export function ReportsListPage() {
     void loadWorkTypes().then(setWorkTypes).catch(() => undefined)
     void loadPerformers().then(setPerformers).catch(() => undefined)
     void loadWorkAssignments().then(setWorkAssignments).catch(() => undefined)
-    const unsub = onReportsChanged(() => reload())
+    const refreshIssues = () => {
+      listOpenSyncIssues()
+        .then((list) => setIssueReportIds(new Set(list.map((i) => i.reportId))))
+        .catch(() => undefined)
+    }
+    refreshIssues()
+    const unsub = onReportsChanged(() => {
+      reload()
+      refreshIssues()
+    })
     return () => {
       unsub()
     }
@@ -244,6 +268,7 @@ export function ReportsListPage() {
           value={projectId ?? undefined}
           onChange={(v) => setProjectId(v ?? null)}
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
+          getPopupContainer={() => document.body}
         />
         <Space size={6} wrap>
           {monthOptions.map((m) => (
@@ -265,6 +290,7 @@ export function ReportsListPage() {
           onChange={(v) => setRange(v as [Dayjs | null, Dayjs | null] | null)}
           format="DD.MM.YYYY"
           placeholder={[reportsList.filterDateRange, '']}
+          getPopupContainer={() => document.body}
         />
         <Select
           mode="multiple"
@@ -279,6 +305,7 @@ export function ReportsListPage() {
           }
           options={workTypes.map((w) => ({ value: w.id, label: w.name }))}
           maxTagCount="responsive"
+          getPopupContainer={() => document.body}
         />
         {hasFilters && (
           <Button
@@ -314,6 +341,7 @@ export function ReportsListPage() {
                   r.workAssignmentId ? workAssignmentsById.get(r.workAssignmentId)?.name ?? null : null
                 }
                 performerName={performersById.get(r.performerId)?.name ?? null}
+                hasIssue={issueReportIds.has(r.id)}
                 onOpen={openReport}
               />
             </Col>
@@ -344,6 +372,7 @@ export function ReportsListPage() {
                             : null
                         }
                         performerName={null}
+                        hasIssue={issueReportIds.has(r.id)}
                         onOpen={openReport}
                       />
                     </Col>

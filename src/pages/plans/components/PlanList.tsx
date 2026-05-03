@@ -13,6 +13,7 @@ import {
   planDisplayName,
   type PlanRecord,
 } from '@/services/plans'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import type { PlanGroup } from '../lib/planGrouping'
 
 interface Props {
@@ -90,6 +91,7 @@ function PlanListItem({
   onDelete,
 }: { plan: PlanRecord } & Props) {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
 
   async function handleOpenTab() {
     try {
@@ -151,8 +153,9 @@ function PlanListItem({
           type="link"
           icon={<EyeOutlined />}
           onClick={() => onPreview(plan)}
+          aria-label={plansPage.preview}
         >
-          {plansPage.preview}
+          {isDesktop ? plansPage.preview : null}
         </Button>,
         <Dropdown key="more" menu={{ items: menuItems }} trigger={['click']}>
           <Button
@@ -162,9 +165,23 @@ function PlanListItem({
           />
         </Dropdown>,
       ]}
+      style={{ minWidth: 0 }}
     >
       <List.Item.Meta
-        title={planDisplayName(plan)}
+        style={{ minWidth: 0 }}
+        title={
+          <span
+            title={planDisplayName(plan)}
+            style={{
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {planDisplayName(plan)}
+          </span>
+        }
         description={new Date(plan.created_at).toLocaleDateString('ru-RU')}
       />
     </List.Item>

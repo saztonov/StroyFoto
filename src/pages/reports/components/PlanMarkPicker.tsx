@@ -122,8 +122,17 @@ export function PlanMarkPicker({ plans, value, onChange }: Props) {
           </Flex>
 
           {loading && <Typography.Text type="secondary">Загрузка PDF…</Typography.Text>}
-          {error && (
-            <Alert type="error" showIcon message="Не удалось загрузить план" description={error} />
+          {error && !blob && (
+            <Alert
+              type="warning"
+              showIcon
+              message="План не загружен"
+              description={
+                typeof navigator !== 'undefined' && !navigator.onLine
+                  ? 'Подключитесь к интернету хотя бы один раз, чтобы скачать PDF плана. Отчёт можно сохранить и без точки на плане — кнопка «Очистить» отвяжет план.'
+                  : `Не удалось скачать план: ${error}. Попробуйте позже или сохраните отчёт без точки.`
+              }
+            />
           )}
           {blob && (
             <PdfPlanCanvas

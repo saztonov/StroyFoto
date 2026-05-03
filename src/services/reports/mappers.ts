@@ -17,6 +17,7 @@ export function fromLocal(r: LocalReport): ReportCard {
     updatedAt: r.updatedAt ?? null,
     syncStatus: r.syncStatus,
     remoteOnly: false,
+    lastError: r.lastError,
   }
 }
 

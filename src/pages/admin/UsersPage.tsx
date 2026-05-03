@@ -226,8 +226,8 @@ export function UsersPage() {
           renderItem={(user) => (
             <List.Item style={{ padding: '6px 0', border: 'none' }}>
               <Card size="small" style={{ width: '100%' }}>
-                <Flex justify="space-between" align="center">
-                  <Typography.Text strong>
+                <Flex justify="space-between" align="center" gap={8}>
+                  <Typography.Text strong ellipsis style={{ flex: 1, minWidth: 0 }}>
                     {user.full_name || <Tag>не указано</Tag>}
                   </Typography.Text>
                   <Switch
@@ -238,7 +238,11 @@ export function UsersPage() {
                     unCheckedChildren="Выкл."
                   />
                 </Flex>
-                <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                <Typography.Text
+                  type="secondary"
+                  ellipsis={{ tooltip: user.email }}
+                  style={{ display: 'block', marginTop: 4 }}
+                >
                   {user.email}
                 </Typography.Text>
                 <Flex align="center" gap={8} style={{ marginTop: 8 }}>

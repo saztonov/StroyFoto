@@ -1,6 +1,29 @@
 import { getDB, type LocalPhoto, type LocalPlanMark, type LocalReport, type SyncOp } from '@/lib/db'
 
 /**
+ * Сигнализирует, что IDB не смогла записать данные из-за исчерпанной квоты.
+ * UI поймает этот класс отдельно и покажет понятный текст «Недостаточно
+ * места — освободите хранилище», а не generic «не удалось сохранить».
+ */
+export class StorageQuotaError extends Error {
+  code = 'STORAGE_QUOTA' as const
+  constructor(message = 'Недостаточно места на устройстве для сохранения отчёта.') {
+    super(message)
+    this.name = 'StorageQuotaError'
+  }
+}
+
+function isQuotaExceeded(e: unknown): boolean {
+  if (e instanceof DOMException) {
+    return e.name === 'QuotaExceededError' || e.code === 22
+  }
+  if (e instanceof Error) {
+    return /quota.*exceed/i.test(e.message)
+  }
+  return false
+}
+
+/**
  * Проверяет, осталась ли в `sync_queue` хоть одна задача, связанная с отчётом.
  * Используется aggregation-логикой: отчёт нельзя помечать как `synced`, пока
  * хотя бы одна подзадача (photo/mark/work_type) ещё в очереди или в процессе.
@@ -70,6 +93,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
   try {
     await tx.objectStore('reports').put(report)
   } catch (e) {
+    if (isQuotaExceeded(e)) throw new StorageQuotaError()
     // DataError «did not yield a value» = keyPath store'а не соответствует схеме
     // (обычно — остаток сломанной локальной БД). Сообщаем пользователю человеческим текстом.
     if (e instanceof DOMException && e.name === 'DataError') {
@@ -100,6 +124,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     try {
       await photosStore.put(photo)
     } catch (e) {
+      if (isQuotaExceeded(e)) throw new StorageQuotaError()
       throw new Error(`IDB put photos[${i}] failed (id=${String(p.id)}): ${e instanceof Error ? e.message : e}`)
     }
   }
@@ -116,6 +141,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     try {
       await tx.objectStore('plan_marks').put(mark)
     } catch (e) {
+      if (isQuotaExceeded(e)) throw new StorageQuotaError()
       throw new Error(`IDB put plan_marks failed (reportId=${String(input.id)}): ${e instanceof Error ? e.message : e}`)
     }
   }
@@ -138,6 +164,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     try {
       await queue.add(reportOp)
     } catch (e) {
+      if (isQuotaExceeded(e)) throw new StorageQuotaError()
       throw new Error(`IDB add sync_queue(report) failed: ${e instanceof Error ? e.message : e}`)
     }
   }
@@ -153,6 +180,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     try {
       await queue.add(markOp)
     } catch (e) {
+      if (isQuotaExceeded(e)) throw new StorageQuotaError()
       throw new Error(`IDB add sync_queue(mark) failed: ${e instanceof Error ? e.message : e}`)
     }
   }
@@ -170,11 +198,17 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     try {
       await queue.add(photoOp)
     } catch (e) {
+      if (isQuotaExceeded(e)) throw new StorageQuotaError()
       throw new Error(`IDB add sync_queue(photo ${p.id}) failed: ${e instanceof Error ? e.message : e}`)
     }
   }
 
-  await tx.done
+  try {
+    await tx.done
+  } catch (e) {
+    if (isQuotaExceeded(e)) throw new StorageQuotaError()
+    throw e
+  }
   return report
 }
 
@@ -278,22 +312,61 @@ export async function countPendingReports(): Promise<number> {
 
 /**
  * Безопасно помечает отчёт как synced, только если в sync_queue больше нет
- * задач, связанных с ним. Иначе оставляет статус pending с последней ошибкой.
- * Вызывается из sync loop после успешной обработки каждой операции.
+ * задач, связанных с ним. Реализовано в одной IDB-транзакции: проверка
+ * `sync_queue` и обновление `reports` атомарны. Иначе race между
+ * `delete from sync_queue` (в sync.ts) и параллельным `add` другой операции
+ * (например, photo_delete от EditReportModal в этот момент) мог помечать
+ * отчёт synced при наличии незавершённых задач.
  */
 export async function markReportSyncedIfComplete(reportId: string): Promise<void> {
   const db = await getDB()
-  const remaining = await db.getAllFromIndex('sync_queue', 'by_report', reportId)
-  if (remaining.length > 0) return
-  const report = await db.get('reports', reportId)
-  if (!report) return
-  if (report.syncStatus === 'synced') return
+  const tx = db.transaction(['sync_queue', 'reports'], 'readwrite')
+  const remaining = await tx.objectStore('sync_queue').index('by_report').getAllKeys(reportId)
+  if (remaining.length > 0) {
+    await tx.done
+    return
+  }
+  const reportsStore = tx.objectStore('reports')
+  const report = await reportsStore.get(reportId)
+  if (!report || report.syncStatus === 'synced') {
+    await tx.done
+    return
+  }
   report.syncStatus = 'synced'
   report.lastError = null
-  try {
-    await db.put('reports', report)
-  } catch (e) {
-    console.error('markReportSyncedIfComplete put failed, id=', report.id, 'keys:', Object.keys(report), e)
-    throw e
+  await reportsStore.put(report)
+  await tx.done
+}
+
+/**
+ * После успешного POST /api/reports сервер возвращает свежий объект с
+ * собственными created_at/updated_at (точные timestamptz из Postgres).
+ * Записываем их в локальный отчёт, чтобы последующие PATCH с OCC использовали
+ * именно серверный timestamp — иначе клиентское время рассинхронизируется
+ * с сервером и любая правка после создания тут же ловит ложный CONFLICT.
+ */
+export async function applyServerTimestamps(
+  reportId: string,
+  createdAt: string,
+  updatedAt: string,
+): Promise<void> {
+  const db = await getDB()
+  const report = await db.get('reports', reportId)
+  if (!report) return
+  let dirty = false
+  if (createdAt && report.createdAt !== createdAt) {
+    report.createdAt = createdAt
+    dirty = true
+  }
+  if (updatedAt && report.updatedAt !== updatedAt) {
+    report.updatedAt = updatedAt
+    dirty = true
+  }
+  if (dirty) {
+    try {
+      await db.put('reports', report)
+    } catch (e) {
+      console.error('applyServerTimestamps put failed, id=', report.id, e)
+    }
   }
 }

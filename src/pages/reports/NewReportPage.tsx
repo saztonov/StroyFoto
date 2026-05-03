@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   App,
@@ -24,7 +24,7 @@ import {
   loadWorkTypes,
   type PlanRow,
 } from '@/services/catalogs'
-import { saveDraftReport } from '@/services/localReports'
+import { saveDraftReport, StorageQuotaError } from '@/services/localReports'
 import { triggerSync } from '@/services/sync'
 import type { Project } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
@@ -60,6 +60,9 @@ export function NewReportPage() {
   const [mark, setMark] = useState<PlanMarkValue | null>(null)
   const [loadingCats, setLoadingCats] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  // Мгновенный latch против двойного submit. setSubmitting(true) асинхронен —
+  // до следующего render'а второй клик мог пройти и продублировать отчёт.
+  const submittingRef = useRef(false)
 
   const projectId = Form.useWatch('projectId', form)
 
@@ -135,6 +138,8 @@ export function NewReportPage() {
       message.warning('Добавьте хотя бы одну фотографию')
       return
     }
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       const reportId = uuid()
@@ -171,8 +176,19 @@ export function NewReportPage() {
       triggerSync()
       navigate('/reports')
     } catch (e) {
-      message.error(e instanceof Error ? e.message : 'Не удалось сохранить отчёт')
+      if (e instanceof StorageQuotaError) {
+        modal.error({
+          title: 'Недостаточно места',
+          content:
+            'На устройстве закончилось место для локального хранилища. ' +
+            'Освободите память (удалите старые фото, очистите кеши других приложений) ' +
+            'и попробуйте снова. Существующие отчёты не пострадали.',
+        })
+      } else {
+        message.error(e instanceof Error ? e.message : 'Не удалось сохранить отчёт')
+      }
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }

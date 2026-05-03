@@ -10,6 +10,7 @@ import type { PlanRow } from '@/services/catalogs'
 import type { DraftPhoto } from './PhotoPicker'
 import type { PlanMarkValue } from './PlanMarkPicker'
 import { actions, reportDetails } from '@/shared/i18n/ru'
+import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import { WorkTypeSelect } from './WorkTypeSelect'
 import { WorkAssignmentSelect } from './WorkAssignmentSelect'
 import { PerformerSelect } from './PerformerSelect'
@@ -70,6 +71,7 @@ export function EditReportModal({
   onWorkAssignmentCreated,
 }: Props) {
   const { message } = App.useApp()
+  const isDesktop = useIsDesktop()
   const [form] = Form.useForm<{
     workTypeId: string
     performerId: string
@@ -171,8 +173,19 @@ export function EditReportModal({
       cancelText={actions.cancel}
       confirmLoading={loading}
       destroyOnHidden
-      width={720}
-      style={{ top: 20 }}
+      width={isDesktop ? 720 : '100vw'}
+      style={isDesktop ? { top: 20 } : { top: 0, maxWidth: '100vw', margin: 0, paddingBottom: 0 }}
+      styles={
+        isDesktop
+          ? undefined
+          : {
+              body: {
+                maxHeight: 'calc(100dvh - 110px)',
+                overflowY: 'auto',
+                paddingInline: 16,
+              },
+            }
+      }
     >
       <Form form={form} layout="vertical">
         <Form.Item
@@ -206,7 +219,12 @@ export function EditReportModal({
           <Input.TextArea rows={3} maxLength={2000} />
         </Form.Item>
         <Form.Item name="takenAt" label={reportDetails.takenAt}>
-          <DatePicker showTime format="DD.MM.YYYY HH:mm" style={{ width: '100%' }} />
+          <DatePicker
+            showTime
+            format="DD.MM.YYYY HH:mm"
+            style={{ width: '100%' }}
+            getPopupContainer={() => document.body}
+          />
         </Form.Item>
       </Form>
 
@@ -253,7 +271,7 @@ export function EditReportModal({
                   icon={<DeleteOutlined />}
                   onClick={() => handleRemoveExisting(p.id)}
                   disabled={totalPhotos <= 1}
-                  style={{ position: 'absolute', top: 4, right: 4 }}
+                  style={{ position: 'absolute', top: 4, right: 4, minWidth: 32, minHeight: 32 }}
                 />
               </div>
             ))}

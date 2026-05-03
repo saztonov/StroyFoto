@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
+import { App } from 'antd'
 import {
   loadProfile,
   mapAuthError,
@@ -20,6 +21,8 @@ import { startSyncLoop, stopSyncLoop } from '@/services/sync'
 import { applyRetention } from '@/services/retention'
 import { startInvalidation, stopInvalidation } from '@/services/invalidation'
 import { getCachedProfile, clearCachedProfile } from '@/services/profileCache'
+import { countPendingReports } from '@/services/localReports'
+import { wipeAllUserData, wipePendingUserData } from '@/services/logoutWipe'
 
 export interface AuthSessionUser {
   id: string
@@ -41,7 +44,17 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function pluralizeReports(n: number): string {
+  const last2 = n % 100
+  if (last2 >= 11 && last2 <= 14) return 'отчётов'
+  const last = n % 10
+  if (last === 1) return 'отчёт'
+  if (last >= 2 && last <= 4) return 'отчёта'
+  return 'отчётов'
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { modal } = App.useApp()
   const [user, setUser] = useState<AuthSessionUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
@@ -50,6 +63,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const mounted = useRef(true)
   const loadedForUserId = useRef<string | null>(null)
+  // Какой userId был залогинен при предыдущем старте — нужен для обнаружения
+  // смены пользователя на одном устройстве (cross-user wipe).
+  const previousUserId = useRef<string | null>(null)
 
   const teardown = useCallback(async () => {
     setUser(null)
@@ -94,6 +110,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setLocalSession = useCallback(
     (nextUser: AuthSessionUser, nextProfile: Profile) => {
+      // Если на устройстве уже была сессия другого юзера — wipe всех данных
+      // во избежание cross-user data leak. Внутри setLocalSession это
+      // безопасно: pending очередь предыдущего юзера всё равно ему уже не
+      // принадлежит (он явно вышел или был выкинут по 401).
+      if (previousUserId.current && previousUserId.current !== nextUser.id) {
+        void wipeAllUserData().catch((e) =>
+          console.warn('wipeAllUserData on user switch failed:', e),
+        )
+      }
+      previousUserId.current = nextUser.id
       setUser(nextUser)
       setProfile(nextProfile)
       loadedForUserId.current = nextUser.id
@@ -106,12 +132,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const handleSignOut = useCallback(async () => {
+    // Если в очереди есть pending — не сжигаем их молча. Спросим юзера:
+    // выйти и потерять, или остаться и подождать sync. Без этого был
+    // путь потери данных (выход → следующий вход чужого юзера → отправка
+    // pending под чужой сессией).
+    let pending = 0
+    try {
+      pending = await countPendingReports()
+    } catch {
+      // если IDB недоступна — пропускаем подтверждение, всё равно logout
+    }
+    if (pending > 0) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: 'Есть несинхронизированные данные',
+          content: `На устройстве осталось ${pending} ${pluralizeReports(pending)} без синхронизации с сервером. Если выйти сейчас, они будут потеряны.`,
+          okText: 'Выйти и потерять',
+          okButtonProps: { danger: true },
+          cancelText: 'Остаться',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!proceed) return
+    }
     try {
       await doSignOut()
     } finally {
+      try { await wipePendingUserData() } catch (e) {
+        console.warn('wipePendingUserData on signOut failed:', e)
+      }
       await teardown()
     }
-  }, [teardown])
+  }, [modal, teardown])
 
   // На любой 401 от любого fetch — выкидываем пользователя.
   useEffect(() => {
@@ -131,6 +184,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const restored = await restoreSession()
         if (cancelled || !mounted.current) return
         if (restored) {
+          // Cross-user wipe при первом старте: если в IDB остались данные от
+          // прошлого юзера (например, кто-то закрыл вкладку до явного logout),
+          // удаляем их перед стартом sync под новой сессией.
+          if (previousUserId.current && previousUserId.current !== restored.user.id) {
+            try { await wipeAllUserData() } catch (e) {
+              console.warn('wipeAllUserData on restore failed:', e)
+            }
+          }
+          previousUserId.current = restored.user.id
           setUser(restored.user)
           setProfile(restored.profile)
           loadedForUserId.current = restored.user.id

@@ -6,7 +6,7 @@ import { actions, errors as errStrings } from '@/shared/i18n/ru'
 
 function FullscreenSpinner() {
   return (
-    <Flex align="center" justify="center" style={{ minHeight: '100vh', width: '100%' }}>
+    <Flex align="center" justify="center" style={{ minHeight: '100dvh', width: '100%' }}>
       <Spin size="large" />
     </Flex>
   )
@@ -15,7 +15,7 @@ function FullscreenSpinner() {
 function ProfileErrorScreen({ message }: { message: string }) {
   const { refreshProfile, signOut } = useAuth()
   return (
-    <Flex align="center" justify="center" style={{ minHeight: '100vh', width: '100%', padding: 16 }}>
+    <Flex align="center" justify="center" style={{ minHeight: '100dvh', width: '100%', padding: 16 }}>
       <Result
         status="warning"
         title={errStrings.profileLoadFailed}

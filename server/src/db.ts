@@ -6,6 +6,13 @@ import { config } from './config.js';
 
 const { Pool } = pg;
 
+// Замечание про timestamptz и точность OCC: pg по умолчанию парсит
+// timestamptz в JS Date (миллисекунды). Date теряет микросекунды Postgres,
+// поэтому колонка report.updated_at, используемая как OCC-токен, должна
+// возвращаться сервером как text без потерь. Глобально менять pg-types
+// рискованно (refresh_tokens.expires_at и др. ждут Date), поэтому в SELECT'ах
+// для отчётов и фото мы явно кастим: `updated_at::text AS updated_at`.
+
 // Yandex MDB требует TLS с проверкой CA. Node.js pg не читает libpq-конфиги,
 // поэтому подхватываем CA вручную из тех же путей, что libpq:
 // PGSSLROOTCERT env → %APPDATA%/postgresql/root.crt (Win) → ~/.postgresql/root.crt (Unix).

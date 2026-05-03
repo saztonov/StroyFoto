@@ -18,6 +18,8 @@
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
     "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
     "@photo-sphere-viewer/core": "^5.14.1",
     "antd": "^5.21.4",
     "aws4fetch": "^1.0.20",

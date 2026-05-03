@@ -71,8 +71,8 @@ export function Photo360Viewer({ open, src, onClose, onFallback }: Props) {
       width="100%"
       style={{ top: 0, maxWidth: '100vw', paddingBottom: 0 }}
       styles={{
-        content: { padding: 0, background: '#000', height: '100vh' },
-        body: { padding: 0, height: '100vh' },
+        content: { padding: 0, background: '#000', height: '100dvh' },
+        body: { padding: 0, height: '100dvh' },
       }}
       closable
       destroyOnHidden
@@ -80,7 +80,7 @@ export function Photo360Viewer({ open, src, onClose, onFallback }: Props) {
       title={null}
       centered={false}
     >
-      <div style={{ position: 'relative', width: '100%', height: '100vh', background: '#000' }}>
+      <div style={{ position: 'relative', width: '100%', height: '100dvh', background: '#000' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
         {loading && (
           <div
