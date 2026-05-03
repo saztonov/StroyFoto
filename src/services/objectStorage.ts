@@ -45,20 +45,24 @@ export function planKey(projectId: string, planId: string): string {
   return `plans/${projectId}/${planId}.pdf`
 }
 
-// Таймаут на S3 PUT/GET: мобильные сети иногда «залипают» на минуты,
-// мы не хотим, чтобы зависший запрос блокировал весь батч синхронизации.
-// При timeout fetch бросает AbortError → sync-loop увеличит backoff и повторит.
-//
-// PUT поднят с 60с до 180с — на GPRS (50KB/s) полуторамегабайтное фото
-// может качаться ~30с уже без буферов; при просадках сети 60с не хватало
-// и мы попадали в бесконечный backoff заново качая весь файл.
-const STORAGE_PUT_TIMEOUT_MS = 180_000
+// Таймаут на S3 GET. PUT — адаптивный, см. computePutTimeoutMs ниже.
 const STORAGE_GET_TIMEOUT_MS = 45_000
 
-// Если presigned URL истечёт меньше чем через PRESIGN_EXPIRY_BUFFER_MS —
-// бросаем PRESIGN_EXPIRED_BEFORE_USE, чтобы caller перевыпустил подпись
-// до того как сделает заведомо обречённый PUT/GET.
-const PRESIGN_EXPIRY_BUFFER_MS = 5_000
+// Запас, на который presigned URL должен «пережить» предполагаемое
+// время операции. На медленных мобильных сетях случаются длинные паузы
+// между выпуском подписи и фактическим PUT (очередь sync-loop, ретраи
+// API-вызова presign), поэтому 15 секунд — компромисс между ложной
+// «свежестью» и ложным PRESIGN_EXPIRED_BEFORE_USE.
+const PRESIGN_EXPIRY_BUFFER_MS = 15_000
+
+// Адаптивный таймаут PUT: база 60с + размер/30KBs (3G uplink), зажат в
+// [60с, 8 мин]. 8 мин укладываются в TTL 10 мин с буфером 15с.
+export function computePutTimeoutMs(sizeBytes: number): number {
+  const computed = 60_000 + Math.ceil(sizeBytes / 30)
+  if (computed < 60_000) return 60_000
+  if (computed > 480_000) return 480_000
+  return computed
+}
 
 export class PresignExpiredError extends Error {
   code = 'PRESIGN_EXPIRED_BEFORE_USE' as const
@@ -68,9 +72,18 @@ export class PresignExpiredError extends Error {
   }
 }
 
+// Сервер отдаёт expiresAt в Unix СЕКУНДАХ
+// (server/src/services/presignService.ts: Math.floor(Date.now()/1000) + ttl).
+// Date.now() — миллисекунды. Без этой нормализации сравнение
+// Date.now() > expiresAt истинно для ЛЮБОГО только что выпущенного URL,
+// и каждый PUT падал бы в PRESIGN_EXPIRED_BEFORE_USE до выхода в сеть.
+function expiresAtMs(presigned: PresignResponse): number {
+  return presigned.expiresAt * 1000
+}
+
 function ensurePresignFresh(presigned: PresignResponse, neededMs: number): void {
   if (!presigned.expiresAt) return
-  if (Date.now() + neededMs + PRESIGN_EXPIRY_BUFFER_MS > presigned.expiresAt) {
+  if (Date.now() + neededMs + PRESIGN_EXPIRY_BUFFER_MS > expiresAtMs(presigned)) {
     throw new PresignExpiredError()
   }
 }
@@ -107,7 +120,8 @@ export async function putToPresigned(
   presigned: PresignResponse,
   body: Blob,
 ): Promise<void> {
-  ensurePresignFresh(presigned, STORAGE_PUT_TIMEOUT_MS)
+  const timeoutMs = computePutTimeoutMs(body.size)
+  ensurePresignFresh(presigned, timeoutMs)
   const res = await fetchWithTimeout(
     presigned.url,
     {
@@ -115,7 +129,7 @@ export async function putToPresigned(
       headers: presigned.headers,
       body,
     },
-    STORAGE_PUT_TIMEOUT_MS,
+    timeoutMs,
     'S3 PUT',
   )
   if (!res.ok) {

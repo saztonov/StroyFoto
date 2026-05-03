@@ -51,7 +51,7 @@ export interface AuthResult {
 export async function signInWithEmail(
   email: string,
   password: string,
-  rememberMe = false,
+  rememberMe = true,
 ): Promise<AuthResult> {
   const data = await apiFetch<SessionResponse>('/api/auth/login', {
     method: 'POST',

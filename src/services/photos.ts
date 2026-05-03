@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/apiClient'
+import { ApiError, apiFetch } from '@/lib/apiClient'
 import { getDB, type LocalPhoto } from '@/lib/db'
 import {
   PresignExpiredError,
@@ -11,6 +11,30 @@ import {
 export interface UploadPhotoResult {
   objectKey: string
   thumbObjectKey: string
+}
+
+/**
+ * Проверка «фото уже на сервере» перед PUT в S3. Нужна для самовосстановления:
+ * на медленной мобильной сети возможен сценарий, когда PUT прошёл, а response
+ * был оборван таймаутом/обрывом — клиент считает фото незагруженным и при
+ * retry повторно качает 1.5 МБ. Дешевле сначала спросить API.
+ */
+async function checkPhotoExistsOnServer(
+  photoId: string,
+): Promise<UploadPhotoResult | null> {
+  try {
+    const data = await apiFetch<{
+      photo: { object_key: string; thumb_object_key: string | null }
+    }>(`/api/report-photos/${photoId}`)
+    if (!data.photo.thumb_object_key) return null
+    return {
+      objectKey: data.photo.object_key,
+      thumbObjectKey: data.photo.thumb_object_key,
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null
+    throw e
+  }
 }
 
 function isPresignExpired(e: unknown): boolean {
@@ -67,6 +91,11 @@ async function uploadOnePhotoBlob(
  * `POST /api/storage/presign` (см. server/src/routes/presign.ts).
  */
 export async function uploadPhoto(photo: LocalPhoto): Promise<UploadPhotoResult> {
+  // Самовосстановление: если запись уже на сервере (например, предыдущий PUT
+  // прошёл, но response был оборван таймаутом), не качаем фото повторно.
+  const existing = await checkPhotoExistsOnServer(photo.id)
+  if (existing) return existing
+
   if (!photo.thumbBlob) {
     throw new Error('uploadPhoto: remote-origin photo без thumbBlob нельзя загружать')
   }

@@ -83,6 +83,12 @@ export default defineConfig({
       workbox: {
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
+        // Новый SW активируется немедленно (skipWaiting) и сразу контролирует
+        // открытые вкладки (clientsClaim). Вместе с onNeedRefresh → updateSW(true)
+        // в src/main.tsx это даёт автоматическое применение свежей сборки
+        // без баннера и ручных кликов.
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // /api/* НЕ кэшируем через SW — при медленной сети SW может отдать
         // устаревшие данные другого пользователя/сессии. Все офлайн-данные идут

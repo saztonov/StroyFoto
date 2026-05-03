@@ -7,7 +7,12 @@ import {
   parseParams,
   uuidSchema,
 } from '../http/validate.js';
-import { deletePhoto, upsertPhoto } from '../services/photosService.js';
+import { AppError } from '../http/errors.js';
+import {
+  deletePhoto,
+  getPhotoById,
+  upsertPhoto,
+} from '../services/photosService.js';
 
 const photoParamsSchema = z.object({ photoId: uuidSchema });
 
@@ -24,6 +29,15 @@ export default async function photosRoutes(
   app: FastifyInstance,
 ): Promise<void> {
   const guard = { preHandler: [authenticate, requireActiveUser] };
+
+  app.get('/:photoId', guard, async (request) => {
+    const { photoId } = parseParams(photoParamsSchema, request.params);
+    const photo = await getPhotoById({ user: request.user!, id: photoId });
+    if (!photo) {
+      throw new AppError(404, 'NOT_FOUND', 'Фотография не найдена.');
+    }
+    return { photo };
+  });
 
   app.put('/:photoId', guard, async (request) => {
     const { photoId } = parseParams(photoParamsSchema, request.params);

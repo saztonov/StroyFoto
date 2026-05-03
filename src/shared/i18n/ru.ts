@@ -33,7 +33,6 @@ export const auth = {
   emailPlaceholder: 'you@example.com',
   passwordLabel: 'Пароль',
   passwordPlaceholder: 'Не менее 6 символов',
-  rememberMe: 'Запомнить меня',
   noAccount: 'Нет аккаунта?',
   hasAccount: 'Уже есть аккаунт?',
   pendingTitle: 'Ожидает активации',

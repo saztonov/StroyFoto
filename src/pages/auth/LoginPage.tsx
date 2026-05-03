@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Checkbox, Flex, Form, Input, Typography } from 'antd'
+import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
 import { mapAuthError, signInWithEmail } from '@/services/auth'
 import { actions, auth } from '@/shared/i18n/ru'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -8,7 +8,6 @@ import { useAuth } from '@/app/providers/AuthProvider'
 interface FormValues {
   email: string
   password: string
-  rememberMe: boolean
 }
 
 export function LoginPage() {
@@ -21,7 +20,7 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const result = await signInWithEmail(values.email, values.password, values.rememberMe)
+      const result = await signInWithEmail(values.email, values.password)
       setLocalSession(result.user, result.profile)
       navigate('/reports', { replace: true })
     } catch (e) {
@@ -41,12 +40,7 @@ export function LoginPage() {
         <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />
       ) : null}
 
-      <Form<FormValues>
-        layout="vertical"
-        onFinish={handleSubmit}
-        disabled={loading}
-        initialValues={{ rememberMe: false }}
-      >
+      <Form<FormValues> layout="vertical" onFinish={handleSubmit} disabled={loading}>
         <Form.Item
           label={auth.emailLabel}
           name="email"
@@ -64,10 +58,6 @@ export function LoginPage() {
           rules={[{ required: true, message: 'Введите пароль' }]}
         >
           <Input.Password autoComplete="current-password" placeholder={auth.passwordPlaceholder} />
-        </Form.Item>
-
-        <Form.Item name="rememberMe" valuePropName="checked" style={{ marginBottom: 16 }}>
-          <Checkbox>{auth.rememberMe}</Checkbox>
         </Form.Item>
 
         <Button type="primary" htmlType="submit" block loading={loading}>

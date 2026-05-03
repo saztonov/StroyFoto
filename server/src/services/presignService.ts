@@ -47,8 +47,12 @@ function parseKey(kind: PresignKind, key: string): ParsedKey | null {
   return { kind, parent: m[1], entity: m[2] };
 }
 
-const TTL_PUT_GET = 60 * 5;
-const TTL_DELETE = 60;
+// PUT/GET — 10 минут. На GPRS/3G upload крупного фото может занимать
+// 100+ секунд; добавим запас под очередь sync-loop и retry внутри клиента.
+// Подпись делается per-PUT (lazy presign в src/services/photos.ts), так что
+// «срок жизни» URL — это окно от выдачи до начала PUT, а не общее время сессии.
+const TTL_PUT_GET = 60 * 10;
+const TTL_DELETE = 60 * 2;
 
 function methodFor(op: PresignOp): 'PUT' | 'GET' | 'DELETE' {
   if (op === 'put') return 'PUT';

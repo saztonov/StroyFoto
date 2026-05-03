@@ -4,6 +4,7 @@ import { mapPgError } from '../http/pgErrors.js';
 import type { AuthenticatedUser } from '../auth/middleware.js';
 import {
   assertReportEditable,
+  assertReportReadable,
   loadReportForAccess,
 } from '../access/reportAccess.js';
 
@@ -107,6 +108,28 @@ export async function upsertPhoto(input: PhotoUpsertInput): Promise<PhotoDTO> {
     if (err instanceof AppError) throw err;
     mapPgError(err);
   }
+}
+
+/**
+ * GET /api/report-photos/:id — нужен клиенту для самовосстановления sync:
+ * после timeout/network error при PUT в S3 фото может быть уже на сервере,
+ * клиент проверяет наличие и помечает synced без повторной заливки.
+ * Возвращает null, если строки нет — роут отдаёт 404.
+ */
+export async function getPhotoById(input: {
+  user: AuthenticatedUser;
+  id: string;
+}): Promise<PhotoDTO | null> {
+  const result = await pool.query<PhotoRow>(
+    `SELECT ${COLS} FROM report_photos WHERE id = $1`,
+    [input.id],
+  );
+  if (result.rowCount === 0) return null;
+  const row = result.rows[0];
+  const access = await loadReportForAccess(row.report_id);
+  if (!access) return null;
+  await assertReportReadable(input.user, access);
+  return toDTO(row);
 }
 
 export async function deletePhoto(input: {
