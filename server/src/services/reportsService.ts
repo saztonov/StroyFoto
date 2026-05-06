@@ -92,11 +92,6 @@ interface ReportFullRow extends ReportListRow {
 // taken_at/created_at/updated_at кастятся в text — иначе pg-driver
 // конвертирует в JS Date с потерей микросекунд, и OCC через WHERE updated_at = $N
 // иногда даёт ложное несовпадение для свежих ответов сервера.
-const LIST_COLUMNS = `id, project_id, work_type_id, performer_id, work_assignment_id,
-  plan_id, author_id, description,
-  taken_at::text AS taken_at,
-  created_at::text AS created_at,
-  updated_at::text AS updated_at`;
 
 async function assertPlanInProject(
   planId: string,
@@ -138,34 +133,107 @@ function decodeCursor(raw: string | null): CursorPayload | null {
   }
 }
 
+export interface ReportListItemWithPhotosDTO extends ReportListItemDTO {
+  report_photos: PhotoNestedDTO[];
+}
+
+interface ReportListRowWithPhotos extends ReportListRow {
+  report_photos: PhotoNestedDTO[] | null;
+}
+
 export async function listReports(input: {
   user: AuthenticatedUser;
   cursor: string | null;
   limit: number;
-}): Promise<{ items: ReportListItemDTO[]; nextCursor: string | null }> {
+  projectId?: string | null;
+  workTypeIds?: string[] | null;
+  months?: string[] | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  includePhotos?: boolean;
+}): Promise<{
+  items: ReportListItemDTO[] | ReportListItemWithPhotosDTO[];
+  nextCursor: string | null;
+}> {
   const projectIds = await getUserProjectIds(input.user);
+  // Если запрошен конкретный projectId, который не входит в membership пользователя
+  // (для не-admin) — отдаём пусто. Admin (projectIds=null) пропускается.
+  if (
+    input.projectId &&
+    projectIds !== null &&
+    !projectIds.includes(input.projectId)
+  ) {
+    return { items: [], nextCursor: null };
+  }
   // Стабильный keyset cursor: (created_at DESC, id DESC). Без вторичного
   // ключа отчёты с одинаковым created_at могут терять страницу или
   // дублироваться. Cursor opaque — клиент гоняет его обратно как есть.
   const cursorPayload = decodeCursor(input.cursor);
-  const result = await pool.query<ReportListRow>(
-    `SELECT ${LIST_COLUMNS}
-       FROM reports
-      WHERE ($1::uuid[] IS NULL OR project_id = ANY($1::uuid[]))
-        AND (
-          $2::timestamptz IS NULL
-          OR created_at < $2::timestamptz
-          OR (created_at = $2::timestamptz AND id < $3::uuid)
-        )
-      ORDER BY created_at DESC, id DESC
-      LIMIT $4`,
-    [
-      projectIds,
-      cursorPayload?.createdAt ?? null,
-      cursorPayload?.id ?? null,
-      input.limit,
-    ],
-  );
+
+  const params: unknown[] = [
+    projectIds,
+    cursorPayload?.createdAt ?? null,
+    cursorPayload?.id ?? null,
+    input.limit,
+    input.projectId ?? null,
+    input.workTypeIds && input.workTypeIds.length > 0
+      ? input.workTypeIds
+      : null,
+    input.months && input.months.length > 0 ? input.months : null,
+    input.dateFrom ?? null,
+    input.dateTo ?? null,
+  ];
+
+  const photosSelect = input.includePhotos
+    ? `,
+         (SELECT coalesce(json_agg(json_build_object(
+                   'id', p.id,
+                   'object_key', p.object_key,
+                   'thumb_object_key', p.thumb_object_key,
+                   'width', p.width,
+                   'height', p.height,
+                   'taken_at', p.taken_at
+                 ) ORDER BY p.created_at), '[]'::json)
+            FROM report_photos p WHERE p.report_id = r.id) AS report_photos`
+    : '';
+
+  const sql = `
+    SELECT r.id, r.project_id, r.work_type_id, r.performer_id, r.work_assignment_id,
+           r.plan_id, r.author_id, r.description,
+           r.taken_at::text AS taken_at,
+           r.created_at::text AS created_at,
+           r.updated_at::text AS updated_at${photosSelect}
+      FROM reports r
+     WHERE ($1::uuid[] IS NULL OR r.project_id = ANY($1::uuid[]))
+       AND (
+         $2::timestamptz IS NULL
+         OR r.created_at < $2::timestamptz
+         OR (r.created_at = $2::timestamptz AND r.id < $3::uuid)
+       )
+       AND ($5::uuid IS NULL OR r.project_id = $5::uuid)
+       AND ($6::uuid[] IS NULL OR r.work_type_id = ANY($6::uuid[]))
+       AND ($7::text[] IS NULL OR to_char(r.created_at, 'YYYY-MM') = ANY($7::text[]))
+       AND ($8::timestamptz IS NULL OR r.created_at >= $8::timestamptz)
+       AND ($9::timestamptz IS NULL OR r.created_at <= $9::timestamptz)
+     ORDER BY r.created_at DESC, r.id DESC
+     LIMIT $4
+  `;
+
+  if (input.includePhotos) {
+    const result = await pool.query<ReportListRowWithPhotos>(sql, params);
+    const items: ReportListItemWithPhotosDTO[] = result.rows.map((row) => ({
+      ...toListItem(row),
+      report_photos: row.report_photos ?? [],
+    }));
+    const last = items[items.length - 1];
+    const nextCursor =
+      items.length === input.limit && last
+        ? encodeCursor({ createdAt: last.created_at, id: last.id })
+        : null;
+    return { items, nextCursor };
+  }
+
+  const result = await pool.query<ReportListRow>(sql, params);
   const items = result.rows.map(toListItem);
   const last = items[items.length - 1];
   const nextCursor =

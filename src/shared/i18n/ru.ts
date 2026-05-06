@@ -58,7 +58,19 @@ export const reportsList = {
   emptyFiltered: 'По выбранным фильтрам ничего не найдено',
   viewByDate: 'По датам',
   viewByPerformer: 'По исполнителям',
+  viewByPhotos: 'Лента фото',
   performerUnknown: 'Исполнитель не указан',
+  photoFeedEmpty: 'Нет фото для отображения',
+  photoFeedHint:
+    'Стрелки ←/→ — фото в отчёте, ↑/↓ — переход между отчётами',
+  photoFeedOpenReport: 'Открыть отчёт',
+  photoFeedNextReport: 'Следующий отчёт',
+  photoFeedPrevReport: 'Предыдущий отчёт',
+  photoFeedNextPhoto: 'Следующее фото',
+  photoFeedPrevPhoto: 'Предыдущее фото',
+  photoFeedOpen360: 'Открыть как панораму',
+  photoFeedLoadingPhoto: 'Загрузка фото…',
+  photoFeedPhotoUnavailable: 'Фото недоступно',
 } as const
 
 export const reportDetails = {

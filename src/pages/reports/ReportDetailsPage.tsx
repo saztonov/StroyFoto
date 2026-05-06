@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, App, Button, Result, Skeleton, Space } from 'antd'
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, reportDetails } from '@/shared/i18n/ru'
 import { getDB, type ReportMutation, type SyncIssue, type SyncOp } from '@/lib/db'
@@ -27,8 +27,17 @@ import { SYNC_STATUS_LABEL } from './lib/syncStatusLabel'
 export function ReportDetailsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user, profile } = useAuth()
   const { message } = App.useApp()
+
+  // Возврат на список с теми же фильтрами/режимом, что были при открытии
+  // отчёта. URL уже содержит query (мы сохранили его в openReport на /reports),
+  // поэтому он переживает и F5, и нативную браузерную Back.
+  const backToList = useCallback(() => {
+    const qs = searchParams.toString()
+    navigate(qs ? `/reports?${qs}` : '/reports')
+  }, [navigate, searchParams])
 
   const { data, loading, error, offlineUnavailable, refresh } = useReportData(id, user, profile)
   const { projects, workTypes, performers, workAssignments, plans, setWorkTypes, setWorkAssignments } =
@@ -142,7 +151,7 @@ export function ReportDetailsPage() {
           message.success(reportDetails.deleteSuccess)
           emitReportChanged(id, 'delete')
           emitReportsChanged()
-          navigate('/reports')
+          backToList()
           return
         } catch (e) {
           // Сетевая ошибка — ставим в offline-очередь
@@ -177,13 +186,13 @@ export function ReportDetailsPage() {
       await tx.done
       message.info('Удаление будет выполнено при восстановлении сети')
       emitReportsChanged()
-      navigate('/reports')
+      backToList()
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
       setDeleting(false)
     }
-  }, [id, data, navigate, message])
+  }, [id, data, backToList, message])
 
   const handleSave = useCallback(async (values: EditReportSaveInput) => {
     if (!id || !data) return
@@ -226,7 +235,7 @@ export function ReportDetailsPage() {
         <PageHeader
           title={reportDetails.title}
           extra={
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList}>
               {actions.back}
             </Button>
           }
@@ -242,7 +251,7 @@ export function ReportDetailsPage() {
         <PageHeader
           title={reportDetails.title}
           extra={
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList}>
               {actions.back}
             </Button>
           }
@@ -258,7 +267,7 @@ export function ReportDetailsPage() {
         <PageHeader
           title={reportDetails.title}
           extra={
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList}>
               {actions.back}
             </Button>
           }
@@ -282,7 +291,7 @@ export function ReportDetailsPage() {
         deleting={deleting}
         onEdit={() => setEditOpen(true)}
         onDelete={handleDelete}
-        onBack={() => navigate('/reports')}
+        onBack={backToList}
       />
 
       <Space direction="vertical" size={16} style={{ width: '100%' }}>

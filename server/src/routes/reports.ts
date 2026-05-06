@@ -19,9 +19,72 @@ import {
   updateReportWithOcc,
 } from '../services/reportsService.js';
 
+const csvUuidListSchema = z
+  .string()
+  .min(1)
+  .transform((s, ctx) => {
+    const parts = s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return [] as string[];
+    if (parts.length > 200) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Не более 200 идентификаторов в одном запросе.',
+      });
+      return z.NEVER;
+    }
+    const validated = z.array(uuidSchema).safeParse(parts);
+    if (!validated.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Список идентификаторов содержит некорректные значения.',
+      });
+      return z.NEVER;
+    }
+    return validated.data;
+  });
+
+const csvMonthListSchema = z
+  .string()
+  .min(1)
+  .transform((s, ctx) => {
+    const parts = s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return [] as string[];
+    if (parts.length > 24) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Не более 24 месяцев в одном запросе.',
+      });
+      return z.NEVER;
+    }
+    if (parts.some((p) => !/^\d{4}-\d{2}$/.test(p))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Месяц ожидается в формате YYYY-MM.',
+      });
+      return z.NEVER;
+    }
+    return parts;
+  });
+
+const truthyBoolSchema = z
+  .string()
+  .transform((s) => s === 'true' || s === '1');
+
 const listQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
+  project_id: uuidSchema.optional(),
+  work_type_ids: csvUuidListSchema.optional(),
+  months: csvMonthListSchema.optional(),
+  date_from: isoDateSchema.optional(),
+  date_to: isoDateSchema.optional(),
+  include_photos: truthyBoolSchema.optional(),
 });
 
 const createSchema = z.object({
@@ -63,7 +126,13 @@ export default async function reportsRoutes(
     return listReports({
       user: request.user!,
       cursor: q.cursor ?? null,
-      limit: q.limit ?? 200,
+      limit: q.limit ?? 50,
+      projectId: q.project_id ?? null,
+      workTypeIds: q.work_type_ids ?? null,
+      months: q.months ?? null,
+      dateFrom: q.date_from ?? null,
+      dateTo: q.date_to ?? null,
+      includePhotos: q.include_photos === true,
     });
   });
 

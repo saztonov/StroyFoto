@@ -40,6 +40,8 @@ export interface RemoteReportRow {
   author_id: string
   created_at: string
   updated_at: string | null
+  /** Заполняется только когда сервер вызван с include_photos=true. */
+  report_photos?: RemoteReportPhoto[] | null
 }
 
 export interface RemoteReportPhoto {
@@ -74,6 +76,13 @@ export interface MergedReportsResult {
   cards: ReportCard[]
   hasMore: boolean
   nextCursor: string | null
+  /**
+   * Метаданные фото по reportId. Заполняется только когда вызов
+   * `loadMergedReports` сделан с `includePhotos: true` (нужно для режима
+   * фотоленты). Для локальных отчётов сюда не пишем — их фото нужно
+   * читать из IDB store `photos` напрямую.
+   */
+  photosByReportId?: Map<string, RemoteReportPhoto[]>
 }
 
 export interface ReportUpdateInput {
@@ -95,4 +104,4 @@ export class ConflictError extends Error {
 
 /** Таймаут для сетевых запросов при загрузке списка отчётов (мс). */
 export const FETCH_TIMEOUT_MS = 5_000
-export const PAGE_SIZE = 200
+export const PAGE_SIZE = 50

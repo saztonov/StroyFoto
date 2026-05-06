@@ -15,12 +15,16 @@ import {
   Typography,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import { onReportsChanged } from '@/services/invalidation'
-import { loadMergedReports, type ReportCard } from '@/services/reports'
+import {
+  loadMergedReports,
+  type ReportCard,
+  type RemoteReportPhoto,
+} from '@/services/reports'
 import { listOpenSyncIssues } from '@/services/syncIssues'
 import { loadProjectsForUser, loadWorkTypes, loadPerformers, loadWorkAssignments } from '@/services/catalogs'
 import type { Project } from '@/entities/project/types'
@@ -28,6 +32,7 @@ import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { SYNC_STATUS_LABEL } from './lib/syncStatusLabel'
+import { PhotoFeedView } from './components/PhotoFeedView'
 
 interface ReportCardItemProps {
   report: ReportCard
@@ -103,9 +108,72 @@ const ReportCardItem = memo(function ReportCardItem({
   )
 })
 
+type ViewMode = 'date' | 'performer' | 'photos'
+
+interface ParsedFilters {
+  projectId: string | null
+  selectedMonths: string[]
+  range: [Dayjs | null, Dayjs | null] | null
+  workTypeIds: string[]
+  viewMode: ViewMode
+}
+
+const DATE_FMT = 'YYYY-MM-DD'
+
+function parseFilters(sp: URLSearchParams): ParsedFilters {
+  const project = sp.get('project')
+  const monthsRaw = sp.get('months')
+  const fromRaw = sp.get('from')
+  const toRaw = sp.get('to')
+  const wtRaw = sp.get('wt')
+  const viewRaw = sp.get('view')
+  const view: ViewMode =
+    viewRaw === 'performer' || viewRaw === 'photos' ? viewRaw : 'date'
+  const fromDay = fromRaw ? dayjs(fromRaw, DATE_FMT) : null
+  const toDay = toRaw ? dayjs(toRaw, DATE_FMT) : null
+  const range: [Dayjs | null, Dayjs | null] | null =
+    fromDay?.isValid() || toDay?.isValid()
+      ? [fromDay?.isValid() ? fromDay : null, toDay?.isValid() ? toDay : null]
+      : null
+  return {
+    projectId: project || null,
+    selectedMonths: monthsRaw ? monthsRaw.split(',').filter(Boolean) : [],
+    range,
+    workTypeIds: wtRaw ? wtRaw.split(',').filter(Boolean) : [],
+    viewMode: view,
+  }
+}
+
+function serializeFilters(filters: ParsedFilters): URLSearchParams {
+  const sp = new URLSearchParams()
+  if (filters.projectId) sp.set('project', filters.projectId)
+  if (filters.selectedMonths.length > 0) {
+    sp.set('months', filters.selectedMonths.join(','))
+  }
+  if (filters.range?.[0]) sp.set('from', filters.range[0].format(DATE_FMT))
+  if (filters.range?.[1]) sp.set('to', filters.range[1].format(DATE_FMT))
+  if (filters.workTypeIds.length > 0) {
+    sp.set('wt', filters.workTypeIds.join(','))
+  }
+  if (filters.viewMode !== 'date') sp.set('view', filters.viewMode)
+  return sp
+}
+
 export function ReportsListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const filters = useMemo(() => parseFilters(searchParams), [searchParams])
+  const { projectId, selectedMonths, range, workTypeIds, viewMode } = filters
+
+  // Стабильный ключ для зависимостей useEffect — иначе каждый ререндер
+  // searchParams создаёт новую ссылку и reload зацикливался бы.
+  const filtersKey = useMemo(() => searchParams.toString(), [searchParams])
+
   const [reports, setReports] = useState<ReportCard[]>([])
+  const [photosByReportId, setPhotosByReportId] = useState<
+    Map<string, RemoteReportPhoto[]>
+  >(new Map())
   const [hasMore, setHasMore] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -114,12 +182,6 @@ export function ReportsListPage() {
   const [performers, setPerformers] = useState<Performer[]>([])
   const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([])
   const [loading, setLoading] = useState(true)
-
-  const [projectId, setProjectId] = useState<string | null>(null)
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [selectedMonths, setSelectedMonths] = useState<string[]>([])
-  const [workTypeIds, setWorkTypeIds] = useState<string[]>([])
-  const [viewMode, setViewMode] = useState<'date' | 'performer'>('date')
   const [issueReportIds, setIssueReportIds] = useState<Set<string>>(new Set())
 
   const monthOptions = useMemo(() => {
@@ -130,10 +192,36 @@ export function ReportsListPage() {
     })
   }, [])
 
+  // Конвертирует UI-фильтры в опции для loadMergedReports.
+  // Range в URL хранится как YYYY-MM-DD (локальные даты), на сервер шлём
+  // полноценный ISO с временем дня в UTC.
+  const buildOpts = useCallback(
+    (cursor?: string) => {
+      const dateFrom = filters.range?.[0]
+        ? filters.range[0].startOf('day').toISOString()
+        : null
+      const dateTo = filters.range?.[1]
+        ? filters.range[1].endOf('day').toISOString()
+        : null
+      return {
+        cursor,
+        projectId: filters.projectId,
+        workTypeIds: filters.workTypeIds.length > 0 ? filters.workTypeIds : undefined,
+        months: filters.selectedMonths.length > 0 ? filters.selectedMonths : undefined,
+        dateFrom,
+        dateTo,
+        includePhotos: filters.viewMode === 'photos',
+      }
+    },
+    [filters],
+  )
+
   const reload = useCallback(() => {
-    void loadMergedReports()
+    setLoading(true)
+    void loadMergedReports(buildOpts())
       .then((result) => {
         setReports(result.cards)
+        setPhotosByReportId(result.photosByReportId ?? new Map())
         setHasMore(result.hasMore)
         setNextCursor(result.nextCursor)
       })
@@ -143,20 +231,27 @@ export function ReportsListPage() {
       .finally(() => {
         setLoading(false)
       })
-  }, [])
+  }, [buildOpts])
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
-    void loadMergedReports(nextCursor)
+    void loadMergedReports(buildOpts(nextCursor))
       .then((result) => {
         setReports((prev) => [...prev, ...result.cards])
+        if (result.photosByReportId) {
+          setPhotosByReportId((prev) => {
+            const next = new Map(prev)
+            for (const [k, v] of result.photosByReportId!) next.set(k, v)
+            return next
+          })
+        }
         setHasMore(result.hasMore)
         setNextCursor(result.nextCursor)
       })
       .catch((err) => console.error('loadMore failed', err))
       .finally(() => setLoadingMore(false))
-  }, [nextCursor, loadingMore])
+  }, [nextCursor, loadingMore, buildOpts])
 
   useEffect(() => {
     reload()
@@ -177,9 +272,25 @@ export function ReportsListPage() {
     return () => {
       unsub()
     }
-  }, [reload])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload зависит от filtersKey, второго триггера не нужно
+  }, [filtersKey])
 
-  const openReport = useCallback((id: string) => navigate(`/reports/${id}`), [navigate])
+  const updateFilters = useCallback(
+    (patch: Partial<ParsedFilters>) => {
+      setSearchParams(serializeFilters({ ...filters, ...patch }), {
+        replace: true,
+      })
+    },
+    [filters, setSearchParams],
+  )
+
+  const openReport = useCallback(
+    (id: string) => {
+      const qs = searchParams.toString()
+      navigate(qs ? `/reports/${id}?${qs}` : `/reports/${id}`)
+    },
+    [navigate, searchParams],
+  )
 
   const projectsById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -198,6 +309,8 @@ export function ReportsListPage() {
     [workAssignments],
   )
 
+  // Клиентский фильтр — страховочный слой для local draft'ов и
+  // оффлайн-кэша; серверный ответ уже отфильтрован.
   const filtered = useMemo(() => {
     const monthSet = new Set(selectedMonths)
     const workTypeSet = new Set(workTypeIds)
@@ -255,10 +368,11 @@ export function ReportsListPage() {
       <Flex gap={8} wrap="wrap" align="center" style={{ marginBottom: 16 }}>
         <Segmented
           value={viewMode}
-          onChange={(v) => setViewMode(v as 'date' | 'performer')}
+          onChange={(v) => updateFilters({ viewMode: v as ViewMode })}
           options={[
             { label: reportsList.viewByDate, value: 'date' },
             { label: reportsList.viewByPerformer, value: 'performer' },
+            { label: reportsList.viewByPhotos, value: 'photos' },
           ]}
         />
         <Select
@@ -266,7 +380,7 @@ export function ReportsListPage() {
           placeholder={reportsList.filterProjectAll}
           style={{ minWidth: 200 }}
           value={projectId ?? undefined}
-          onChange={(v) => setProjectId(v ?? null)}
+          onChange={(v) => updateFilters({ projectId: v ?? null })}
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
           getPopupContainer={() => document.body}
         />
@@ -276,9 +390,10 @@ export function ReportsListPage() {
               key={m.key}
               checked={selectedMonths.includes(m.key)}
               onChange={(checked) => {
-                setSelectedMonths((prev) =>
-                  checked ? [...prev, m.key] : prev.filter((x) => x !== m.key),
-                )
+                const next = checked
+                  ? [...selectedMonths, m.key]
+                  : selectedMonths.filter((x) => x !== m.key)
+                updateFilters({ selectedMonths: next })
               }}
             >
               {m.label}
@@ -287,7 +402,14 @@ export function ReportsListPage() {
         </Space>
         <DatePicker.RangePicker
           value={range as never}
-          onChange={(v) => setRange(v as [Dayjs | null, Dayjs | null] | null)}
+          onChange={(v) =>
+            updateFilters({
+              range:
+                v && (v[0] || v[1])
+                  ? (v as [Dayjs | null, Dayjs | null])
+                  : null,
+            })
+          }
           format="DD.MM.YYYY"
           placeholder={[reportsList.filterDateRange, '']}
           getPopupContainer={() => document.body}
@@ -299,7 +421,7 @@ export function ReportsListPage() {
           placeholder={reportsList.filterWorkType}
           style={{ minWidth: 220, maxWidth: 420 }}
           value={workTypeIds}
-          onChange={(v) => setWorkTypeIds(v)}
+          onChange={(v) => updateFilters({ workTypeIds: v })}
           filterOption={(input, option) =>
             String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
           }
@@ -309,12 +431,18 @@ export function ReportsListPage() {
         />
         {hasFilters && (
           <Button
-            onClick={() => {
-              setProjectId(null)
-              setSelectedMonths([])
-              setRange(null)
-              setWorkTypeIds([])
-            }}
+            onClick={() =>
+              setSearchParams(
+                serializeFilters({
+                  projectId: null,
+                  selectedMonths: [],
+                  range: null,
+                  workTypeIds: [],
+                  viewMode,
+                }),
+                { replace: true },
+              )
+            }
           >
             {reportsList.filterReset}
           </Button>
@@ -323,6 +451,16 @@ export function ReportsListPage() {
 
       {loading ? (
         <Skeleton active paragraph={{ rows: 6 }} />
+      ) : viewMode === 'photos' ? (
+        <PhotoFeedView
+          reports={filtered}
+          photosByReportId={photosByReportId}
+          projectsById={projectsById}
+          workTypesById={workTypesById}
+          performersById={performersById}
+          workAssignmentsById={workAssignmentsById}
+          searchQuery={searchParams.toString()}
+        />
       ) : filtered.length === 0 ? (
         <Empty
           description={
@@ -384,7 +522,7 @@ export function ReportsListPage() {
         </Space>
       )}
 
-      {hasMore && !loading && filtered.length > 0 && (
+      {hasMore && !loading && viewMode !== 'photos' && filtered.length > 0 && (
         <Flex justify="center" style={{ marginTop: 16 }}>
           <Button onClick={loadMore} loading={loadingMore}>
             Загрузить ещё
