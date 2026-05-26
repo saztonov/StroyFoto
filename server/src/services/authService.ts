@@ -176,6 +176,7 @@ export async function login(
     [user.id],
   );
   if (profileResult.rowCount === 0) {
+    console.warn('[auth/login] PROFILE_MISSING', user.id, user.email);
     throw new AppError(500, 'PROFILE_MISSING', 'Профиль пользователя отсутствует.');
   }
   const profile = profileFromRow(profileResult.rows[0]);
@@ -245,6 +246,7 @@ export async function refresh(
     [user.id],
   );
   if (profileResult.rowCount === 0) {
+    console.warn('[auth/refresh] PROFILE_MISSING', user.id, user.email);
     throw new AppError(500, 'PROFILE_MISSING', 'Профиль пользователя отсутствует.');
   }
   const profile = profileFromRow(profileResult.rows[0]);
@@ -292,6 +294,7 @@ export async function getMe(input: MeInput): Promise<SessionEnvelope> {
     [input.userId],
   );
   if (profileResult.rowCount === 0) {
+    console.warn('[auth/me] PROFILE_MISSING', input.userId, input.email);
     throw new AppError(500, 'PROFILE_MISSING', 'Профиль пользователя отсутствует.');
   }
   const profile = profileFromRow(profileResult.rows[0]);

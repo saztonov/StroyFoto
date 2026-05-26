@@ -11,7 +11,7 @@
 | Роутинг | React Router v6 (`createBrowserRouter`) |
 | Backend | Node 20 + Fastify 4 (`server/`) |
 | БД | Yandex Managed PostgreSQL (актуальная схема — в [database/](database/), см. `stroyfoto.schema.sql/.json/.md`) |
-| Auth | Собственный JWT: access в памяти браузера, refresh в IDB `auth_session` (с галочкой «Запомнить меня») или `sessionStorage` (без неё); argon2id-хэш паролей на сервере |
+| Auth | Собственный JWT: access в памяти браузера, refresh в IDB `auth_session` (с галочкой «Запомнить меня») или `sessionStorage` (без неё); bcrypt-хэш паролей на сервере (bcryptjs, cost=12) |
 | Файлы | Cloud.ru Object Storage (`s3.cloud.ru`, ru-central-1, приватный bucket) |
 | Presign | Fastify-роут `POST /api/storage/presign` (`server/src/services/presignService.ts`, aws4fetch SigV4) |
 | Offline | IndexedDB (`idb` v8), sync queue, retention |
