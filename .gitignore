@@ -42,3 +42,5 @@ Thumbs.db
 .env.production
 .env.*.local
 !.env.example
+
+temp/
