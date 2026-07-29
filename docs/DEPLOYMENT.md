@@ -15,24 +15,32 @@
 ## 0. Шпаргалка (частые операции)
 
 ```bash
-# --- ОБНОВИТЬ БЭКЕНД ---
-sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only
-sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run server:build'
-systemctl restart stroyfoto-api               # перезапускается ТОЛЬКО наш сервис
-curl -fsS http://127.0.0.1:4000/api/health    # ждём {"ok":true,...}
+# --- ОБНОВИТЬ ВСЁ (фронт + бэк) ---
+bash /opt/stroyfoto-api/scripts/deploy.sh --dry-run   # посмотреть план
+bash /opt/stroyfoto-api/scripts/deploy.sh             # выполнить
 
-# --- ОБНОВИТЬ ФРОНТЕНД ---
-sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run build'
-ts=$(date +%F_%H-%M-%S)
-cp -a /srv/sites/stroyfoto.su10.ru/public "/srv/sites/stroyfoto.su10.ru/public.bak.$ts"
-rsync -a --delete /opt/stroyfoto-api/dist/ /srv/sites/stroyfoto.su10.ru/public/
-chown -R www-data:www-data /srv/sites/stroyfoto.su10.ru/public
-# nginx перезагружать НЕ нужно — это статика
+# --- ТОЛЬКО ОДИН КОМПОНЕНТ ---
+bash /opt/stroyfoto-api/scripts/deploy.sh --api-only
+bash /opt/stroyfoto-api/scripts/deploy.sh --front-only
+
+# --- МИГРАЦИИ БД (отдельно, ДО деплоя кода) ---
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && \
+  bash scripts/db/apply-migrations.sh --env-file server/.env --status'
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && \
+  bash scripts/db/apply-migrations.sh --env-file server/.env'
+bash /opt/stroyfoto-api/scripts/deploy.sh --ack-migrations-applied
 
 # --- ПРАВКА NGINX (если действительно нужно) ---
 nano /etc/nginx/snippets/stroyfoto-api-proxy.conf   # или sites-available/stroyfoto.su10.ru
 nginx -t && systemctl reload nginx                  # reload, НЕ restart
 ```
+
+`deploy.sh` запускается **под root на самом hub**, к БД не подключается и трогает ровно
+один сервис — `stroyfoto-api`. Что он делает по шагам — раздел [4](#4-процедуры-обновления);
+разовая подготовка сервера — раздел [9](#9-bootstrap-разовая-подготовка).
+
+> Первый запуск невозможен без bootstrap: скрипт опирается на файлы состояния в
+> `/var/lib/stroyfoto-deploy/` и без них останавливается с инструкцией.
 
 ---
 
@@ -173,73 +181,122 @@ StroyFoto — это `stroyfoto-api.service` на **:4000**, и только о�
 > `git` под `root` выдаёт «dubious ownership»). `systemctl` и копирование в
 > `/srv` — под `root`.
 
+### 4.0. Что делает `scripts/deploy.sh`
+
+Штатный путь обновления. Под root на hub, к БД не подключается:
+
+1. **Preflight** — root, наличие утилит, каталогов и юнита; общий `flock` с мигратором;
+   проверка, что `origin` — именно `saztonov/StroyFoto`, ветка `main`, не detached HEAD,
+   рабочее дерево чисто. Все git-команды — под `stroyfoto`.
+2. **`git pull --ff-only origin main`.**
+3. **Re-exec**, если обновился сам `scripts/deploy.sh` (bash дочитывает файл по ходу
+   выполнения, иначе доработал бы старой версией).
+4. **Гейт миграций** — если приехали новые файлы в `db/migrations/`, останавливается
+   и печатает команды. Продолжить после применения: `--ack-migrations-applied`.
+5. **Сборка обоих компонентов** до любой выкладки: `npm run build:front` и `tsc` в
+   `server/dist.new.*`. Перед каждой проверяется свободное место — staged-выкладка
+   временно держит две копии каталога, а диск на hub общий с соседними сайтами.
+6. **Сначала бэкенд** — подмена `server/dist`, `systemctl restart stroyfoto-api`,
+   health-check `/api/health` и `/api/db-health` с ретраями.
+7. **Потом фронт** — сборка в `public.new.*`, проверка `index.html`+`assets`, `chown`,
+   подмена каталога. Предыдущая версия становится `public.bak.<ts>`.
+
+Порядок «API → фронт» намеренный: новый фронт при сломанном API хуже, чем обратное.
+Из этого следует требование — **новый API должен быть совместим с предыдущим фронтом**
+на время выкладки.
+
+Состояние развёрнутого хранится в `/var/lib/stroyfoto-deploy/last-{api,front}-sha` и
+пишется только после успеха шага. Именно поэтому повторный запуск после остановки на
+миграциях корректно доводит деплой до конца.
+
 ### 4.1. Обновление фронтенда
 
-Фронт — статика; сервис и nginx при этом не трогаются.
+Фронт — статика; сервис и nginx при этом не трогаются. PWA настроена на `autoUpdate`
+(skipWaiting + clientsClaim) — открытые вкладки подхватят новую версию сами.
 
 ```bash
-# 1. Подтянуть код и собрать (под stroyfoto)
-sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only
-sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run build'
-
-# 2. Бэкап текущего public (для отката)
-ts=$(date +%F_%H-%M-%S)
-cp -a /srv/sites/stroyfoto.su10.ru/public "/srv/sites/stroyfoto.su10.ru/public.bak.$ts"
-
-# 3. Залить новую сборку (--delete убирает устаревшие файлы)
-rsync -a --delete /opt/stroyfoto-api/dist/ /srv/sites/stroyfoto.su10.ru/public/
-chown -R www-data:www-data /srv/sites/stroyfoto.su10.ru/public
+bash /opt/stroyfoto-api/scripts/deploy.sh --front-only
 ```
 
-PWA настроена на `autoUpdate` (skipWaiting + clientsClaim) — открытые вкладки
-подхватят новую версию сами. nginx перезагружать **не нужно**.
+<details>
+<summary>Аварийный ручной путь (если скрипт недоступен)</summary>
+
+```bash
+sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only origin main
+# ВАЖНО: build:front, а не build — обычный `npm run build` через корневые references
+# собирает и server/, перезаписывая живой server/dist.
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run build:front'
+
+ts=$(date +%F_%H-%M-%S)
+rsync -a /opt/stroyfoto-api/dist/ "/srv/sites/stroyfoto.su10.ru/public.new.$ts/"
+chown -R www-data:www-data "/srv/sites/stroyfoto.su10.ru/public.new.$ts"
+mv /srv/sites/stroyfoto.su10.ru/public "/srv/sites/stroyfoto.su10.ru/public.bak.$ts"
+mv "/srv/sites/stroyfoto.su10.ru/public.new.$ts" /srv/sites/stroyfoto.su10.ru/public
+```
+
+</details>
 
 ### 4.2. Обновление бэкенда
 
 ```bash
-sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only
-sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run server:build'
+bash /opt/stroyfoto-api/scripts/deploy.sh --api-only
+```
 
+<details>
+<summary>Аварийный ручной путь</summary>
+
+```bash
+sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only origin main
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run server:build'
 systemctl restart stroyfoto-api          # перезапускается ТОЛЬКО stroyfoto-api
-systemctl status stroyfoto-api --no-pager
 curl -fsS http://127.0.0.1:4000/api/health    # {"ok":true,"service":"stroyfoto-api"}
 ```
 
-Если меняли и фронт, и бэк — соберите оба (`npm run build` + `npm run
-server:build`), затем выполните копирование из 4.1 и `restart` из 4.2.
+</details>
+
+Если меняли и фронт, и бэк — просто `deploy.sh` без флагов.
 
 ### 4.3. Изменения схемы БД (Yandex MDB)
 
-🔴 **Опасная зона.** Перед любыми DDL — резервная копия (у Yandex MDB есть
-автобэкапы в консоли; для точечной — `pg_dump`). Сначала прогоняй на тестовой
-БД/ветке, в прод — только проверенное.
+🔴 **Опасная зона.** Перед любыми DDL — резервная копия (у Yandex MDB есть автобэкапы
+в консоли; для точечной — `pg_dump`). Сначала прогоняй на тестовой БД, в прод — только
+проверенное.
 
-- Актуальный снапшот схемы: `/opt/stroyfoto-api/database/stroyfoto.schema.sql`
-  (выгружается из живой БД через `npm run db:schema:pull`). Это **снимок для
-  справки/первичного развёртывания**, а не «накатить на прод повторно».
-- Скрипт `scripts/db/apply-migrations.sh` (он же `npm run migrate:db`) применяет
-  `*.sql` из каталога `db/migrations/` по алфавиту, каждую в одной транзакции с
-  `ON_ERROR_STOP`. На данный момент каталога `db/migrations/` в репо нет —
-  автопайплайна миграций ещё нет, изменения накатываются вручную.
-
-Применение конкретного SQL к Yandex MDB (TLS-CA подхватывается из `.env`):
+Схема ведётся миграциями в `db/migrations/` с журналом `public.schema_migrations`.
+Правила именования, expand/contract и порядок для нетранзакционных DDL —
+в [`db/migrations/README.md`](../db/migrations/README.md).
 
 ```bash
-sudo -u stroyfoto bash -lc '
-  set -a; . /opt/stroyfoto-api/server/.env; set +a
-  psql "$DATABASE_URL" --set ON_ERROR_STOP=1 --single-transaction -f /путь/к/change.sql
-'
+# 1. посмотреть, что применено и что ждёт (БД не изменяется)
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && \
+  bash scripts/db/apply-migrations.sh --env-file server/.env --status'
+
+# 2. применить (каждая миграция + запись в журнал — в одной транзакции)
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && \
+  bash scripts/db/apply-migrations.sh --env-file server/.env'
+
+# 3. затем выложить код
+bash /opt/stroyfoto-api/scripts/deploy.sh --ack-migrations-applied
 ```
 
-Если/когда появятся миграции в `db/migrations/`:
+**Порядок всегда: миграции → код.** Для разрушающих изменений (drop/rename колонки)
+одной миграции перед деплоем недостаточно — нужен expand/contract, иначе ещё работающий
+старый API сломается в момент применения.
 
-```bash
-sudo -u stroyfoto bash -lc '
-  set -a; . /opt/stroyfoto-api/server/.env; set +a
-  cd /opt/stroyfoto-api && npm run migrate:db -- --dry-run   # сперва посмотреть список
-  cd /opt/stroyfoto-api && npm run migrate:db                # затем применить
-'
-```
+Свойства мигратора, на которые можно опираться:
+
+- каждый файл применяется **ровно один раз** (журнал + `sha256`);
+- правка применённого файла и пропажа файла с диска — ошибка, применение останавливается;
+- падение миграции откатывает и её саму, и запись в журнал;
+- `--status` / `--dry-run` не создают журнал и вообще ничего не пишут в БД;
+- параллельный запуск отсекается `flock` (один сервер) и `pg_advisory_xact_lock`
+  (между машинами) — двойного применения не будет, второй процесс упадёт с откатом.
+
+`database/stroyfoto.schema.sql` (`npm run db:schema:pull`) — **информационный** снапшот.
+Исполнять его нельзя: UNIQUE-constraint'ы дублируются одноимёнными `CREATE UNIQUE INDEX`,
+а триггеры объявлены раньше функции. Роль начального состояния играет
+`db/migrations/000000000000_baseline.sql`, снятый через `pg_dump --schema-only`.
+После изменения схемы снапшот стоит обновить и закоммитить.
 
 ### 4.4. Правка nginx
 
@@ -296,23 +353,33 @@ curl -fsS http://127.0.0.1:4000/api/db-health   # если меняли DATABASE
 
 **Фронтенд** — вернуть прошлую сборку из бэкапа:
 
+🔴 При откате возвращайте **и каталог, и файл состояния**. Если этого не сделать,
+следующий `deploy.sh` решит, что новая версия уже развёрнута, и не станет её выкладывать.
+Готовые команды с подставленными путями печатает сам `deploy.sh` в конце работы.
+
 ```bash
 ls -d /srv/sites/stroyfoto.su10.ru/public.bak.*      # выбрать нужный
-rsync -a --delete /srv/sites/stroyfoto.su10.ru/public.bak.<ts>/ \
-                  /srv/sites/stroyfoto.su10.ru/public/
-chown -R www-data:www-data /srv/sites/stroyfoto.su10.ru/public
+rm -rf /srv/sites/stroyfoto.su10.ru/public
+mv /srv/sites/stroyfoto.su10.ru/public.bak.<ts> /srv/sites/stroyfoto.su10.ru/public
+printf '%s\n' <sha-предыдущей-версии> > /var/lib/stroyfoto-deploy/last-front-sha
 ```
 
-**Бэкенд** — откатить код и пересобрать:
+**Бэкенд** — вернуть предыдущую сборку (без пересборки, она уже лежит рядом):
 
 ```bash
-sudo -u stroyfoto git -C /opt/stroyfoto-api log --oneline -5
-sudo -u stroyfoto git -C /opt/stroyfoto-api checkout <предыдущий-commit>
-sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && npm ci && npm run server:build'
+ls -d /opt/stroyfoto-api/server/dist.bak.*
+rm -rf /opt/stroyfoto-api/server/dist
+mv /opt/stroyfoto-api/server/dist.bak.<ts> /opt/stroyfoto-api/server/dist
 systemctl restart stroyfoto-api
+printf '%s\n' <sha-предыдущей-версии> > /var/lib/stroyfoto-deploy/last-api-sha
 journalctl -u stroyfoto-api -n 50 --no-pager
 curl -fsS http://127.0.0.1:4000/api/health
 ```
+
+**Откат самого кода** — `git revert` нужного коммита в репозитории и обычный деплой.
+`git checkout <sha>` для этого **не используем**: он оставляет репозиторий в detached HEAD,
+после чего preflight следующего деплоя откажется работать, а `git pull --ff-only` перестанет
+обновлять ветку.
 
 **nginx** — вернуть сохранённый `.bak` своего vhost, затем `nginx -t && systemctl
 reload nginx`.
@@ -370,3 +437,55 @@ reverse proxy «вообще»). Реальная установка на `hub`:
 - фронт раздаётся **общим** nginx как статика из `/srv/sites/.../public`;
 - БД — **Yandex Managed PostgreSQL** (не Supabase, не локальный Postgres);
 - хранилище — **Cloud.ru Object Storage** (S3-совместимое), presign на бэкенде.
+
+---
+
+## 9. Bootstrap (разовая подготовка)
+
+Выполняется **один раз**, до первого запуска `deploy.sh`. Порядок важен: SHA работающей
+версии нужно зафиксировать **до** первого `git pull` — после него он уже не восстановим.
+
+```bash
+# --- под root на hub ---
+install -d -o stroyfoto -g stroyfoto -m 0775 /var/lib/stroyfoto-deploy
+
+# lock-файл создаём ЯВНО с нужным владельцем: каталога 0775 недостаточно — если root
+# первым откроет lock, файл станет root:root 0644, и мигратор под stroyfoto не сможет
+# открыть его на запись.
+install -o stroyfoto -g stroyfoto -m 0664 /dev/null /var/lib/stroyfoto-deploy/operation.lock
+
+# 1. Убедиться, что фронт и API СЕЙЧАС собраны из одного коммита. Если есть сомнения —
+#    пересобрать оба вручную (раздел 4) из текущего HEAD. Затем запомнить его:
+PREV_SHA=$(sudo -u stroyfoto git -C /opt/stroyfoto-api rev-parse HEAD); echo "$PREV_SHA"
+
+# 2. Забрать код со скриптами и baseline
+sudo -u stroyfoto git -C /opt/stroyfoto-api pull --ff-only origin main
+
+# 3. Записать состояние сохранённым SHA (скрипт спросит подтверждение)
+bash /opt/stroyfoto-api/scripts/deploy.sh --init-state "$PREV_SHA"
+
+# 4. Отметить baseline применённым БЕЗ выполнения — структура на проде уже есть.
+#    Эта же команда создаёт журнал schema_migrations.
+sudo -u stroyfoto bash -lc 'cd /opt/stroyfoto-api && \
+  bash scripts/db/apply-migrations.sh --env-file server/.env \
+       --mark-applied 000000000000_baseline.sql'
+```
+
+Baseline снимается на dev-машине `pg_dump` версии **не ниже сервера** (Yandex MDB —
+PostgreSQL 17) и обязательно **до** создания журнала, иначе `schema_migrations` попадёт
+в слепок. Команда — в [`db/migrations/README.md`](../db/migrations/README.md).
+
+### Откуда прод берёт код
+
+`deploy.sh` требует, чтобы `origin` в `/opt/stroyfoto-api` был именно
+`https://github.com/saztonov/StroyFoto.git` — это защита от случайного деплоя из чужого
+форка. Поток работы: правки → форк разработчика → Pull Request → merge в `saztonov` →
+`deploy.sh` на hub.
+
+### Граница доверия
+
+`deploy.sh` запускается **root'ом из репозитория, принадлежащего `stroyfoto`**. Значит
+любой, кто может писать в этот репозиторий или в ветку `main` апстрима, исполняет код от
+root на общем сервере. Это принято осознанно (репозиторий и так разворачивается этим же
+root'ом). Если понадобится ужесточить — вынести root-часть в отдельный root-owned launcher
+вне репозитория.

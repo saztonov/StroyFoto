@@ -111,6 +111,7 @@ server/                # Fastify backend (Node 20)
 │   └── access/       # authz-предикаты (membership и т.п.)
 └── tsconfig.json
 
+db/migrations/        # SQL-миграции схемы (журнал schema_migrations)
 database/             # Snapshot структуры БД (auto-generated):
                       #   stroyfoto.schema.sql, stroyfoto.schema.json,
                       #   stroyfoto.schema.md
@@ -310,5 +311,5 @@ Edit/delete отчётов используют `baseUpdatedAt` — если с�
 7. **Зависимости:** не добавлять тяжёлые библиотеки без необходимости. Предпочитать browser API.
 8. **IndexedDB:** при добавлении нового store — инкрементировать `DB_VERSION` в `src/lib/db.ts`.
 9. **Типы:** strict TypeScript. Доменные типы — в `src/entities/`. Сервисные типы — рядом с сервисом.
-10. **Структура БД:** актуальная схема экспортирована в [database/](database/) (`stroyfoto.schema.sql`, `.json`, `.md`). Перегенерация — `npm run migrate:db` (см. [scripts/db/](scripts/db/)). Прямых SQL-миграций в репозитории больше нет — изменения вносятся напрямую в Yandex MDB и фиксируются экспортом схемы.
+10. **Структура БД:** изменения схемы — только миграциями в [db/migrations/](db/migrations/) (журнал `public.schema_migrations`, каждый файл применяется ровно один раз, правила — в [db/migrations/README.md](db/migrations/README.md)). Применение: `bash scripts/db/apply-migrations.sh --env-file server/.env`. Файлы [database/](database/) (`stroyfoto.schema.sql`, `.json`, `.md`) — **информационный** снапшот, перегенерируется через `npm run db:schema:pull`; исполнять его нельзя.
 11. **Frontend → backend:** все запросы — через `apiFetch` из [src/lib/apiClient.ts](src/lib/apiClient.ts), который автоматически кладёт `Authorization: Bearer <access>` и делает transparent refresh по 401.
