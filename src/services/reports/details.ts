@@ -43,6 +43,8 @@ export async function loadRemoteReportById(
     takenAt: row.taken_at,
     authorId: row.author_id,
     authorName,
+    workTypeName: row.work_type_name ?? null,
+    workAssignmentName: row.work_assignment_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? null,
     cachedAt: Date.now(),

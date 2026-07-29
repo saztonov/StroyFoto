@@ -13,6 +13,9 @@ interface Props<T extends CatalogItem> {
   value?: string
   onChange?: (id: string) => void
   onCreated: (item: T) => void
+  // Создавать новые позиции справочника может только админ. У остальных
+  // селект работает как обычный выбор из списка.
+  canCreate: boolean
   disabled?: boolean
   placeholder: string
   successMessage: string
@@ -27,12 +30,17 @@ interface Props<T extends CatalogItem> {
  * опция «Создать "X"». Клик создаёт запись через `createOrQueue`, которая
  * сама решает: онлайн — отправить через sync-очередь сразу, офлайн —
  * оставить в IDB и выполнить upsert при возвращении сети.
+ *
+ * Виртуальная опция показывается только при `canCreate`. Сервер enforce'ит
+ * то же правило независимо (`DICT_CREATE_FORBIDDEN`) — здесь мы лишь убираем
+ * affordance, чтобы пользователь не упирался в отказ уже после ввода.
  */
 export function CreatableCatalogSelect<T extends CatalogItem>({
   options,
   value,
   onChange,
   onCreated,
+  canCreate,
   disabled,
   placeholder,
   successMessage,
@@ -46,6 +54,7 @@ export function CreatableCatalogSelect<T extends CatalogItem>({
 
   const selectOptions = useMemo<SelectProps['options']>(() => {
     const base = options.map((o) => ({ value: o.id, label: o.name }))
+    if (!canCreate) return base
     const trimmed = search.trim()
     if (!trimmed) return base
     const alreadyExists = options.some(
@@ -59,10 +68,11 @@ export function CreatableCatalogSelect<T extends CatalogItem>({
         label: `Создать «${trimmed}»`,
       },
     ]
-  }, [options, search])
+  }, [options, search, canCreate])
 
   const handleSelect = async (raw: string) => {
-    if (!raw.startsWith('__create__:')) {
+    // Защита от рассинхрона: без прав создания sentinel не должен доходить сюда.
+    if (!raw.startsWith('__create__:') || !canCreate) {
       onChange?.(raw)
       return
     }

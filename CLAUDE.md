@@ -91,7 +91,7 @@ src/
 ├── lib/
 │   ├── apiClient.ts  # Typed fetch wrapper + transparent refresh по 401
 │   ├── authStorage.ts# Refresh-token: IDB auth_session (persistent) или sessionStorage
-│   ├── db.ts         # IndexedDB: StroyFotoDB v88, 14 stores, getDB()
+│   ├── db.ts         # IndexedDB: StroyFotoDB v89, 14 stores, getDB()
 │   └── platform/     # Абстракция камеры (готова для Capacitor)
 │       ├── index.ts
 │       └── camera.ts # Web-реализация CameraAdapter
@@ -103,7 +103,7 @@ server/                # Fastify backend (Node 20)
 │   ├── app.ts        # Fastify + регистрация роутов
 │   ├── db.ts         # pg.Pool
 │   ├── config.ts     # env + zod
-│   ├── auth/         # requireAuth, requireAdmin, JWT issue/verify
+│   ├── auth/         # authenticate, requireActiveUser, requireAdmin, JWT issue/verify
 │   ├── routes/       # auth, profile, catalogs, reports, photos, plans,
 │   │                 # presign, admin/*, authorNames, health
 │   ├── services/     # presignService и др.
@@ -129,7 +129,7 @@ scripts/db/           # apply-migrations.sh, export-schema.ts
 | `refresh_tokens` | Активные refresh-сессии (rotation, expires_at) |
 | `projects` | Проекты |
 | `project_memberships` | Назначение пользователей на проекты |
-| `work_types` | Виды работ (user-created поддерживается) |
+| `work_types` | Виды работ (создание — только админ; вывод из оборота — `is_active = false`, физического удаления нет) |
 | `work_assignments` | Назначения работ |
 | `performers` | Исполнители: kind = `contractor` / `own_forces` |
 | `plans` | PDF-планы по проектам (object_key, page_count) |
@@ -143,11 +143,11 @@ scripts/db/           # apply-migrations.sh, export-schema.ts
 > `plans/{projectId}/{planId}.pdf`).
 
 **Авторизация** реализована в Fastify-роутах через middleware
-`requireAuth` / `requireAdmin` / `requireActiveUser`
+`authenticate` / `requireActiveUser` / `requireAdmin`
 ([server/src/auth/](server/src/auth/)); `pool.query` без request-bound
 claims. RLS на стороне БД не используется.
 
-### IndexedDB (StroyFotoDB v88, 14 stores)
+### IndexedDB (StroyFotoDB v89, 14 stores)
 
 | Store | Назначение |
 |-------|-----------|
@@ -173,11 +173,15 @@ claims. RLS на стороне БД не используется.
 - **Интервал:** 30с (активная вкладка) / 120с (фоновая)
 - **Триггеры:** `online`, `visibilitychange`, ручная кнопка, `triggerSync()`
 - **Порядок обработки:** work_type → report → mark → photo
-- **Статусы:** `pending` → `syncing` → `synced` / `failed`
+- **Статусы:** `pending` → `syncing` → `synced` / `failed` / `blocked`
 - **Backoff:** `min(60000, 2^attempts * 1000) + random(0..500)ms`
 - **Классификация ошибок:**
   - `transient` (5xx, timeout) → retry с backoff
   - `auth` (401, JWT expired) → refresh token + retry
+  - `blocked` (`DICT_CREATE_FORBIDDEN`, `DICT_INACTIVE`) → операция и черновик
+    сохраняются, откладываются вместе со всеми зависимыми; отчёт получает статус
+    `blocked` и sync-issue. Проверяется **раньше** статусных веток, иначе 403/409
+    ушли бы в `permanent` с потерей данных
   - `permanent` (403, FK violation, validation) → mark failed
 
 ### Invalidation (`src/services/invalidation.ts`)
@@ -296,14 +300,14 @@ Edit/delete отчётов используют `baseUpdatedAt` — если с�
 - **Одна точка на плане на отчёт** — архитектура (`report_plan_marks`) готова к per-photo marks
 - **Background Sync API не используется** — только in-app loop (generateSW без custom handler)
 - **S3 timeout:** 60с PUT / 45с GET — медленные каналы → backoff retry
-- **Дубли work_types** при офлайн-создании — дедупликация по citext unique name
+- **Справочники видов работ и назначений** пополняет только админ; офлайн-черновик обычного пользователя резолвится по имени, иначе отчёт уходит в `blocked` с ручной заменой позиции
 - **Список отчётов без виртуализации** — до ~500 карточек
 - **Вне scope MVP:** push-уведомления, комментарии, чат, дашборды, экспорт PDF/Excel, Capacitor shell
 
 ## Правила при внесении изменений
 
 1. **Секреты:** никогда не класть JWT_SECRET или ключи Cloud.ru S3 в клиент. Все секреты — в `server/.env`. Из браузера к S3 — только через presigned URL от `POST /api/storage/presign`.
-2. **Авторизация:** каждое ограничение доступа реализовать в Fastify-роуте через `requireAuth` / `requireAdmin` / `requireActiveUser` middleware ([server/src/auth/](server/src/auth/)). RLS на стороне БД не используется — авторизация полностью в API-слое.
+2. **Авторизация:** каждое ограничение доступа реализовать в Fastify-роуте через `authenticate` / `requireActiveUser` / `requireAdmin` middleware ([server/src/auth/](server/src/auth/)). RLS на стороне БД не используется — авторизация полностью в API-слое.
 3. **Offline-first:** любая мутация сначала в IDB → sync в фоне. UI не должен блокироваться на сеть.
 4. **Русский язык:** все пользовательские строки — в `src/shared/i18n/ru.ts` и на русском.
 5. **Темы:** проверять что новый UI корректен и в light, и в dark теме.

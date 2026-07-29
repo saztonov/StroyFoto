@@ -37,6 +37,8 @@ export function fromRemote(row: RemoteReportRow, authorName: string | null = nul
     updatedAt: row.updated_at ?? null,
     syncStatus: 'synced',
     remoteOnly: true,
+    workTypeName: row.work_type_name ?? null,
+    workAssignmentName: row.work_assignment_name ?? null,
   }
 }
 
@@ -56,5 +58,7 @@ export function fromSnapshot(s: RemoteReportSnapshot): ReportCard {
     updatedAt: s.updatedAt ?? null,
     syncStatus: 'synced',
     remoteOnly: true,
+    workTypeName: s.workTypeName ?? null,
+    workAssignmentName: s.workAssignmentName ?? null,
   }
 }

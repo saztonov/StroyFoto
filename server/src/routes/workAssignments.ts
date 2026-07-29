@@ -36,6 +36,8 @@ export default async function workAssignmentsRoutes(
       id: body.id ?? null,
       name: body.name,
       createdBy: request.user!.id,
+      // См. комментарий в workTypes.ts — резолвер вместо запрета на роуте.
+      allowCreate: request.user!.role === 'admin',
     });
     return { workAssignment: item };
   });

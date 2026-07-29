@@ -37,6 +37,10 @@ export default async function workTypesRoutes(
       id: body.id ?? null,
       name: body.name,
       createdBy: request.user!.id,
+      // Не админ → резолвер: вернуть существующую активную позицию, но не
+      // создавать новую. Роут остаётся публичным, чтобы офлайн-очередь,
+      // накопленная до блокировки, могла слиться, а не потеряться.
+      allowCreate: request.user!.role === 'admin',
     });
     return { workType: item };
   });

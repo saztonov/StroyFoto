@@ -6,6 +6,7 @@ import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import type { LoadedReport } from '../types'
+import { resolveCatalogName } from '../lib/catalogNames'
 
 interface Props {
   data: LoadedReport
@@ -18,11 +19,19 @@ interface Props {
 
 export function ReportMetaCard({ data, projects, workTypes, performers, workAssignments, status }: Props) {
   const projectName = projects.find((p) => p.id === data.card.projectId)?.name ?? '—'
-  const workTypeName = workTypes.find((w) => w.id === data.card.workTypeId)?.name ?? '—'
   const performer = performers.find((p) => p.id === data.card.performerId)
-  const workAssignmentName = data.card.workAssignmentId
-    ? workAssignments.find((w) => w.id === data.card.workAssignmentId)?.name ?? '—'
-    : '—'
+  const workTypeName =
+    resolveCatalogName(
+      data.card.workTypeName,
+      data.card.workTypeId,
+      (id) => workTypes.find((w) => w.id === id)?.name,
+    ) ?? '—'
+  const workAssignmentName =
+    resolveCatalogName(
+      data.card.workAssignmentName,
+      data.card.workAssignmentId,
+      (id) => workAssignments.find((w) => w.id === id)?.name,
+    ) ?? '—'
 
   return (
     <Card title={reportDetails.sectionMeta}>

@@ -1,5 +1,6 @@
 import type { WorkType } from '@/entities/workType/types'
 import { createOrQueueWorkType } from '@/services/catalogs'
+import { useAuth } from '@/app/providers/AuthProvider'
 import { CreatableCatalogSelect } from './CreatableCatalogSelect'
 
 interface Props {
@@ -11,13 +12,21 @@ interface Props {
 }
 
 export function WorkTypeSelect(props: Props) {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
   return (
     <CreatableCatalogSelect<WorkType>
       {...props}
-      placeholder="Выберите или введите новый"
+      canCreate={isAdmin}
+      placeholder={isAdmin ? 'Выберите или введите новый' : 'Выберите вид работ'}
       successMessage="Вид работ добавлен"
       errorMessage="Не удалось сохранить вид работ"
-      emptyHint="Введите название, чтобы создать новое"
+      emptyHint={
+        isAdmin
+          ? 'Введите название, чтобы создать новое'
+          : 'Ничего не найдено. Новые виды работ добавляет администратор'
+      }
       createOrQueue={createOrQueueWorkType}
     />
   )

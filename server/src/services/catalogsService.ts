@@ -39,6 +39,36 @@ function tableExpr(kind: 'work_types' | 'work_assignments'): string {
   return kind;
 }
 
+function dictLabel(kind: 'work_types' | 'work_assignments'): string {
+  return kind === 'work_types' ? 'Вид работ' : 'Назначение работ';
+}
+
+/**
+ * Архивная (is_active = false) позиция не может быть выбрана заново — иначе
+ * деактивация обходится вводом точного имени, и справочник продолжает
+ * засоряться. Историческую ссылку в уже существующем отчёте это не трогает:
+ * там проверка идёт по «значение не изменилось» (см. reportsService).
+ */
+function assertDictActive(
+  kind: 'work_types' | 'work_assignments',
+  row: NamedDictRow,
+): NamedDictDTO {
+  if (!row.is_active) {
+    throw new AppError(
+      409,
+      'DICT_INACTIVE',
+      `${dictLabel(kind)} «${row.name}» отключён администратором. Выберите другой.`,
+      { catalogKind: singularKind(kind), catalogId: row.id },
+    );
+  }
+  return toDictDTO(row);
+}
+
+/** Клиент оперирует единственным числом ('work_type'), сервер — именем таблицы. */
+function singularKind(kind: 'work_types' | 'work_assignments'): string {
+  return kind === 'work_types' ? 'work_type' : 'work_assignment';
+}
+
 export async function listActiveDict(
   kind: 'work_types' | 'work_assignments',
 ): Promise<NamedDictDTO[]> {
@@ -68,12 +98,23 @@ export async function listAllDict(
  * Public POST: пользователь оффлайн создал запись с client UUID.
  * Дубль по name (citext UNIQUE) → возвращаем существующую запись (idempotent).
  * Дубль по id (другой пользователь успел) → возвращаем существующую запись.
+ *
+ * `allowCreate` = false (не админ) превращает функцию в РЕЗОЛВЕР: существующую
+ * активную позицию она вернёт, новую не создаст. Именно резолвер, а не запрет
+ * на уровне роута — потому что этот же endpoint сливает офлайн-очередь,
+ * накопленную до блокировки. Если админ тем временем завёл позицию с тем же
+ * именем, черновик самоисцелится через remap на клиенте; жёсткий 403 на любой
+ * запрос вместо этого потерял бы зависимый отчёт.
+ *
+ * Проверка is_active стоит на ВСЕХ трёх путях поиска (по id, по имени и в
+ * race-ветке) — иначе деактивация обходится через любой из непокрытых.
  */
 export async function upsertDictPublic(input: {
   kind: 'work_types' | 'work_assignments';
   id: string | null;
   name: string;
   createdBy: string;
+  allowCreate: boolean;
 }): Promise<NamedDictDTO> {
   const name = input.name.trim();
   if (!name) {
@@ -88,7 +129,7 @@ export async function upsertDictPublic(input: {
       [input.id],
     );
     if (existing.rowCount && existing.rowCount > 0) {
-      return toDictDTO(existing.rows[0]);
+      return assertDictActive(input.kind, existing.rows[0]);
     }
   }
 
@@ -99,7 +140,18 @@ export async function upsertDictPublic(input: {
     [name],
   );
   if (byName.rowCount && byName.rowCount > 0) {
-    return toDictDTO(byName.rows[0]);
+    return assertDictActive(input.kind, byName.rows[0]);
+  }
+
+  if (!input.allowCreate) {
+    throw new AppError(
+      403,
+      'DICT_CREATE_FORBIDDEN',
+      `Новые позиции справочника «${dictLabel(input.kind)}» добавляет администратор.`,
+      // id здесь — это клиентский UUID черновика: именно он лежит в
+      // work_types_local и в reports.workTypeId у зависимых отчётов.
+      { catalogKind: singularKind(input.kind), catalogId: input.id },
+    );
   }
 
   try {
@@ -118,7 +170,7 @@ export async function upsertDictPublic(input: {
       [name],
     );
     if (races.rowCount && races.rowCount > 0) {
-      return toDictDTO(races.rows[0]);
+      return assertDictActive(input.kind, races.rows[0]);
     }
     mapPgError(err);
   }

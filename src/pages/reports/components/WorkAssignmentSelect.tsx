@@ -1,5 +1,6 @@
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { createOrQueueWorkAssignment } from '@/services/catalogs'
+import { useAuth } from '@/app/providers/AuthProvider'
 import { CreatableCatalogSelect } from './CreatableCatalogSelect'
 
 interface Props {
@@ -11,13 +12,21 @@ interface Props {
 }
 
 export function WorkAssignmentSelect(props: Props) {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
   return (
     <CreatableCatalogSelect<WorkAssignment>
       {...props}
-      placeholder="Выберите или введите новое"
+      canCreate={isAdmin}
+      placeholder={isAdmin ? 'Выберите или введите новое' : 'Выберите назначение работ'}
       successMessage="Назначение работ добавлено"
       errorMessage="Не удалось сохранить назначение работ"
-      emptyHint="Введите название, чтобы создать новое"
+      emptyHint={
+        isAdmin
+          ? 'Введите название, чтобы создать новое'
+          : 'Ничего не найдено. Новые назначения добавляет администратор'
+      }
       createOrQueue={createOrQueueWorkAssignment}
     />
   )

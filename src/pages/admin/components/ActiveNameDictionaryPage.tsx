@@ -9,6 +9,7 @@ import {
   Input,
   List,
   Modal,
+  Radio,
   Space,
   Switch,
   Table,
@@ -27,6 +28,13 @@ interface DictionaryItem {
   is_active: boolean
   created_by: string | null
 }
+
+/**
+ * Неактивные позиции не удаляются физически — офлайн-устройства могут держать
+ * черновики отчётов со ссылкой на них, и удаление обернулось бы FK-ошибкой при
+ * возвращении устройства в сеть. Вместо удаления они уходят в «Архив».
+ */
+type ActiveFilter = 'active' | 'archived' | 'all'
 
 interface Props<T extends DictionaryItem> {
   title: string
@@ -65,6 +73,7 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
   const isDesktop = useIsDesktop()
   const { data, loading, error, refresh } = useAdminResource<T>(useCallback(list, [list]))
   const [search, setSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active')
   const [editing, setEditing] = useState<T | null>(null)
   const [creating, setCreating] = useState(false)
   const [form] = Form.useForm<{ name: string }>()
@@ -73,9 +82,15 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return data
-    return data.filter((w) => w.name.toLowerCase().includes(q))
-  }, [data, search])
+    return data.filter((w) => {
+      if (activeFilter === 'active' && !w.is_active) return false
+      if (activeFilter === 'archived' && w.is_active) return false
+      if (q && !w.name.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [data, search, activeFilter])
+
+  const archivedCount = useMemo(() => data.filter((w) => !w.is_active).length, [data])
 
   const openCreate = () => {
     setCreating(true)
@@ -176,13 +191,24 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
         }
       />
 
-      <Flex gap={12} style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <Flex gap={12} style={{ marginBottom: 16, flexWrap: 'wrap' }} align="center">
         <Input.Search
           placeholder="Поиск"
           allowClear
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: 320 }}
+          style={{ maxWidth: 280 }}
+        />
+        <Radio.Group
+          value={activeFilter}
+          onChange={(e) => setActiveFilter(e.target.value as ActiveFilter)}
+          optionType="button"
+          buttonStyle="solid"
+          options={[
+            { value: 'active', label: 'Активные' },
+            { value: 'archived', label: archivedCount > 0 ? `Архив (${archivedCount})` : 'Архив' },
+            { value: 'all', label: 'Все' },
+          ]}
         />
         <Button onClick={() => void refresh()}>Обновить</Button>
       </Flex>
@@ -190,10 +216,16 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
 
       {!loading && filtered.length === 0 ? (
-        <EmptySection
-          title={emptyTitle}
-          extra={<Button type="primary" onClick={openCreate}>Добавить</Button>}
-        />
+        data.length === 0 ? (
+          <EmptySection
+            title={emptyTitle}
+            extra={<Button type="primary" onClick={openCreate}>Добавить</Button>}
+          />
+        ) : (
+          // Справочник не пуст — просто ничего не попало под фильтр. Предлагать
+          // здесь «Добавить» было бы сбивающе.
+          <EmptySection title="По выбранным условиям ничего не найдено" />
+        )
       ) : isDesktop ? (
         <Table
           rowKey="id"

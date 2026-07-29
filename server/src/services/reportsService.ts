@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { AppError } from '../http/errors.js';
 import { mapPgError } from '../http/pgErrors.js';
@@ -24,6 +25,11 @@ export interface ReportListItemDTO {
   taken_at: string | null;
   created_at: string;
   updated_at: string;
+  // Имена справочников резолвятся на сервере, а не на клиенте: клиент грузит
+  // справочники с ?active=true, поэтому архивная позиция отображалась бы как
+  // «—». История не должна зависеть от того, активна ли позиция сейчас.
+  work_type_name: string | null;
+  work_assignment_name: string | null;
 }
 
 interface ReportListRow {
@@ -35,6 +41,8 @@ interface ReportListRow {
   plan_id: string | null;
   author_id: string;
   description: string | null;
+  work_type_name: string | null;
+  work_assignment_name: string | null;
   // taken_at, created_at, updated_at кастятся к ::text в SELECT'ах,
   // чтобы сохранить микросекунды Postgres для точного OCC-сравнения.
   taken_at: string | null;
@@ -55,6 +63,8 @@ function toListItem(row: ReportListRow): ReportListItemDTO {
     taken_at: row.taken_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    work_type_name: row.work_type_name,
+    work_assignment_name: row.work_assignment_name,
   };
 }
 
@@ -92,6 +102,52 @@ interface ReportFullRow extends ReportListRow {
 // taken_at/created_at/updated_at кастятся в text — иначе pg-driver
 // конвертирует в JS Date с потерей микросекунд, и OCC через WHERE updated_at = $N
 // иногда даёт ложное несовпадение для свежих ответов сервера.
+
+function dictLabel(kind: 'work_types' | 'work_assignments'): string {
+  return kind === 'work_types' ? 'Вид работ' : 'Назначение работ';
+}
+
+/**
+ * Проверяет, что позиция справочника активна, и удерживает её строку до конца
+ * транзакции через FOR SHARE.
+ *
+ * Блокировка обязательна: без неё остаётся гонка «сервер увидел позицию
+ * активной → админ деактивировал → отчёт всё равно записался». Конкурирующий
+ * UPDATE ... SET is_active = false возьмёт несовместимую блокировку строки и
+ * подождёт нашего COMMIT.
+ *
+ * Вызывать ТОЛЬКО когда значение действительно меняется: историческую ссылку
+ * на архивную позицию в уже существующем отчёте трогать нельзя, иначе старые
+ * клиенты, присылающие в PATCH все поля, не смогут отредактировать даже
+ * описание.
+ */
+async function assertDictActiveForWrite(
+  client: PoolClient,
+  kind: 'work_types' | 'work_assignments',
+  id: string,
+): Promise<void> {
+  const r = await client.query<{ name: string; is_active: boolean }>(
+    `SELECT name::text AS name, is_active FROM ${kind} WHERE id = $1 FOR SHARE`,
+    [id],
+  );
+  if (r.rowCount === 0) {
+    throw new AppError(
+      422,
+      'FK_VIOLATION',
+      `${dictLabel(kind)} не найден.`,
+    );
+  }
+  if (!r.rows[0].is_active) {
+    throw new AppError(
+      409,
+      'DICT_INACTIVE',
+      `${dictLabel(kind)} «${r.rows[0].name}» отключён администратором. Выберите другой.`,
+      // Клиент по этим полям понимает, какую именно позицию заменить, и
+      // дедуплицирует sync-issue — без разбора текста сообщения.
+      { catalogKind: kind === 'work_types' ? 'work_type' : 'work_assignment', catalogId: id },
+    );
+  }
+}
 
 async function assertPlanInProject(
   planId: string,
@@ -202,8 +258,12 @@ export async function listReports(input: {
            r.plan_id, r.author_id, r.description,
            r.taken_at::text AS taken_at,
            r.created_at::text AS created_at,
-           r.updated_at::text AS updated_at${photosSelect}
+           r.updated_at::text AS updated_at,
+           wt.name::text AS work_type_name,
+           wa.name::text AS work_assignment_name${photosSelect}
       FROM reports r
+      LEFT JOIN work_types wt ON wt.id = r.work_type_id
+      LEFT JOIN work_assignments wa ON wa.id = r.work_assignment_id
      WHERE ($1::uuid[] IS NULL OR r.project_id = ANY($1::uuid[]))
        AND (
          $2::timestamptz IS NULL
@@ -265,9 +325,13 @@ const FULL_SQL = `
                    'y_norm', m.y_norm
                  )), '[]'::json)
             FROM report_plan_marks m WHERE m.report_id = r.id) AS report_plan_marks,
-         prof.full_name AS author_name
+         prof.full_name AS author_name,
+         wt.name::text AS work_type_name,
+         wa.name::text AS work_assignment_name
     FROM reports r
     LEFT JOIN profiles prof ON prof.id = r.author_id
+    LEFT JOIN work_types wt ON wt.id = r.work_type_id
+    LEFT JOIN work_assignments wa ON wa.id = r.work_assignment_id
    WHERE r.id = $1
 `;
 
@@ -322,39 +386,58 @@ export async function createReport(input: {
     await assertPlanInProject(input.plan_id, input.project_id);
   }
 
+  // Проверка активности справочников и вставка — в одной транзакции, иначе
+  // между ними помещается деактивация (см. assertDictActiveForWrite).
+  const client = await pool.connect();
   try {
-    await pool.query(
-      `INSERT INTO reports (id, project_id, work_type_id, performer_id,
-                            work_assignment_id, plan_id, author_id,
-                            description, taken_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)`,
-      [
-        input.id,
-        input.project_id,
-        input.work_type_id,
-        input.performer_id,
-        input.work_assignment_id,
-        input.plan_id,
-        authorId,
-        input.description,
-        input.taken_at,
-      ],
-    );
-  } catch (err) {
-    // Idempotency: same id → return existing.
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      (err as { code?: string }).code === '23505'
-    ) {
-      return getReportById({ user: input.user, id: input.id });
+    await client.query('BEGIN');
+    try {
+      await assertDictActiveForWrite(client, 'work_types', input.work_type_id);
+      if (input.work_assignment_id) {
+        await assertDictActiveForWrite(
+          client,
+          'work_assignments',
+          input.work_assignment_id,
+        );
+      }
+      await client.query(
+        `INSERT INTO reports (id, project_id, work_type_id, performer_id,
+                              work_assignment_id, plan_id, author_id,
+                              description, taken_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)`,
+        [
+          input.id,
+          input.project_id,
+          input.work_type_id,
+          input.performer_id,
+          input.work_assignment_id,
+          input.plan_id,
+          authorId,
+          input.description,
+          input.taken_at,
+        ],
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err instanceof AppError) throw err;
+      // Idempotency: same id → return existing.
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        (err as { code?: string }).code === '23505'
+      ) {
+        return getReportById({ user: input.user, id: input.id });
+      }
+      mapPgError(err, {
+        foreignKeyViolation: {
+          code: 'FK_VIOLATION',
+          message: 'Связанные данные не найдены (проект, вид работ или исполнитель).',
+        },
+      });
     }
-    mapPgError(err, {
-      foreignKeyViolation: {
-        code: 'FK_VIOLATION',
-        message: 'Связанные данные не найдены (проект, вид работ или исполнитель).',
-      },
-    });
+  } finally {
+    client.release();
   }
   return getReportById({ user: input.user, id: input.id });
 }
@@ -402,12 +485,46 @@ export async function updateReportWithOcc(
     await assertPlanInProject(input.plan_id, access.project_id);
   }
 
+  const client = await pool.connect();
   try {
-    // expectedUpdatedAt передаётся как text — сравниваем после cast в timestamptz
-    // на стороне Postgres, чтобы не терять микросекунды через JS Date.
-    // Клиент хранит исходную строку из ответа сервера (db.ts → setTypeParser).
-    const result = await pool.query<{ id: string }>(
-      `UPDATE reports SET
+    await client.query('BEGIN');
+    try {
+      // Текущие значения нужны, чтобы отличить «переключение на архивную
+      // позицию» (запрещено) от «поле прислали без изменений» (разрешено).
+      // Старые клиенты шлют в PATCH все поля, поэтому отвергать любой
+      // неактивный id нельзя — сломается редактирование истории.
+      const cur = await client.query<{
+        work_type_id: string;
+        work_assignment_id: string | null;
+      }>(
+        `SELECT work_type_id, work_assignment_id FROM reports WHERE id = $1`,
+        [input.id],
+      );
+      if (cur.rowCount === 0) {
+        throw new AppError(404, 'NOT_FOUND', 'Отчёт не найден.');
+      }
+      const current = cur.rows[0];
+
+      if (setWorkType && input.work_type_id !== current.work_type_id) {
+        await assertDictActiveForWrite(client, 'work_types', input.work_type_id!);
+      }
+      if (
+        setWorkAssignment &&
+        input.work_assignment_id &&
+        input.work_assignment_id !== current.work_assignment_id
+      ) {
+        await assertDictActiveForWrite(
+          client,
+          'work_assignments',
+          input.work_assignment_id,
+        );
+      }
+
+      // expectedUpdatedAt передаётся как text — сравниваем после cast в timestamptz
+      // на стороне Postgres, чтобы не терять микросекунды через JS Date.
+      // Клиент хранит исходную строку из ответа сервера (db.ts → setTypeParser).
+      const result = await client.query<{ id: string }>(
+        `UPDATE reports SET
          work_type_id       = CASE WHEN $2::boolean THEN $3::uuid ELSE work_type_id END,
          performer_id       = CASE WHEN $4::boolean THEN $5::uuid ELSE performer_id END,
          work_assignment_id = CASE WHEN $6::boolean THEN $7::uuid ELSE work_assignment_id END,
@@ -417,38 +534,43 @@ export async function updateReportWithOcc(
        WHERE id = $1
          AND ($14::text IS NULL OR updated_at = $14::text::timestamptz)
        RETURNING id`,
-      [
-        input.id,
-        setWorkType,
-        setWorkType ? input.work_type_id : null,
-        setPerformer,
-        setPerformer ? input.performer_id : null,
-        setWorkAssignment,
-        setWorkAssignment ? input.work_assignment_id : null,
-        setDescription,
-        setDescription ? input.description : null,
-        setTakenAt,
-        setTakenAt ? input.taken_at : null,
-        setPlan,
-        setPlan ? input.plan_id : null,
-        input.expectedUpdatedAt,
-      ],
-    );
-    if (result.rowCount === 0) {
-      throw new AppError(
-        409,
-        'CONFLICT',
-        'Отчёт был изменён другим пользователем. Обновите данные и повторите.',
+        [
+          input.id,
+          setWorkType,
+          setWorkType ? input.work_type_id : null,
+          setPerformer,
+          setPerformer ? input.performer_id : null,
+          setWorkAssignment,
+          setWorkAssignment ? input.work_assignment_id : null,
+          setDescription,
+          setDescription ? input.description : null,
+          setTakenAt,
+          setTakenAt ? input.taken_at : null,
+          setPlan,
+          setPlan ? input.plan_id : null,
+          input.expectedUpdatedAt,
+        ],
       );
+      if (result.rowCount === 0) {
+        throw new AppError(
+          409,
+          'CONFLICT',
+          'Отчёт был изменён другим пользователем. Обновите данные и повторите.',
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err instanceof AppError) throw err;
+      mapPgError(err, {
+        foreignKeyViolation: {
+          code: 'FK_VIOLATION',
+          message: 'Связанные данные не найдены.',
+        },
+      });
     }
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-    mapPgError(err, {
-      foreignKeyViolation: {
-        code: 'FK_VIOLATION',
-        message: 'Связанные данные не найдены.',
-      },
-    });
+  } finally {
+    client.release();
   }
   return getReportById({ user: input.user, id: input.id });
 }

@@ -1,6 +1,14 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb'
 
-export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed' | 'pending_upload'
+/**
+ * `blocked` — отчёт ссылается на позицию справочника, которую сервер отказался
+ * создать или принять (новые позиции добавляет только админ; архивные выбирать
+ * нельзя). Отличается от `failed` тем, что данные целы и восстановимы: как
+ * только админ заведёт или вернёт позицию, отложенная операция уйдёт сама.
+ * Отдельный статус нужен, чтобы отчёт не завис в `pending` без объяснения и
+ * чтобы было где показать действие «Заменить вид работ».
+ */
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed' | 'pending_upload' | 'blocked'
 
 export interface LocalReport {
   id: string
@@ -130,6 +138,10 @@ export interface RemoteReportSnapshot {
   takenAt: string | null
   authorId: string
   authorName: string | null
+  // Имена справочников с сервера. Опциональные: снапшоты, записанные до
+  // введения полей, остаются валидными — версию IDB поднимать не нужно.
+  workTypeName?: string | null
+  workAssignmentName?: string | null
   createdAt: string
   updatedAt: string | null
   cachedAt: number
@@ -194,7 +206,16 @@ export interface MarkUpdateRecord {
  * ошибка. Заменяет «тихое» удаление мутации — теперь юзер знает, что
  * именно отвалилось и может пересоздать правки.
  */
-export type SyncIssueKind = 'conflict' | 'fk_violation' | 'permanent' | 'photo_mismatch'
+export type SyncIssueKind =
+  | 'conflict'
+  | 'fk_violation'
+  | 'permanent'
+  | 'photo_mismatch'
+  // Справочник не пропустил позицию: создавать может только админ, либо
+  // позиция переведена в архив. Восстановимо — см. SyncStatus.blocked.
+  | 'dict_blocked'
+
+export type CatalogKind = 'work_type' | 'work_assignment'
 
 export interface SyncIssue {
   id?: number
@@ -205,6 +226,12 @@ export interface SyncIssue {
   ackAt?: number | null
   // Какой батч был отброшен (если применимо) — для диагностики.
   batchId?: string | null
+  // Для dict_blocked: какая именно позиция справочника заблокировала отчёт.
+  // Пара (catalogKind, catalogId) даёт дедупликацию issue и позволяет закрыть
+  // их все разом после успешного remap. Поля опциональные — старые записи в
+  // IDB остаются валидными, версию БД поднимать не нужно.
+  catalogKind?: CatalogKind | null
+  catalogId?: string | null
 }
 
 /**

@@ -305,7 +305,9 @@ export async function countPendingReports(): Promise<number> {
     if (rid) stuck.add(rid)
   }
   for (const r of reports) {
-    if (r.syncStatus === 'pending' || r.syncStatus === 'failed') stuck.add(r.id)
+    if (r.syncStatus === 'pending' || r.syncStatus === 'failed' || r.syncStatus === 'blocked') {
+      stuck.add(r.id)
+    }
   }
   return stuck.size
 }

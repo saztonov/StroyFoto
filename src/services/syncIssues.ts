@@ -7,17 +7,35 @@
  * («Понятно») — issue помечается ackAt и больше не отвлекает.
  */
 
-import { getDB, type SyncIssue, type SyncIssueKind } from '@/lib/db'
+import { getDB, type CatalogKind, type SyncIssue, type SyncIssueKind } from '@/lib/db'
 
 export interface RecordSyncIssueInput {
   reportId: string
   kind: SyncIssueKind
   message: string
   batchId?: string | null
+  catalogKind?: CatalogKind | null
+  catalogId?: string | null
 }
 
 export async function recordSyncIssue(input: RecordSyncIssueInput): Promise<void> {
   const db = await getDB()
+
+  // Дедупликация для dict_blocked: операция откладывается и ретраится каждые
+  // несколько часов, без этого по одному и тому же справочнику накопился бы
+  // десяток одинаковых записей в баннере.
+  if (input.catalogKind && input.catalogId) {
+    const existing = await db.getAllFromIndex('sync_issues', 'by_report', input.reportId)
+    const dup = existing.some(
+      (i) =>
+        !i.ackAt &&
+        i.kind === input.kind &&
+        i.catalogKind === input.catalogKind &&
+        i.catalogId === input.catalogId,
+    )
+    if (dup) return
+  }
+
   const issue: SyncIssue = {
     reportId: input.reportId,
     kind: input.kind,
@@ -25,11 +43,34 @@ export async function recordSyncIssue(input: RecordSyncIssueInput): Promise<void
     detectedAt: Date.now(),
     ackAt: null,
     batchId: input.batchId ?? null,
+    catalogKind: input.catalogKind ?? null,
+    catalogId: input.catalogId ?? null,
   }
   try {
     await db.add('sync_issues', issue)
   } catch (e) {
     console.warn('recordSyncIssue: failed to add', e)
+  }
+}
+
+/**
+ * Закрывает все открытые dict_blocked-issue по конкретной позиции справочника.
+ * Вызывается после успешного разрешения (админ завёл/вернул позицию, либо
+ * пользователь заменил её вручную) — иначе SyncBanner продолжает показывать
+ * уже решённую проблему до перезагрузки.
+ */
+export async function closeCatalogIssues(
+  catalogKind: CatalogKind,
+  catalogId: string,
+): Promise<void> {
+  const db = await getDB()
+  const all = await db.getAll('sync_issues')
+  const now = Date.now()
+  for (const issue of all) {
+    if (issue.ackAt) continue
+    if (issue.catalogKind !== catalogKind || issue.catalogId !== catalogId) continue
+    issue.ackAt = now
+    await db.put('sync_issues', issue)
   }
 }
 

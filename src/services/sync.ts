@@ -1,6 +1,6 @@
 import { ApiError, apiFetch } from '@/lib/apiClient'
 import { restoreSession } from '@/services/auth'
-import { getDB, type ReportMutation, type SyncOp } from '@/lib/db'
+import { getDB, type CatalogKind, type ReportMutation, type SyncOp } from '@/lib/db'
 import {
   applyServerTimestamps,
   countPendingReports,
@@ -13,7 +13,7 @@ import { applyRetention } from '@/services/retention'
 import { warnIfQuotaHigh } from '@/services/storageQuota'
 import { emitReportsChanged } from '@/services/invalidation'
 import { reconcile } from '@/services/reconcile'
-import { recordSyncIssue } from '@/services/syncIssues'
+import { closeCatalogIssues, recordSyncIssue } from '@/services/syncIssues'
 import { discardOfflineBatch } from '@/services/syncBatch'
 import { bumpReportSyncOps, remapCatalogId } from '@/services/catalogRemap'
 
@@ -22,16 +22,26 @@ import { bumpReportSyncOps, remapCatalogId } from '@/services/catalogRemap'
 // permanent → fail immediately (без retry-storm).
 // ---------------------------------------------------------------------------
 
-type ErrorClass = 'transient' | 'auth' | 'permanent'
+type ErrorClass = 'transient' | 'auth' | 'permanent' | 'blocked'
+
+// Коды справочника, при которых данные НЕ теряются: позиция появится, когда
+// админ её заведёт или вернёт из архива. Проверяются раньше статусов, потому
+// что 403/409 сами по себе означают permanent (см. classifyError).
+const BLOCKED_CODES = new Set(['DICT_CREATE_FORBIDDEN', 'DICT_INACTIVE'])
 
 interface ClassifiableError {
   code?: string
   message?: string
   status?: number
+  details?: unknown
 }
 
 function classifyError(err: ClassifiableError): ErrorClass {
   const status = err.status ?? 0
+  // ВАЖНО: проверка кодов справочника обязана стоять ПЕРВОЙ. DICT_CREATE_FORBIDDEN
+  // приходит с 403, DICT_INACTIVE — с 409, и обе статусные ветки ниже увели бы
+  // их в permanent, где операция удаляется молча вместе с зависимым отчётом.
+  if (err.code && BLOCKED_CODES.has(err.code)) return 'blocked'
   if (status === 401) return 'auth'
   if (status === 403) return 'permanent'
   if (status === 400 || status === 422 || status === 409) return 'permanent'
@@ -49,7 +59,7 @@ function classifyError(err: ClassifiableError): ErrorClass {
 
 function toClassifiable(e: unknown): ClassifiableError {
   if (e instanceof ApiError) {
-    return { code: e.code, message: e.message, status: e.status }
+    return { code: e.code, message: e.message, status: e.status, details: e.details }
   }
   if (e instanceof Error) {
     return { message: e.message }
@@ -111,6 +121,9 @@ interface ProcessResult {
   error?: string
   errorCode?: string
   errorStatus?: number
+  // Машиночитаемый контекст от сервера. Для DICT_* содержит
+  // { catalogKind, catalogId } — какая позиция справочника заблокировала отчёт.
+  errorDetails?: unknown
 }
 
 /**
@@ -150,6 +163,32 @@ async function handleConflict(
   })
   // Подтянем актуальную серверную версию, чтобы UI её сразу увидел.
   void reconcile().catch(() => undefined)
+}
+
+/**
+ * Успешная синхронизация справочника снимает блокировку с зависевших отчётов:
+ * возвращаем их из `blocked` в `pending` и закрываем issue. Без этого отчёт
+ * остался бы с оранжевым статусом, а SyncBanner продолжал бы показывать уже
+ * решённую проблему до перезагрузки приложения.
+ */
+async function unblockAfterCatalogSync(kind: CatalogKind, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const db = await getDB()
+  const field = kind === 'work_type' ? 'workTypeId' : 'workAssignmentId'
+  const idSet = new Set(ids)
+
+  const tx = db.transaction('reports', 'readwrite')
+  for (const r of await tx.store.getAll()) {
+    if (r.syncStatus !== 'blocked') continue
+    const value = r[field]
+    if (!value || !idSet.has(value)) continue
+    r.syncStatus = 'pending'
+    r.lastError = null
+    await tx.store.put(r)
+  }
+  await tx.done
+
+  for (const id of idSet) await closeCatalogIssues(kind, id)
 }
 
 async function processOp(op: SyncOp): Promise<ProcessResult> {
@@ -199,7 +238,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -219,7 +258,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -257,7 +296,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
         return { done: true }
       }
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -274,7 +313,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
         return { done: true }
       }
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -349,10 +388,13 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
         local.syncStatus = 'synced'
         await db.put('work_types_local', local)
       }
+      // Справочник принят — снимаем блокировку, если она была. Оба id: до
+      // ремапа отчёты ссылались на local.id, после — на серверный.
+      await unblockAfterCatalogSync('work_type', [local.id, serverId].filter(Boolean) as string[])
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -376,10 +418,14 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
         local.syncStatus = 'synced'
         await db.put('work_assignments_local', local)
       }
+      await unblockAfterCatalogSync(
+        'work_assignment',
+        [local.id, serverId].filter(Boolean) as string[],
+      )
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
-      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status }
+      return { done: false, error: c.message, errorCode: c.code, errorStatus: c.status, errorDetails: c.details }
     }
   }
 
@@ -445,6 +491,14 @@ async function tick() {
           }
           next.nextAttemptAt = Date.now()
           if (next.id != null) await db.put('sync_queue', next)
+          continue
+        }
+
+        if (errClass === 'blocked') {
+          consecutiveTransient = 0
+          // Справочник не пропустил позицию. Данные целы — ничего не удаляем,
+          // откладываем операцию и всё, что от неё зависит.
+          await handleBlockedCatalog(next, result)
           continue
         }
 
@@ -518,6 +572,107 @@ async function tick() {
  * очереди, помечание отчёта как failed. Если операция связана с batch'ем
  * правок (например, photo_delete с batchId) — откатываем весь батч.
  */
+/**
+ * Отложенный ретрай заблокированной справочником операции. 6 часов —
+ * компромисс: достаточно редко, чтобы не молотить сервер отказами, и
+ * достаточно часто, чтобы отчёт ушёл в тот же рабочий день после действий
+ * админа. Ручные пути (кнопка «Повторить», замена позиции) этот срок не ждут.
+ */
+const BLOCKED_RETRY_MS = 6 * 60 * 60 * 1000
+
+function parseCatalogDetails(
+  details: unknown,
+): { catalogKind: CatalogKind; catalogId: string } | null {
+  if (typeof details !== 'object' || details === null) return null
+  const d = details as { catalogKind?: unknown; catalogId?: unknown }
+  if (d.catalogKind !== 'work_type' && d.catalogKind !== 'work_assignment') return null
+  if (typeof d.catalogId !== 'string' || !d.catalogId) return null
+  return { catalogKind: d.catalogKind, catalogId: d.catalogId }
+}
+
+/**
+ * Справочник не пропустил позицию (создавать может только админ, либо позиция
+ * в архиве). В отличие от permanent — НИЧЕГО не удаляем: и локальный черновик
+ * справочника, и очередь целы, данные восстановимы.
+ *
+ * Откладываем саму операцию и ВСЕ зависимые (report, report_update, mark,
+ * mark_update, photo, photo_delete, report_delete). Откладывать только фото и
+ * метки нельзя: сам отчёт был бы выбран в этом же тике и упал бы с
+ * FK_VIOLATION, то есть уже по ветке permanent — с потерей данных.
+ *
+ * Сдвиг nextAttemptAt здесь же служит защитой от бесконечного цикла: ветка
+ * blocked, как и permanent, делает `continue` без удаления операции, и без
+ * сдвига времени очередь выбрала бы её снова немедленно.
+ */
+async function handleBlockedCatalog(op: SyncOp, result: ProcessResult): Promise<void> {
+  const db = await getDB()
+  const until = Date.now() + BLOCKED_RETRY_MS
+  const message = result.error ?? 'Позиция справочника недоступна'
+
+  // Какая позиция виновата: для catalog-операции это она сама, для report-ветки
+  // сервер присылает пару в details (см. AppError в reportsService).
+  const fromDetails = parseCatalogDetails(result.errorDetails)
+  const blocking: { catalogKind: CatalogKind; catalogId: string } | null =
+    op.kind === 'work_type' || op.kind === 'work_assignment'
+      ? { catalogKind: op.kind, catalogId: op.entityId }
+      : fromDetails
+
+  const affected = new Set<string>()
+  const tx = db.transaction(['reports', 'sync_queue'], 'readwrite')
+  const reportsStore = tx.objectStore('reports')
+  const queueStore = tx.objectStore('sync_queue')
+
+  if (blocking) {
+    const field = blocking.catalogKind === 'work_type' ? 'workTypeId' : 'workAssignmentId'
+    for (const r of await reportsStore.getAll()) {
+      if (r[field] !== blocking.catalogId) continue
+      affected.add(r.id)
+      if (r.syncStatus !== 'blocked') {
+        r.syncStatus = 'blocked'
+        r.lastError = message
+        await reportsStore.put(r)
+      }
+    }
+  }
+  // Отчёт мог упереться в справочник и напрямую (POST /api/reports → DICT_INACTIVE).
+  const ownRid = op.reportId ?? (op.kind === 'report' || op.kind === 'mark' ? op.entityId : null)
+  if (ownRid) {
+    const own = await reportsStore.get(ownRid)
+    if (own) {
+      affected.add(own.id)
+      if (own.syncStatus !== 'blocked') {
+        own.syncStatus = 'blocked'
+        own.lastError = message
+        await reportsStore.put(own)
+      }
+    }
+  }
+
+  for (const o of await queueStore.getAll()) {
+    if (o.id == null) continue
+    const isSelf = o.id === op.id
+    // Сопоставление операции с отчётом — тем же способом, что в bumpReportSyncOps:
+    // у части видов reportId лежит в entityId.
+    const rid = o.reportId ?? (o.kind === 'report' || o.kind === 'mark' ? o.entityId : null)
+    if (!isSelf && !(rid && affected.has(rid))) continue
+    o.nextAttemptAt = until
+    o.lastError = message
+    await queueStore.put(o)
+  }
+  await tx.done
+
+  for (const reportId of affected) {
+    await recordSyncIssue({
+      reportId,
+      kind: 'dict_blocked',
+      message,
+      catalogKind: blocking?.catalogKind ?? null,
+      catalogId: blocking?.catalogId ?? null,
+    })
+  }
+  setSnapshot({ lastError: message })
+}
+
 async function handlePermanentFailure(op: SyncOp, result: ProcessResult): Promise<void> {
   const db = await getDB()
   const rid = op.reportId ?? (op.kind === 'report' || op.kind === 'mark' ? op.entityId : null)
@@ -560,6 +715,48 @@ async function handlePermanentFailure(op: SyncOp, result: ProcessResult): Promis
   setSnapshot({ lastError: result.error ?? null })
 }
 
+/**
+ * Ручное восстановление заблокированного отчёта: пользователь выбирает вместо
+ * непринятой позиции существующую активную.
+ *
+ * Обычным редактированием это не решается: онлайн-ветка saveReport безусловно
+ * делает PATCH /api/reports/:id, а заблокированный отчёт на сервере ещё не
+ * существует — получили бы 404, и локальные ссылки остались бы неисправленными.
+ * Поэтому правим локальные данные напрямую и заново будим очередь.
+ *
+ * Возвращает количество отчётов, которые были переведены на новую позицию.
+ */
+export async function replaceBlockedCatalog(input: {
+  kind: CatalogKind
+  oldId: string
+  newId: string
+}): Promise<number> {
+  const db = await getDB()
+
+  // remapCatalogId одной транзакцией переписывает reports, report_mutations,
+  // кэш справочников и удаляет *_local-черновик.
+  const result = await remapCatalogId({
+    kind: input.kind,
+    oldId: input.oldId,
+    newId: input.newId,
+  })
+
+  // Операция справочника больше не нужна: её черновик удалён вместе с remap.
+  for (const op of await db.getAll('sync_queue')) {
+    if (op.id == null) continue
+    if (op.kind !== input.kind) continue
+    if (op.entityId !== input.oldId) continue
+    try { await db.delete('sync_queue', op.id) } catch { /* ignore */ }
+  }
+
+  await unblockAfterCatalogSync(input.kind, [input.oldId, input.newId])
+  // Зависимые операции лежат с отложенным nextAttemptAt — возвращаем их в строй.
+  await bumpReportSyncOps(result.remappedReports)
+  await refreshPending()
+  triggerSync()
+  return result.remappedReports.length
+}
+
 export function triggerSync() {
   void tick()
 }
@@ -580,7 +777,28 @@ export async function runSyncOnce(): Promise<void> {
 export async function retryReport(reportId: string): Promise<boolean> {
   const db = await getDB()
   const tx = db.transaction(['sync_queue', 'reports'], 'readwrite')
-  const ops = await tx.objectStore('sync_queue').index('by_report').getAll(reportId)
+  const queueStore = tx.objectStore('sync_queue')
+  const reportsStore = tx.objectStore('reports')
+  const report = await reportsStore.get(reportId)
+
+  const ops = await queueStore.index('by_report').getAll(reportId)
+
+  // Индекс by_report не находит операции справочников — у них нет reportId
+  // (см. createOrQueueWorkType). Если отчёт заблокирован справочником, без
+  // этого блока кнопка «Повторить» переставила бы зависимые операции, но не
+  // ту единственную, которая их держит, и ничего бы не изменилось.
+  const catalogIds = new Set(
+    [report?.workTypeId, report?.workAssignmentId].filter(
+      (v): v is string => typeof v === 'string' && v.length > 0,
+    ),
+  )
+  for (const op of await queueStore.getAll()) {
+    if (op.kind !== 'work_type' && op.kind !== 'work_assignment') continue
+    if (!catalogIds.has(op.entityId)) continue
+    if (ops.some((o) => o.id != null && o.id === op.id)) continue
+    ops.push(op)
+  }
+
   if (ops.length === 0) {
     await tx.done
     return false
@@ -591,15 +809,14 @@ export async function retryReport(reportId: string): Promise<boolean> {
     op.attempts = 0
     op.lastError = null
     op.nextAttemptAt = nowMs
-    await tx.objectStore('sync_queue').put(op)
+    await queueStore.put(op)
   }
-  // Сбрасываем failed → pending у самого отчёта, чтобы UI обновился
+  // Сбрасываем failed/blocked → pending у самого отчёта, чтобы UI обновился
   // правильно сразу до завершения retry.
-  const report = await tx.objectStore('reports').get(reportId)
-  if (report && report.syncStatus === 'failed') {
+  if (report && (report.syncStatus === 'failed' || report.syncStatus === 'blocked')) {
     report.syncStatus = 'pending'
     report.lastError = null
-    await tx.objectStore('reports').put(report)
+    await reportsStore.put(report)
   }
   await tx.done
   triggerSync()
