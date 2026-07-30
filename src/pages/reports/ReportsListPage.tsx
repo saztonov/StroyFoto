@@ -32,6 +32,7 @@ import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { SYNC_STATUS_LABEL } from './lib/syncStatusLabel'
+import { resolveCatalogName } from './lib/catalogNames'
 import { PhotoFeedView } from './components/PhotoFeedView'
 
 interface ReportCardItemProps {
@@ -474,10 +475,14 @@ export function ReportsListPage() {
               <ReportCardItem
                 report={r}
                 projectName={projectsById.get(r.projectId)?.name ?? '—'}
-                workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
-                workAssignmentName={
-                  r.workAssignmentId ? workAssignmentsById.get(r.workAssignmentId)?.name ?? null : null
-                }
+                workTypeName={resolveCatalogName(r.workTypeName, r.workTypeId, (id) =>
+                  workTypesById.get(id)?.name,
+                )}
+                workAssignmentName={resolveCatalogName(
+                  r.workAssignmentName,
+                  r.workAssignmentId,
+                  (id) => workAssignmentsById.get(id)?.name,
+                )}
                 performerName={performersById.get(r.performerId)?.name ?? null}
                 hasIssue={issueReportIds.has(r.id)}
                 onOpen={openReport}
@@ -503,12 +508,14 @@ export function ReportsListPage() {
                       <ReportCardItem
                         report={r}
                         projectName={projectsById.get(r.projectId)?.name ?? '—'}
-                        workTypeName={workTypesById.get(r.workTypeId)?.name ?? null}
-                        workAssignmentName={
-                          r.workAssignmentId
-                            ? workAssignmentsById.get(r.workAssignmentId)?.name ?? null
-                            : null
-                        }
+                        workTypeName={resolveCatalogName(r.workTypeName, r.workTypeId, (id) =>
+                          workTypesById.get(id)?.name,
+                        )}
+                        workAssignmentName={resolveCatalogName(
+                          r.workAssignmentName,
+                          r.workAssignmentId,
+                          (id) => workAssignmentsById.get(id)?.name,
+                        )}
                         performerName={null}
                         hasIssue={issueReportIds.has(r.id)}
                         onOpen={openReport}

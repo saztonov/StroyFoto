@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, App, Button, Result, Skeleton, Space } from 'antd'
+import { Alert, App, Button, Result, Skeleton, Space, Typography } from 'antd'
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui/PageHeader'
@@ -11,6 +11,7 @@ import { ackSyncIssuesForReport, listSyncIssuesForReport } from '@/services/sync
 import { retryReport } from '@/services/sync'
 import { EditReportModal, type EditReportSaveInput, type ExistingPhoto } from './components/EditReportModal'
 import { Photo360Viewer } from './components/Photo360Viewer'
+import { ReplaceBlockedCatalogModal } from './components/ReplaceBlockedCatalogModal'
 import { ReportDetailsHeader } from './components/ReportDetailsHeader'
 import { ReportMetaCard } from './components/ReportMetaCard'
 import { ReportPhotosCard } from './components/ReportPhotosCard'
@@ -54,6 +55,12 @@ export function ReportDetailsPage() {
   const [pano360Src, setPano360Src] = useState<string | null>(null)
   const [issues, setIssues] = useState<SyncIssue[]>([])
   const [retrying, setRetrying] = useState(false)
+  const [replaceOpen, setReplaceOpen] = useState(false)
+
+  // Блокировка справочником показывается отдельным алертом: она восстановима и
+  // имеет собственное действие, тогда как остальные issue — про потерянные правки.
+  const blockedIssue = issues.find((i) => i.kind === 'dict_blocked') ?? null
+  const otherIssues = issues.filter((i) => i.kind !== 'dict_blocked')
 
   useEffect(() => {
     if (!id) return
@@ -295,18 +302,53 @@ export function ReportDetailsPage() {
       />
 
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        {issues.length > 0 && (
+        {blockedIssue && (
           <Alert
-            type={issues.some((i) => i.kind === 'conflict') ? 'warning' : 'error'}
+            type="warning"
+            showIcon
+            message="Отчёт ждёт справочника"
+            description={
+              <>
+                <div>{blockedIssue.message}</div>
+                <Typography.Text type="secondary">
+                  Данные отчёта сохранены. Он уйдёт сам, как только администратор
+                  добавит или вернёт позицию — либо выберите другую вручную.
+                </Typography.Text>
+              </>
+            }
+            action={
+              <Space direction="vertical" size={4}>
+                {blockedIssue.catalogKind && blockedIssue.catalogId && (
+                  <Button size="small" type="primary" onClick={() => setReplaceOpen(true)}>
+                    {blockedIssue.catalogKind === 'work_type'
+                      ? 'Заменить вид работ'
+                      : 'Заменить назначение'}
+                  </Button>
+                )}
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={retrying}
+                  onClick={handleRetry}
+                >
+                  Повторить
+                </Button>
+              </Space>
+            }
+          />
+        )}
+        {otherIssues.length > 0 && (
+          <Alert
+            type={otherIssues.some((i) => i.kind === 'conflict') ? 'warning' : 'error'}
             showIcon
             message={
-              issues[0].kind === 'conflict'
+              otherIssues[0].kind === 'conflict'
                 ? 'Изменения отменены: версия отчёта на сервере новее'
                 : 'Не удалось синхронизировать изменения'
             }
             description={
               <>
-                {issues.slice(0, 3).map((i) => (
+                {otherIssues.slice(0, 3).map((i) => (
                   <div key={i.id ?? i.detectedAt}>{i.message}</div>
                 ))}
               </>
@@ -384,6 +426,20 @@ export function ReportDetailsPage() {
         onCancel={() => setEditOpen(false)}
         onWorkTypeCreated={(wt) => setWorkTypes((prev) => [...prev, wt])}
         onWorkAssignmentCreated={(wa) => setWorkAssignments((prev) => [...prev, wa])}
+      />
+
+      <ReplaceBlockedCatalogModal
+        open={replaceOpen}
+        catalogKind={blockedIssue?.catalogKind ?? null}
+        oldId={blockedIssue?.catalogId ?? null}
+        message={blockedIssue?.message ?? null}
+        workTypes={workTypes}
+        workAssignments={workAssignments}
+        onCancel={() => setReplaceOpen(false)}
+        onDone={() => {
+          setReplaceOpen(false)
+          void refresh()
+        }}
       />
 
       <Photo360Viewer

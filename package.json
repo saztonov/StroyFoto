@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:front": "npm exec -- tsc -p tsconfig.app.json && npm exec -- tsc -p tsconfig.node.json && vite build",
+    "build:api": "npm exec -- tsc -p server/tsconfig.json",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "server:dev": "tsx watch server/src/server.ts",
     "server:build": "tsc -p server/tsconfig.json",
     "server:start": "node server/dist/server.js",
     "dev:all": "concurrently -n vite,api -c cyan,magenta \"npm:dev\" \"npm:server:dev\"",
+    "deploy": "bash scripts/deploy.sh",
     "migrate:db": "bash scripts/db/apply-migrations.sh",
+    "migrate:db:status": "bash scripts/db/apply-migrations.sh --status",
     "db:schema:pull": "tsx scripts/db/export-schema.ts"
   },
   "dependencies": {

@@ -72,6 +72,42 @@ export function EditReportModal({
 }: Props) {
   const { message } = App.useApp()
   const isDesktop = useIsDesktop()
+
+  // Справочники приходят только с активными позициями. Если отчёт исторический
+  // и его позиция уже в архиве, селект показал бы пустое обязательное поле.
+  // Подмешиваем текущую позицию по имени с сервера — значение при этом не
+  // меняется, поэтому серверная проверка активности его пропускает.
+  const workTypeOptions = useMemo(() => {
+    if (!report.workTypeId || workTypes.some((w) => w.id === report.workTypeId)) return workTypes
+    if (!report.workTypeName) return workTypes
+    return [
+      ...workTypes,
+      {
+        id: report.workTypeId,
+        name: `${report.workTypeName} (архив)`,
+        is_active: false,
+        created_by: null,
+        created_at: '',
+      } as WorkType,
+    ]
+  }, [workTypes, report.workTypeId, report.workTypeName])
+
+  const workAssignmentOptions = useMemo(() => {
+    if (!report.workAssignmentId || workAssignments.some((w) => w.id === report.workAssignmentId)) {
+      return workAssignments
+    }
+    if (!report.workAssignmentName) return workAssignments
+    return [
+      ...workAssignments,
+      {
+        id: report.workAssignmentId,
+        name: `${report.workAssignmentName} (архив)`,
+        is_active: false,
+        created_by: null,
+        created_at: '',
+      } as WorkAssignment,
+    ]
+  }, [workAssignments, report.workAssignmentId, report.workAssignmentName])
   const [form] = Form.useForm<{
     workTypeId: string
     performerId: string
@@ -194,7 +230,7 @@ export function EditReportModal({
           rules={[{ required: true, message: 'Выберите вид работ' }]}
         >
           <WorkTypeSelect
-            options={workTypes}
+            options={workTypeOptions}
             onCreated={(wt) => onWorkTypeCreated?.(wt)}
           />
         </Form.Item>
@@ -204,7 +240,7 @@ export function EditReportModal({
           rules={[{ required: true, message: 'Выберите назначение работ' }]}
         >
           <WorkAssignmentSelect
-            options={workAssignments}
+            options={workAssignmentOptions}
             onCreated={(wa) => onWorkAssignmentCreated?.(wa)}
           />
         </Form.Item>

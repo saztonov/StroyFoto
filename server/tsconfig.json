@@ -16,6 +16,7 @@
     "declaration": true,
     "sourceMap": true,
     "composite": true,
+    "noEmitOnError": true,
     "types": ["node"]
   },
   "include": ["src/**/*"]

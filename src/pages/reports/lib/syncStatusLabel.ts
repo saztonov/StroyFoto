@@ -6,4 +6,5 @@ export const SYNC_STATUS_LABEL: Record<SyncStatus, { text: string; color: string
   synced: { text: 'Синхронизировано', color: 'green' },
   failed: { text: 'Ошибка синхронизации', color: 'red' },
   pending_upload: { text: 'Фото ждут загрузки', color: 'purple' },
+  blocked: { text: 'Ожидает справочника', color: 'orange' },
 }

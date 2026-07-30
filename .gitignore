@@ -19,6 +19,10 @@ build
 *.local
 *.tsbuildinfo
 
+# Staged-каталоги сборки/выкладки (scripts/deploy.sh)
+dist.new.*
+dist.bak.*
+
 # PWA generated
 dev-dist
 

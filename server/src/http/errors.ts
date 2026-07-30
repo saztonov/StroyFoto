@@ -6,6 +6,10 @@ export class AppError extends Error {
     public readonly statusCode: number,
     public readonly code: string,
     message: string,
+    // Машиночитаемый контекст ошибки. Клиент читает его через ApiError.details
+    // — например, чтобы понять, какая именно позиция справочника заблокировала
+    // отчёт, и не разбирать для этого текст сообщения.
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'AppError';
@@ -15,9 +19,13 @@ export class AppError extends Error {
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler<FastifyError>((error, request, reply) => {
     if (error instanceof AppError) {
-      reply
-        .code(error.statusCode)
-        .send({ error: { code: error.code, message: error.message } });
+      reply.code(error.statusCode).send({
+        error: {
+          code: error.code,
+          message: error.message,
+          ...(error.details === undefined ? {} : { details: error.details }),
+        },
+      });
       return;
     }
 

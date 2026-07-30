@@ -17,12 +17,13 @@
 import {
   getDB,
   type CatalogKey,
+  type CatalogKind,
   type LocalReport,
   type ReportMutation,
 } from '@/lib/db'
 
 export interface CatalogRemap {
-  kind: 'work_type' | 'work_assignment'
+  kind: CatalogKind
   oldId: string
   newId: string
 }

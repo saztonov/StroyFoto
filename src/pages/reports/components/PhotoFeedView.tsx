@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { reportDetails, reportsList, photo360 } from '@/shared/i18n/ru'
 import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
+import { resolveCatalogName } from '../lib/catalogNames'
 import { getDB, type LocalPhoto } from '@/lib/db'
 import {
   cacheRemotePhotoBlob,
@@ -350,16 +351,19 @@ export function PhotoFeedView({
   const projectName = activeReport
     ? projectsById.get(activeReport.projectId)?.name ?? '—'
     : '—'
-  const workTypeName = activeReport
-    ? workTypesById.get(activeReport.workTypeId)?.name ?? '—'
-    : '—'
   const performer = activeReport
     ? performersById.get(activeReport.performerId)
     : undefined
-  const workAssignmentName =
-    activeReport && activeReport.workAssignmentId
-      ? workAssignmentsById.get(activeReport.workAssignmentId)?.name ?? '—'
-      : '—'
+  const workTypeName = activeReport
+    ? resolveCatalogName(activeReport.workTypeName, activeReport.workTypeId, (id) =>
+        workTypesById.get(id)?.name,
+      ) ?? '—'
+    : '—'
+  const workAssignmentName = activeReport
+    ? resolveCatalogName(activeReport.workAssignmentName, activeReport.workAssignmentId, (id) =>
+        workAssignmentsById.get(id)?.name,
+      ) ?? '—'
+    : '—'
 
   return (
     <>

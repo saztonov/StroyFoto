@@ -21,6 +21,14 @@ export interface ReportCard {
   syncStatus: SyncStatus
   remoteOnly: boolean
   /**
+   * Имена справочников, отданные сервером. Клиент грузит справочники с
+   * ?active=true, поэтому резолв по ним теряет архивные позиции и показывает
+   * «—». Эти поля — основной источник; локальный find() остаётся запасным для
+   * несинхронизированных черновиков, которых сервер ещё не видел.
+   */
+  workTypeName?: string | null
+  workAssignmentName?: string | null
+  /**
    * Последняя ошибка синхронизации (только для локальных отчётов).
    * Пробрасывается в карточку из LocalReport.lastError, чтобы UI мог
    * показать причину failed-статуса без отдельного fetch'а.
@@ -40,6 +48,8 @@ export interface RemoteReportRow {
   author_id: string
   created_at: string
   updated_at: string | null
+  work_type_name?: string | null
+  work_assignment_name?: string | null
   /** Заполняется только когда сервер вызван с include_photos=true. */
   report_photos?: RemoteReportPhoto[] | null
 }
