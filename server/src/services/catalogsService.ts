@@ -228,6 +228,72 @@ export async function renameDictAdmin(input: {
   }
 }
 
+function reportsFkColumn(kind: 'work_types' | 'work_assignments'): string {
+  return kind === 'work_types' ? 'work_type_id' : 'work_assignment_id';
+}
+
+/**
+ * Физическое удаление позиции справочника — только если на неё не ссылается ни
+ * один отчёт.
+ *
+ * Проверку делаем явно, а не полагаемся на FK: у справочников разные правила и
+ * защищает только один из них.
+ *   reports.work_type_id        → ON DELETE RESTRICT — база откажет сама;
+ *   reports.work_assignment_id  → ON DELETE SET NULL — база РАЗРЕШИТ удаление
+ *                                 и молча обнулит назначение в отчётах.
+ * Поэтому условие `NOT EXISTS` — единственное, что оберегает назначения работ.
+ * Оно в одном statement с DELETE, так что гонки с параллельной вставкой отчёта
+ * нет: конкурирующая вставка берёт FOR KEY SHARE на ту же строку.
+ *
+ * Остаётся риск, которого БД не видит в принципе: офлайн-устройство могло
+ * сохранить черновик отчёта со ссылкой на эту позицию, и ноль ссылок в проде
+ * его не исключает. После удаления такой черновик при синхронизации не найдёт
+ * позицию, получит DICT_CREATE_FORBIDDEN и уйдёт в статус blocked с предложением
+ * выбрать замену — данные не теряются, но пользователю придётся вмешаться.
+ * Поэтому штатный способ вывода из оборота — архив (is_active = false),
+ * а удаление уместно для опечаток и мусорных записей.
+ */
+export async function deleteDictAdmin(input: {
+  kind: 'work_types' | 'work_assignments';
+  id: string;
+}): Promise<void> {
+  const table = tableExpr(input.kind);
+  const fkColumn = reportsFkColumn(input.kind);
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM ${table} d
+        WHERE d.id = $1
+          AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.${fkColumn} = d.id)`,
+      [input.id],
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      return;
+    }
+  } catch (err) {
+    mapPgError(err, {
+      foreignKeyViolation: {
+        code: 'DICT_IN_USE',
+        message:
+          'Позиция используется в отчётах и не может быть удалена. Отключите её — она уйдёт в архив.',
+      },
+    });
+  }
+
+  // Ноль удалённых строк — либо позиции нет, либо она используется.
+  const still = await pool.query(`SELECT 1 FROM ${table} WHERE id = $1`, [
+    input.id,
+  ]);
+  if (still.rowCount && still.rowCount > 0) {
+    throw new AppError(
+      409,
+      'DICT_IN_USE',
+      'Позиция используется в отчётах и не может быть удалена. Отключите её — она уйдёт в архив.',
+    );
+  }
+  throw new AppError(404, 'NOT_FOUND', 'Запись не найдена.');
+}
+
 export async function setDictActiveAdmin(input: {
   kind: 'work_types' | 'work_assignments';
   id: string;

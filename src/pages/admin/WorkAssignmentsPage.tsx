@@ -1,5 +1,6 @@
 import {
   createWorkAssignment,
+  deleteWorkAssignment,
   listWorkAssignments,
   setWorkAssignmentActive,
   updateWorkAssignment,
@@ -18,11 +19,13 @@ export function WorkAssignmentsPage() {
       modalEditTitle="Изменить назначение работ"
       successCreated="Назначение работ создано"
       successUpdated="Назначение работ обновлено"
+      successDeleted="Назначение работ удалено"
       fieldPlaceholder="Подготовка площадки"
       list={listWorkAssignments}
       create={createWorkAssignment}
       update={updateWorkAssignment}
       setActive={setWorkAssignmentActive}
+      remove={deleteWorkAssignment}
     />
   )
 }

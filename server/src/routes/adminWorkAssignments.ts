@@ -4,6 +4,7 @@ import { authenticate, requireAdmin } from '../auth/middleware.js';
 import { idParamsSchema, parseBody, parseParams } from '../http/validate.js';
 import {
   createDictAdmin,
+  deleteDictAdmin,
   listAllDict,
   renameDictAdmin,
   setDictActiveAdmin,
@@ -58,5 +59,14 @@ export default async function adminWorkAssignmentsRoutes(
       isActive: body.is_active,
     });
     return { workAssignment: item };
+  });
+
+  // FK reports.work_assignment_id объявлен ON DELETE SET NULL, то есть база
+  // удаление НЕ заблокирует и молча обнулит назначение в отчётах. Защита —
+  // явная проверка использования внутри deleteDictAdmin.
+  app.delete('/:id', guard, async (request) => {
+    const { id } = parseParams(idParamsSchema, request.params);
+    await deleteDictAdmin({ kind: 'work_assignments', id });
+    return { ok: true };
   });
 }

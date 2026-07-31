@@ -129,8 +129,8 @@ scripts/db/           # apply-migrations.sh, export-schema.ts
 | `refresh_tokens` | Активные refresh-сессии (rotation, expires_at) |
 | `projects` | Проекты |
 | `project_memberships` | Назначение пользователей на проекты |
-| `work_types` | Виды работ (создание — только админ; вывод из оборота — `is_active = false`, физического удаления нет) |
-| `work_assignments` | Назначения работ |
+| `work_types` | Виды работ (создание — только админ; штатный вывод из оборота — `is_active = false`; физическое удаление возможно только для позиций, не использованных ни в одном отчёте — FK `reports.work_type_id` объявлен `ON DELETE RESTRICT`) |
+| `work_assignments` | Назначения работ (создание — только админ; штатный вывод из оборота — `is_active = false`; удаление — только для позиций без отчётов, причём FK `reports.work_assignment_id` объявлен `ON DELETE SET NULL` и **не** защищает: проверка использования сделана явно в `deleteDictAdmin`) |
 | `performers` | Исполнители: kind = `contractor` / `own_forces` |
 | `plans` | PDF-планы по проектам (object_key, page_count) |
 | `reports` | Отчёты (project, work_type, performer, plan, author) |

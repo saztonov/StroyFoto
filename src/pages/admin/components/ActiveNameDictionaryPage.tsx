@@ -30,9 +30,12 @@ interface DictionaryItem {
 }
 
 /**
- * Неактивные позиции не удаляются физически — офлайн-устройства могут держать
- * черновики отчётов со ссылкой на них, и удаление обернулось бы FK-ошибкой при
- * возвращении устройства в сеть. Вместо удаления они уходят в «Архив».
+ * Штатный способ вывода позиции из оборота — «Архив» (is_active = false), а не
+ * удаление: офлайн-устройства могут держать черновики отчётов со ссылкой на неё,
+ * и физическое удаление обернётся FK-ошибкой при возвращении устройства в сеть.
+ *
+ * Физическое удаление доступно, когда передан `remove` — для опечаток и мусорных
+ * записей. Сервер откажет (DICT_IN_USE), если позиция уже использована в отчётах.
  */
 type ActiveFilter = 'active' | 'archived' | 'all'
 
@@ -49,6 +52,9 @@ interface Props<T extends DictionaryItem> {
   create: (name: string) => Promise<unknown>
   update: (id: string, name: string) => Promise<unknown>
   setActive: (id: string, active: boolean) => Promise<unknown>
+  /** Не передан — кнопки удаления нет, доступен только архив. */
+  remove?: (id: string) => Promise<unknown>
+  successDeleted?: string
 }
 
 /**
@@ -68,8 +74,10 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
   create,
   update,
   setActive,
+  remove,
+  successDeleted = 'Запись удалена',
 }: Props<T>) {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const isDesktop = useIsDesktop()
   const { data, loading, error, refresh } = useAdminResource<T>(useCallback(list, [list]))
   const [search, setSearch] = useState('')
@@ -142,6 +150,35 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
     }
   }
 
+  const handleDelete = (item: T) => {
+    if (!remove) return
+    modal.confirm({
+      title: `Удалить «${item.name}»?`,
+      // Сервер откажет, если позиция уже в отчётах, но про офлайн-черновики он не
+      // знает — предупреждаем здесь.
+      content:
+        'Отменить удаление нельзя. Если позиция используется в отчётах, сервер её не отдаст. ' +
+        'Черновики на устройствах, которые сейчас офлайн, при синхронизации получат ошибку — ' +
+        'для вывода из оборота безопаснее архив.',
+      okText: 'Удалить',
+      okButtonProps: { danger: true },
+      cancelText: 'Отмена',
+      onOk: async () => {
+        setSavingId(item.id)
+        try {
+          await remove(item.id)
+          message.success(successDeleted)
+          void refresh()
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : 'Ошибка')
+          throw err // оставляем модалку открытой, чтобы причина осталась на виду
+        } finally {
+          setSavingId(null)
+        }
+      },
+    })
+  }
+
   const columns: ColumnsType<T> = [
     { title: 'Название', dataIndex: 'name', key: 'name' },
     {
@@ -168,12 +205,17 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
     {
       title: 'Действия',
       key: 'actions',
-      width: 120,
+      width: remove ? 200 : 120,
       render: (_, item) => (
         <Space size="small">
           <Button size="small" onClick={() => openEdit(item)}>
             Изменить
           </Button>
+          {remove ? (
+            <Button size="small" danger onClick={() => handleDelete(item)}>
+              Удалить
+            </Button>
+          ) : null}
         </Space>
       ),
     },
@@ -263,6 +305,11 @@ export function ActiveNameDictionaryPage<T extends DictionaryItem>({
                   <Button size="small" onClick={() => openEdit(item)}>
                     Изменить
                   </Button>
+                  {remove ? (
+                    <Button size="small" danger onClick={() => handleDelete(item)}>
+                      Удалить
+                    </Button>
+                  ) : null}
                 </Flex>
               </Card>
             </List.Item>

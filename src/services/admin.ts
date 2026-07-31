@@ -121,6 +121,11 @@ export async function setWorkTypeActive(
   })
 }
 
+/** Вернёт ошибку DICT_IN_USE, если вид работ использован хотя бы в одном отчёте. */
+export async function deleteWorkType(id: string): Promise<void> {
+  await apiFetch(`/api/admin/work-types/${id}`, { method: 'DELETE' })
+}
+
 // ---------- Work assignments ----------
 export async function listWorkAssignments(): Promise<WorkAssignment[]> {
   const data = await apiFetch<{ workAssignments: WorkAssignment[] }>(
@@ -147,6 +152,11 @@ export async function updateWorkAssignment(
     method: 'PATCH',
     body: { name },
   })
+}
+
+/** Вернёт ошибку DICT_IN_USE, если назначение использовано хотя бы в одном отчёте. */
+export async function deleteWorkAssignment(id: string): Promise<void> {
+  await apiFetch(`/api/admin/work-assignments/${id}`, { method: 'DELETE' })
 }
 
 export async function setWorkAssignmentActive(

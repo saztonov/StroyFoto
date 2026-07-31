@@ -4,6 +4,7 @@ import { authenticate, requireAdmin } from '../auth/middleware.js';
 import { idParamsSchema, parseBody, parseParams } from '../http/validate.js';
 import {
   createDictAdmin,
+  deleteDictAdmin,
   listAllDict,
   renameDictAdmin,
   setDictActiveAdmin,
@@ -58,5 +59,14 @@ export default async function adminWorkTypesRoutes(
       isActive: body.is_active,
     });
     return { workType: item };
+  });
+
+  // Удаление доступно только для позиций, не использованных ни в одном отчёте:
+  // FK reports.work_type_id объявлен ON DELETE RESTRICT, и попытка удалить
+  // используемую позицию вернётся клиенту как DICT_IN_USE.
+  app.delete('/:id', guard, async (request) => {
+    const { id } = parseParams(idParamsSchema, request.params);
+    await deleteDictAdmin({ kind: 'work_types', id });
+    return { ok: true };
   });
 }
