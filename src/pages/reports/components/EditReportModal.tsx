@@ -8,13 +8,15 @@ import type { WorkAssignment } from '@/entities/workAssignment/types'
 import { type ReportCard, reportPerformerIds } from '@/services/reports'
 import type { PlanRow } from '@/services/catalogs'
 import type { DraftPhoto } from './PhotoPicker'
-import type { PlanMarkValue } from './PlanMarkPicker'
+import type { PlanMarkValue, PlanMarksValue } from './PlanMarkPicker'
+import type { LocalPhotoMark } from '@/lib/db'
 import { actions, reportDetails } from '@/shared/i18n/ru'
 import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import { WorkTypeSelect } from './WorkTypeSelect'
 import { WorkAssignmentSelect } from './WorkAssignmentSelect'
 import { PerformerSelect } from './PerformerSelect'
 import { PhotoPicker } from './PhotoPicker'
+import { panoramaOnly, useBlobUrls } from '../lib/markablePhotos'
 import { PlanMarkPicker } from './PlanMarkPicker'
 
 /** Существующая фотография отчёта (уже на сервере или в IDB) */
@@ -23,6 +25,10 @@ export interface ExistingPhoto {
   thumbUrl: string
   objectKey: string
   thumbObjectKey: string
+  // Размеры нужны, чтобы отличить сферический снимок от обычного при
+  // редактировании: точку принимают только панорамы.
+  width: number | null
+  height: number | null
 }
 
 /** Результат редактирования — полный набор изменений */
@@ -39,6 +45,10 @@ export interface EditReportSaveInput {
   photosToAdd: DraftPhoto[]
   mark: PlanMarkValue | null | undefined // undefined = не менять
   markChanged: boolean
+  /** undefined = набор не трогать. Отдельный флаг: правка описания не должна
+   *  слать replace-all и ловить лишний OCC-конфликт. */
+  photoMarks: LocalPhotoMark[] | undefined
+  photoMarksChanged: boolean
 }
 
 interface Props {
@@ -50,6 +60,7 @@ interface Props {
   plans: PlanRow[]
   existingPhotos: ExistingPhoto[]
   existingMark: PlanMarkValue | null
+  existingPhotoMarks: LocalPhotoMark[]
   loading?: boolean
   onSave: (values: EditReportSaveInput) => Promise<void>
   onCancel: () => void
@@ -66,6 +77,7 @@ export function EditReportModal({
   plans,
   existingPhotos,
   existingMark,
+  existingPhotoMarks,
   loading,
   onSave,
   onCancel,
@@ -122,9 +134,36 @@ export function EditReportModal({
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set())
   const [newPhotos, setNewPhotos] = useState<DraftPhoto[]>([])
 
+  // Сферические снимки для ленты: оставшиеся существующие плюс новые.
+  const newThumbUrls = useBlobUrls(
+    useMemo(() => newPhotos.map((p) => ({ id: p.id, blob: p.thumbBlob })), [newPhotos]),
+  )
+  const markablePhotos = useMemo(
+    () =>
+      panoramaOnly([
+        ...existingPhotos
+          .filter((p) => !removedIds.has(p.id))
+          .map((p) => ({ id: p.id, thumbUrl: p.thumbUrl, width: p.width, height: p.height })),
+        ...newPhotos.map((p) => ({
+          id: p.id,
+          thumbUrl: newThumbUrls.get(p.id) ?? '',
+          width: p.width,
+          height: p.height,
+        })),
+      ]),
+    [existingPhotos, removedIds, newPhotos, newThumbUrls],
+  )
+
+
   // План и метка
-  const [mark, setMark] = useState<PlanMarkValue | null>(null)
+  const [marks, setMarks] = useState<PlanMarksValue>({
+    reportPlanId: null,
+    legacyMark: null,
+    photoMarks: [],
+  })
+  // Флаги раздельные: общая метка, набор точек и план отчёта меняются независимо.
   const [markDirty, setMarkDirty] = useState(false)
+  const [photoMarksDirty, setPhotoMarksDirty] = useState(false)
 
   // Инициализация при открытии
   useEffect(() => {
@@ -138,10 +177,15 @@ export function EditReportModal({
       })
       setRemovedIds(new Set())
       setNewPhotos([])
-      setMark(existingMark)
+      setMarks({
+        reportPlanId: existingMark?.planId ?? report.planId ?? null,
+        legacyMark: existingMark,
+        photoMarks: existingPhotoMarks,
+      })
       setMarkDirty(false)
+      setPhotoMarksDirty(false)
     }
-  }, [open, report, existingMark, form])
+  }, [open, report, existingMark, existingPhotoMarks, form])
 
   // Фильтруем существующие фото, исключая удалённые
   const visibleExisting = useMemo(
@@ -159,9 +203,14 @@ export function EditReportModal({
     })
   }, [])
 
-  const handleMarkChange = useCallback((next: PlanMarkValue | null) => {
-    setMark(next)
-    setMarkDirty(true)
+  const handleMarksChange = useCallback((next: PlanMarksValue) => {
+    setMarks((prev) => {
+      if (prev.legacyMark !== next.legacyMark || prev.reportPlanId !== next.reportPlanId) {
+        setMarkDirty(true)
+      }
+      if (prev.photoMarks !== next.photoMarks) setPhotoMarksDirty(true)
+      return next
+    })
   }, [])
 
   const handleOk = async () => {
@@ -180,7 +229,7 @@ export function EditReportModal({
       // planId: если метка изменена — берём planId из mark; иначе undefined (не менять)
       let planId: string | null | undefined = undefined
       if (markDirty) {
-        planId = mark?.planId ?? null
+        planId = marks.reportPlanId
       }
 
       await onSave({
@@ -193,8 +242,10 @@ export function EditReportModal({
         planId,
         photosToRemove,
         photosToAdd: newPhotos,
-        mark: markDirty ? mark : undefined,
+        mark: markDirty ? marks.legacyMark : undefined,
         markChanged: markDirty,
+        photoMarks: photoMarksDirty ? marks.photoMarks : undefined,
+        photoMarksChanged: photoMarksDirty,
       })
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
@@ -343,7 +394,12 @@ export function EditReportModal({
           <Typography.Title level={5} style={{ marginTop: 0 }}>
             {reportDetails.editSectionPlan}
           </Typography.Title>
-          <PlanMarkPicker plans={plans} value={mark} onChange={handleMarkChange} />
+          <PlanMarkPicker
+            plans={plans}
+            photos={markablePhotos}
+            value={marks}
+            onChange={handleMarksChange}
+          />
         </>
       )}
     </Modal>

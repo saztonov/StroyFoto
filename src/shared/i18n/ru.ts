@@ -188,3 +188,18 @@ export const errors = {
   network: 'Проблемы с сетью. Проверьте соединение и попробуйте ещё раз.',
   profileLoadFailed: 'Не удалось загрузить профиль.',
 } as const
+
+export const planMarks = {
+  stripLabel: 'Куда снимали',
+  wholeReport: 'Отчёт',
+  photoNumber: 'Фото',
+  markSet: 'точка поставлена',
+  sectionLabel: 'План и точки (необязательно)',
+  nowPlacing: 'Сейчас ставится',
+  nowPlacingReport: 'общая точка отчёта',
+  next: 'Следующее',
+  clearPoint: 'Очистить точку',
+  hint: 'Кликните по плану, чтобы поставить точку выбранному кадру.',
+  noPanoramas: 'Сферических снимков нет — точка будет общей для отчёта.',
+  planSwitcher: 'План',
+} as const

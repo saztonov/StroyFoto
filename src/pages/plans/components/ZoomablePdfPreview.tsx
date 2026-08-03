@@ -61,7 +61,7 @@ export function ZoomablePdfPreview({ blob, page, onPageCountReady }: Props) {
             <PdfPlanCanvas
               blob={blob}
               page={page}
-              value={null}
+              points={[]}
               onPageCountReady={onPageCountReady}
             />
           </TransformComponent>

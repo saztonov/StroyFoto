@@ -8,7 +8,7 @@ import {
   updateReportStatus,
 } from '@/services/localReports'
 import { deleteRemotePhoto, markPhotoSynced, uploadPhoto } from '@/services/photos'
-import { replaceRemotePlanMark } from '@/services/reports'
+import { replaceRemotePhotoPlanMarks, replaceRemotePlanMark } from '@/services/reports'
 import { applyRetention } from '@/services/retention'
 import { warnIfQuotaHigh } from '@/services/storageQuota'
 import { emitReportsChanged } from '@/services/invalidation'
@@ -114,6 +114,37 @@ async function refreshPending() {
 function backoffMs(attempts: number) {
   const base = Math.min(60_000, Math.pow(2, attempts) * 1000)
   return base + Math.floor(Math.random() * 500)
+}
+
+/** reportId операции: у report/mark он лежит в entityId, у остальных — отдельно. */
+function opReportId(op: SyncOp): string | null {
+  return op.reportId ?? (op.kind === 'report' || op.kind === 'mark' ? op.entityId : null)
+}
+
+/**
+ * Операции, без которых метку отправлять нельзя.
+ *
+ * Точка ссылается на report_photos.id, поэтому пока фотография не загружена,
+ * сервер о ней не знает. Одного лишь порядка сортировки недостаточно: при
+ * transient-ошибке фото операция откладывается, а цикл переходит к следующей —
+ * и метка ушла бы вперёд, получив отказ. `report_update` в списке обязателен,
+ * иначе OCC-батч применился бы наполовину.
+ */
+const MARK_PREREQUISITES = new Set([
+  'report',
+  'report_update',
+  'report_delete',
+  'photo',
+  'photo_delete',
+])
+
+function isBlockedByPrerequisites(op: SyncOp, all: SyncOp[]): boolean {
+  if (op.kind !== 'mark' && op.kind !== 'mark_update') return false
+  const rid = opReportId(op)
+  if (!rid) return false
+  // Именно пропускаем, а не блокируем: handleBlockedCatalog ставит шесть часов
+  // и заводит sync-issue — для обычной очерёдности это чрезмерно.
+  return all.some((o) => o !== op && MARK_PREREQUISITES.has(o.kind) && opReportId(o) === rid)
 }
 
 interface ProcessResult {
@@ -247,15 +278,24 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const mark = await db.get('plan_marks', op.entityId)
     if (!mark) return { done: true }
     try {
-      await apiFetch(`/api/reports/${mark.reportId}/plan-mark`, {
-        method: 'PUT',
-        body: {
-          plan_id: mark.planId,
-          page: mark.page,
-          x_norm: mark.xNorm,
-          y_norm: mark.yNorm,
-        },
-      })
+      // Легаси-метка отправляется старым роутом. Отсутствие `marks` означает
+      // «запись сделана клиентом, не знавшим о точках фотографий» — разворачивать
+      // её в replace-all нельзя, это удалило бы чужие точки.
+      if (mark.planId != null && mark.page != null && mark.xNorm != null && mark.yNorm != null) {
+        await apiFetch(`/api/reports/${mark.reportId}/plan-mark`, {
+          method: 'PUT',
+          body: {
+            plan_id: mark.planId,
+            page: mark.page,
+            x_norm: mark.xNorm,
+            y_norm: mark.yNorm,
+          },
+        })
+      }
+      if (mark.marks !== undefined) {
+        // Первая отправка с устройства: версию не проверяем, набор задаём.
+        await replaceRemotePhotoPlanMarks(mark.reportId, mark.marks, null)
+      }
       return { done: true }
     } catch (e) {
       const c = toClassifiable(e)
@@ -346,15 +386,28 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
         ? { planId: rec.planId, page: rec.page, xNorm: rec.xNorm, yNorm: rec.yNorm }
         : null
       await replaceRemotePlanMark(rec.reportId, mark)
+
+      // Набор точек отправляем ТОЛЬКО когда запись его содержит. Мутации,
+      // накопленные до релиза, поля не имеют: развернуть их фолбэком в
+      // [legacyMark] и отправить replace-all означало бы удалить точки
+      // фотографий, созданные другими клиентами.
+      if (rec.marks !== undefined) {
+        await replaceRemotePhotoPlanMarks(
+          rec.reportId,
+          rec.marks,
+          rec.expectedMarksVersion ?? null,
+        )
+      }
+
       await db.delete('mark_updates', rec.reportId)
       // Обновляем локальный plan_marks store
-      if (mark) {
+      if (mark || rec.marks?.length) {
         await db.put('plan_marks', {
           reportId: rec.reportId,
-          planId: mark.planId,
-          page: mark.page,
-          xNorm: mark.xNorm,
-          yNorm: mark.yNorm,
+          ...(mark
+            ? { planId: mark.planId, page: mark.page, xNorm: mark.xNorm, yNorm: mark.yNorm }
+            : {}),
+          ...(rec.marks !== undefined ? { marks: rec.marks } : {}),
           syncStatus: 'synced' as const,
         })
       } else {
@@ -462,10 +515,13 @@ async function tick() {
       const now = Date.now()
       const next = all
         .filter((o) => o.nextAttemptAt <= now)
+        .filter((o) => !isBlockedByPrerequisites(o, all))
         .sort((a, b) => {
-          // work_type/work_assignment → report → mark → photo. Справочники
+          // work_type/work_assignment → report → photo → mark. Справочники
           // идут первыми, потому что отчёт может ссылаться на их локальные id.
-          const order: Record<string, number> = { work_type: 0, work_assignment: 0, report: 1, report_update: 1, report_delete: 1, mark: 2, mark_update: 2, photo: 3, photo_delete: 4 }
+          // Метки — последними: точка ссылается на report_photos.id, и до
+          // загрузки самой фотографии строки на сервере ещё нет.
+          const order: Record<string, number> = { work_type: 0, work_assignment: 0, report: 1, report_update: 1, report_delete: 1, photo: 2, photo_delete: 3, mark: 4, mark_update: 4 }
           return order[a.kind] - order[b.kind] || a.nextAttemptAt - b.nextAttemptAt
         })[0]
       if (!next) break

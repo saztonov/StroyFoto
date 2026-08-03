@@ -41,6 +41,10 @@ export interface ReportListItemDTO {
   // причине, что и имена справочников выше, имена приходят с сервера:
   // архивный подрядчик не вернётся в публичном справочнике.
   performers: PerformerNestedDTO[];
+  // OCC-версия набора фото-точек. Отдаётся и в списке: reconcile по ней
+  // понимает, у каких отчётов нужно перечитать детали. bigint приводится
+  // к text, чтобы не потерять точность на JS-числе.
+  photo_marks_version: string;
 }
 
 interface ReportListRow {
@@ -55,6 +59,7 @@ interface ReportListRow {
   work_type_name: string | null;
   work_assignment_name: string | null;
   performers: PerformerNestedDTO[] | null;
+  photo_marks_version: string | null;
   // taken_at, created_at, updated_at кастятся к ::text в SELECT'ах,
   // чтобы сохранить микросекунды Postgres для точного OCC-сравнения.
   taken_at: string | null;
@@ -78,6 +83,7 @@ function toListItem(row: ReportListRow): ReportListItemDTO {
     work_type_name: row.work_type_name,
     work_assignment_name: row.work_assignment_name,
     performers: row.performers ?? [],
+    photo_marks_version: row.photo_marks_version ?? '0',
   };
 }
 
@@ -108,6 +114,15 @@ export interface MarkNestedDTO {
   page: number;
   x_norm: number;
   y_norm: number;
+  /**
+   * null — легаси-метка «одна общая на отчёт» из report_plan_marks.
+   * uuid — точка конкретной фотографии из report_photo_plan_marks.
+   *
+   * Поле добавлено в конец: старый клиент читает `report_plan_marks?.[0]`,
+   * то есть первый элемент, поэтому агрегат обязан отдавать легаси-метку
+   * первой (см. MARKS_SELECT).
+   */
+  photo_id: string | null;
 }
 
 export interface ReportFullDTO extends ReportListItemDTO {
@@ -290,7 +305,8 @@ export async function listReports(input: {
            r.created_at::text AS created_at,
            r.updated_at::text AS updated_at,
            wt.name::text AS work_type_name,
-           wa.name::text AS work_assignment_name,${PERFORMERS_SELECT}${photosSelect}
+           wa.name::text AS work_assignment_name,
+           r.photo_marks_version::text AS photo_marks_version,${PERFORMERS_SELECT}${photosSelect}
       FROM reports r
       LEFT JOIN work_types wt ON wt.id = r.work_type_id
       LEFT JOIN work_assignments wa ON wa.id = r.work_assignment_id
@@ -352,16 +368,29 @@ const FULL_SQL = `
                    'taken_at', p.taken_at
                  ) ORDER BY p.created_at), '[]'::json)
             FROM report_photos p WHERE p.report_id = r.id) AS report_photos,
+         -- Объединение легаси-метки и точек фотографий. Порядок не косметика:
+         -- старый клиент читает report_plan_marks[0], поэтому легаси-метка
+         -- обязана идти первой, иначе он покажет случайную точку фото.
          (SELECT coalesce(json_agg(json_build_object(
-                   'plan_id', m.plan_id,
-                   'page', m.page,
-                   'x_norm', m.x_norm,
-                   'y_norm', m.y_norm
-                 )), '[]'::json)
-            FROM report_plan_marks m WHERE m.report_id = r.id) AS report_plan_marks,
+                   'plan_id', x.plan_id,
+                   'page', x.page,
+                   'x_norm', x.x_norm,
+                   'y_norm', x.y_norm,
+                   'photo_id', x.photo_id
+                 ) ORDER BY x.kind, x.created_at, x.id), '[]'::json)
+            FROM (
+              SELECT 0 AS kind, m.created_at, m.id, m.plan_id, m.page,
+                     m.x_norm, m.y_norm, NULL::uuid AS photo_id
+                FROM report_plan_marks m WHERE m.report_id = r.id
+              UNION ALL
+              SELECT 1, pm.created_at, pm.id, pm.plan_id, pm.page,
+                     pm.x_norm, pm.y_norm, pm.photo_id
+                FROM report_photo_plan_marks pm WHERE pm.report_id = r.id
+            ) x) AS report_plan_marks,
          prof.full_name AS author_name,
          wt.name::text AS work_type_name,
-         wa.name::text AS work_assignment_name,${PERFORMERS_SELECT}
+         wa.name::text AS work_assignment_name,
+         r.photo_marks_version::text AS photo_marks_version,${PERFORMERS_SELECT}
     FROM reports r
     LEFT JOIN profiles prof ON prof.id = r.author_id
     LEFT JOIN work_types wt ON wt.id = r.work_type_id
@@ -722,8 +751,17 @@ export async function setPlanMark(input: {
   }
   assertReportEditable(input.user, access);
   await assertPlanInProject(input.plan_id, access.project_id);
+  // Выделенный клиент, а не pool.query: на пуле каждый вызов может достаться
+  // разному соединению, и BEGIN/COMMIT оказались бы в разных транзакциях.
+  const client = await pool.connect();
   try {
-    await pool.query(
+    // ON CONFLICT (report_id) опирается на обычный уникальный индекс
+    // report_plan_marks_report_uniq — он намеренно оставлен нетронутым, чтобы
+    // старые клиенты продолжали работать после миграции с точками фотографий.
+    // Сдвиг updated_at в той же транзакции: на него смотрит reconcile, иначе
+    // правка легаси-метки осталась бы незамеченной другими устройствами.
+    await client.query('BEGIN');
+    await client.query(
       `INSERT INTO report_plan_marks (id, report_id, plan_id, page, x_norm, y_norm)
        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
        ON CONFLICT (report_id) DO UPDATE
@@ -733,7 +771,12 @@ export async function setPlanMark(input: {
              y_norm  = EXCLUDED.y_norm`,
       [input.reportId, input.plan_id, input.page, input.x_norm, input.y_norm],
     );
+    await client.query(`UPDATE reports SET updated_at = now() WHERE id = $1`, [
+      input.reportId,
+    ]);
+    await client.query('COMMIT');
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     mapPgError(err, {
       foreignKeyViolation: {
         code: 'FK_VIOLATION',
@@ -744,6 +787,8 @@ export async function setPlanMark(input: {
         message: 'Координаты метки должны быть в диапазоне [0, 1].',
       },
     });
+  } finally {
+    client.release();
   }
   return { ok: true };
 }
@@ -757,8 +802,224 @@ export async function clearPlanMark(input: {
     return { ok: true };
   }
   assertReportEditable(input.user, access);
-  await pool.query(`DELETE FROM report_plan_marks WHERE report_id = $1`, [
-    input.reportId,
-  ]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Только легаси-таблица: точки фотографий живут в report_photo_plan_marks
+    // и остаются нетронутыми. Иначе откат API уничтожал бы их.
+    await client.query(`DELETE FROM report_plan_marks WHERE report_id = $1`, [
+      input.reportId,
+    ]);
+    await client.query(`UPDATE reports SET updated_at = now() WHERE id = $1`, [
+      input.reportId,
+    ]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
   return { ok: true };
+}
+
+// --- точки фотографий (report_photo_plan_marks) ------------------------------
+
+export interface PhotoPlanMarkInput {
+  photo_id: string;
+  plan_id: string;
+  page: number;
+  x_norm: number;
+  y_norm: number;
+}
+
+/** Тот же критерий, что и в src/shared/lib/isPanorama.ts на клиенте. */
+function isPanoramaByRatio(
+  width: number | null,
+  height: number | null,
+): boolean {
+  if (!width || !height || height <= 0) return false;
+  if (width < 1024) return false;
+  return Math.abs(width / height - 2) < 0.03;
+}
+
+/**
+ * Полная замена набора точек фотографий отчёта.
+ *
+ * Replace-all, а не операция на точку: очередь синхронизации держит одну
+ * операцию `mark` на отчёт, и так эта модель сохраняется — не нужно заводить
+ * идентичность каждой точки в очереди.
+ *
+ * OCC идёт по отдельной `reports.photo_marks_version`, а НЕ по updated_at:
+ * в офлайн-батче report_update сдвигает updated_at, и следующий за ним
+ * mark_update получил бы 409 от собственной же предыдущей операции.
+ */
+export async function setPhotoPlanMarks(input: {
+  user: AuthenticatedUser;
+  reportId: string;
+  marks: PhotoPlanMarkInput[];
+  expectedMarksVersion: string | null;
+}): Promise<{ ok: true; photo_marks_version: string }> {
+  const access = await loadReportForAccess(input.reportId);
+  if (!access) {
+    throw new AppError(404, 'NOT_FOUND', 'Отчёт не найден.');
+  }
+  assertReportEditable(input.user, access);
+
+  // Дубли схлопываются, первое вхождение выигрывает: отказ превратил бы
+  // sync-операцию в вечно падающую и заблокировал бы черновик на устройстве.
+  const seen = new Set<string>();
+  const marks = input.marks.filter((m) => {
+    if (seen.has(m.photo_id)) return false;
+    seen.add(m.photo_id);
+    return true;
+  });
+
+  // Планы проверяем до транзакции: запрос независимый и не держит блокировку.
+  for (const planId of new Set(marks.map((m) => m.plan_id))) {
+    await assertPlanInProject(planId, access.project_id);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    try {
+      // FOR UPDATE сериализует конкурентные замены набора.
+      const cur = await client.query<{ photo_marks_version: string }>(
+        `SELECT photo_marks_version::text AS photo_marks_version
+           FROM reports WHERE id = $1 FOR UPDATE`,
+        [input.reportId],
+      );
+      if (cur.rowCount === 0) {
+        throw new AppError(404, 'NOT_FOUND', 'Отчёт не найден.');
+      }
+      const currentVersion = cur.rows[0].photo_marks_version;
+
+      // OCC проверяется ПЕРВЫМ — до любых удалений и вставок.
+      if (
+        input.expectedMarksVersion !== null &&
+        input.expectedMarksVersion !== currentVersion
+      ) {
+        throw new AppError(
+          409,
+          'CONFLICT',
+          'Точки на плане были изменены другим пользователем. Обновите данные и повторите.',
+        );
+      }
+
+      if (marks.length > 0) {
+        // Фото должно принадлежать этому отчёту и быть сферическим.
+        const photos = await client.query<{
+          id: string;
+          width: number | null;
+          height: number | null;
+        }>(
+          `SELECT id, width, height FROM report_photos
+            WHERE report_id = $1 AND id = ANY($2::uuid[])`,
+          [input.reportId, marks.map((m) => m.photo_id)],
+        );
+        const byId = new Map(photos.rows.map((p) => [p.id, p]));
+
+        for (const m of marks) {
+          const photo = byId.get(m.photo_id);
+          if (!photo) {
+            // Отдельный код вместо FK_VIOLATION: тот классифицируется как
+            // permanent, и операция была бы удалена вместе с точками, хотя
+            // фотография просто ещё не догрузилась в S3.
+            throw new AppError(
+              409,
+              'PHOTO_NOT_SYNCED',
+              'Фотография ещё не синхронизирована — точка будет отправлена позже.',
+              { photoId: m.photo_id },
+            );
+          }
+          // width/height могут быть неизвестны у старых записей: тогда не
+          // отвергаем, доказать «не панорама» нечем.
+          if (
+            photo.width !== null &&
+            photo.height !== null &&
+            !isPanoramaByRatio(photo.width, photo.height)
+          ) {
+            throw new AppError(
+              422,
+              'NOT_PANORAMA',
+              'Точку на плане можно поставить только сферическому (360°) снимку.',
+              { photoId: m.photo_id },
+            );
+          }
+        }
+
+        await assertPlanPagesExist(client, marks);
+      }
+
+      await client.query(
+        `DELETE FROM report_photo_plan_marks
+          WHERE report_id = $1 AND photo_id <> ALL($2::uuid[])`,
+        [input.reportId, marks.map((m) => m.photo_id)],
+      );
+
+      for (const m of marks) {
+        await client.query(
+          `INSERT INTO report_photo_plan_marks
+                 (report_id, photo_id, plan_id, page, x_norm, y_norm)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (photo_id) DO UPDATE
+             SET plan_id = EXCLUDED.plan_id,
+                 page    = EXCLUDED.page,
+                 x_norm  = EXCLUDED.x_norm,
+                 y_norm  = EXCLUDED.y_norm`,
+          [input.reportId, m.photo_id, m.plan_id, m.page, m.x_norm, m.y_norm],
+        );
+      }
+
+      // Инкремент версии + сдвиг updated_at триггером: на updated_at
+      // опирается reconcile, иначе он не заметит смены точек.
+      const bumped = await client.query<{ photo_marks_version: string }>(
+        `UPDATE reports SET photo_marks_version = photo_marks_version + 1
+          WHERE id = $1
+        RETURNING photo_marks_version::text AS photo_marks_version`,
+        [input.reportId],
+      );
+      await client.query('COMMIT');
+      return { ok: true, photo_marks_version: bumped.rows[0].photo_marks_version };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err instanceof AppError) throw err;
+      mapPgError(err, {
+        foreignKeyViolation: {
+          code: 'FK_VIOLATION',
+          message: 'План или фотография не найдены.',
+        },
+        checkViolation: {
+          code: 'CHECK_VIOLATION',
+          message: 'Координаты точки должны быть в диапазоне [0, 1].',
+        },
+      });
+      throw err;
+    }
+  } finally {
+    client.release();
+  }
+}
+
+/** Страница не должна выходить за пределы плана, когда page_count известен. */
+async function assertPlanPagesExist(
+  client: PoolClient,
+  marks: PhotoPlanMarkInput[],
+): Promise<void> {
+  const rows = await client.query<{ id: string; page_count: number | null }>(
+    `SELECT id, page_count FROM plans WHERE id = ANY($1::uuid[])`,
+    [[...new Set(marks.map((m) => m.plan_id))]],
+  );
+  const byId = new Map(rows.rows.map((p) => [p.id, p.page_count]));
+  for (const m of marks) {
+    const count = byId.get(m.plan_id);
+    if (count != null && m.page > count) {
+      throw new AppError(
+        400,
+        'VALIDATION_ERROR',
+        `Страница ${m.page} выходит за пределы плана (${count}).`,
+      );
+    }
+  }
 }

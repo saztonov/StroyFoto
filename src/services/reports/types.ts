@@ -76,6 +76,8 @@ export interface RemoteReportRow {
   work_assignment_name?: string | null
   /** Опционально: ответы серверов до этого релиза поля не содержат. */
   performers?: ReportPerformer[] | null
+  /** OCC-версия набора точек фотографий; по ней reconcile понимает, что менять. */
+  photo_marks_version?: string | null
   /** Заполняется только когда сервер вызван с include_photos=true. */
   report_photos?: RemoteReportPhoto[] | null
 }
@@ -94,6 +96,12 @@ export interface RemoteReportMark {
   page: number
   x_norm: number
   y_norm: number
+  /**
+   * null — легаси-метка «одна общая на отчёт», uuid — точка конкретного фото.
+   * Опционально: ответы серверов до релиза поля не содержат, и тогда весь
+   * массив трактуется как легаси.
+   */
+  photo_id?: string | null
 }
 
 export interface RemoteReportRowWithNested extends RemoteReportRow {
@@ -104,7 +112,10 @@ export interface RemoteReportRowWithNested extends RemoteReportRow {
 export interface RemoteReportFull {
   card: ReportCard
   photos: RemoteReportPhoto[]
+  /** Легаси-метка отчёта — та самая «одна общая точка». */
   mark: RemoteReportMark | null
+  /** Точки фотографий: по одной на 360-снимок. */
+  photoMarks: RemoteReportMark[]
   authorName: string | null
 }
 

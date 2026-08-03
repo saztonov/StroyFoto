@@ -15,6 +15,7 @@ import {
   deleteReport,
   getReportById,
   listReports,
+  setPhotoPlanMarks,
   setPlanMark,
   updateReportWithOcc,
 } from '../services/reportsService.js';
@@ -162,6 +163,20 @@ const planMarkSchema = z.object({
   y_norm: z.number().min(0).max(1),
 });
 
+const photoPlanMarksSchema = z.object({
+  // Пустой массив разрешён намеренно: это явное удаление всех точек, а не
+  // «нечего делать». Дубли по photo_id схлопывает сервис, а не отвергает —
+  // отказ превратил бы sync-операцию в вечно падающую.
+  marks: z.array(planMarkSchema.extend({ photo_id: uuidSchema })).max(200),
+  // bigint приходит строкой, чтобы не терять точность на JS-числе.
+  // null/отсутствие — «не проверять версию» (первая отправка с устройства).
+  expectedMarksVersion: z
+    .string()
+    .regex(/^\d+$/, 'Версия должна быть целым числом.')
+    .nullable()
+    .optional(),
+});
+
 export default async function reportsRoutes(
   app: FastifyInstance,
 ): Promise<void> {
@@ -248,5 +263,19 @@ export default async function reportsRoutes(
   app.delete('/:id/plan-mark', guard, async (request) => {
     const { id } = parseParams(idParamsSchema, request.params);
     return clearPlanMark({ user: request.user!, reportId: id });
+  });
+
+  // Полная замена набора точек фотографий. Отдельный роут, а не расширение
+  // /plan-mark: старые клиенты продолжают работать с легаси-меткой, а откат
+  // API не делает новые точки недоступными.
+  app.put('/:id/photo-plan-marks', guard, async (request) => {
+    const { id } = parseParams(idParamsSchema, request.params);
+    const body = parseBody(photoPlanMarksSchema, request.body);
+    return setPhotoPlanMarks({
+      user: request.user!,
+      reportId: id,
+      marks: body.marks,
+      expectedMarksVersion: body.expectedMarksVersion ?? null,
+    });
   });
 }

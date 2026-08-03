@@ -1,4 +1,4 @@
-import type { LocalPhoto } from '@/lib/db'
+import type { LocalPhoto, LocalPhotoMark } from '@/lib/db'
 import type { ReportCard, RemoteReportPhoto } from '@/services/reports'
 
 export interface DisplayPhoto {
@@ -13,6 +13,9 @@ export interface LoadedReport {
   card: ReportCard
   localPhotos: LocalPhoto[] | null
   remotePhotos: RemoteReportPhoto[] | null
+  /** Легаси-метка «одна общая на отчёт». */
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null
+  /** Точки фотографий: по одной на 360-снимок. */
+  photoMarks: LocalPhotoMark[]
   authorName: string | null
 }

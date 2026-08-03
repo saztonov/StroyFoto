@@ -105,7 +105,12 @@ async function reconcileReports(): Promise<void> {
   // Решение: читать всё одним проходом ДО открытия writable-tx.
   const existingByReportId = new Map<
     string,
-    { photos: RemoteReportSnapshot['photos']; mark: RemoteReportSnapshot['mark'] }
+    {
+      photos: RemoteReportSnapshot['photos']
+      mark: RemoteReportSnapshot['mark']
+      marks: RemoteReportSnapshot['marks']
+      photoMarksVersion: RemoteReportSnapshot['photoMarksVersion']
+    }
   >()
   const readTx = db.transaction('remote_reports_cache', 'readonly')
   for (const row of data) {
@@ -113,6 +118,11 @@ async function reconcileReports(): Promise<void> {
     existingByReportId.set(row.id, {
       photos: existing?.photos ?? [],
       mark: existing?.mark ?? null,
+      // Точки фотографий и версия набора переносятся из прежнего кэша так же,
+      // как фото и легаси-метка: список отчётов их не содержит, и без переноса
+      // каждый reconcile стирал бы их из офлайн-истории.
+      marks: existing?.marks,
+      photoMarksVersion: existing?.photoMarksVersion,
     })
   }
   await readTx.done
@@ -143,6 +153,12 @@ async function reconcileReports(): Promise<void> {
       cachedAt: Date.now(),
       photos: cached?.photos ?? [],
       mark: cached?.mark ?? null,
+      // marks и photoMarksVersion — согласованная пара: точки и версия, которой
+      // они соответствуют. Версию из строки списка сюда подставлять НЕЛЬЗЯ,
+      // иначе устаревший набор выглядел бы свежим. Актуализирует их
+      // loadRemoteReportById при открытии отчёта.
+      marks: cached?.marks,
+      photoMarksVersion: cached?.photoMarksVersion,
     }
     writes.push(tx.store.put(snap))
   }

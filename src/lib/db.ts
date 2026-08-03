@@ -54,12 +54,30 @@ export interface LocalPhoto {
   cachedAt?: number
 }
 
-export interface LocalPlanMark {
-  reportId: string
+/** Точка на плане, привязанная к конкретной фотографии (1 точка = 1 фото 360). */
+export interface LocalPhotoMark {
+  photoId: string
   planId: string
   page: number
   xNorm: number
   yNorm: number
+}
+
+export interface LocalPlanMark {
+  reportId: string
+  // Легаси-поля: «одна общая точка на отчёт». Записи, созданные до релиза,
+  // остаются валидными — читать через planMarksOf() из services/reports/marks.
+  planId?: string
+  page?: number
+  xNorm?: number
+  yNorm?: number
+  /**
+   * Точки фотографий. Хранятся массивом ВНУТРИ записи отчёта, а не отдельными
+   * записями: keyPath store'а остаётся 'reportId'. Сменить его нельзя —
+   * ensureStore при несовпадении ключа вызывает deleteObjectStore и
+   * пересоздаёт store вместе со всеми несинхронизированными метками.
+   */
+  marks?: LocalPhotoMark[]
   syncStatus: SyncStatus
 }
 
@@ -170,6 +188,11 @@ export interface RemoteReportSnapshot {
     takenAt: string | null
   }>
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null
+  // Точки фотографий и версия набора. Опциональны: снапшоты, записанные до
+  // релиза, остаются валидными, версию IDB поднимать не нужно. Без них
+  // офлайн-история показывала бы только легаси-метку.
+  marks?: LocalPhotoMark[]
+  photoMarksVersion?: string
 }
 
 export type RetentionMode = 'all' | 'from_date' | 'none'
@@ -213,6 +236,15 @@ export interface MarkUpdateRecord {
   page: number | null
   xNorm: number | null
   yNorm: number | null
+  /**
+   * Набор точек фотографий. ОТСУТСТВИЕ поля — сигнал «запись сделана клиентом,
+   * не знавшим о множественных точках»: такую мутацию нельзя разворачивать в
+   * replace-all, иначе она удалит точки, созданные другими клиентами. См.
+   * ветвление в sync.ts.
+   */
+  marks?: LocalPhotoMark[]
+  /** OCC-версия набора на момент постановки в очередь. */
+  expectedMarksVersion?: string | null
   batchId?: string | null
 }
 

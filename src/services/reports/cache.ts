@@ -44,6 +44,13 @@ export async function loadCachedRemoteReport(id: string): Promise<RemoteReportFu
           y_norm: snap.mark.yNorm,
         }
       : null,
+    photoMarks: (snap.marks ?? []).map((m) => ({
+      plan_id: m.planId,
+      page: m.page,
+      x_norm: m.xNorm,
+      y_norm: m.yNorm,
+      photo_id: m.photoId,
+    })),
     authorName: snap.authorName,
   }
 }

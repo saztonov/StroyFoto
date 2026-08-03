@@ -16,15 +16,31 @@ export interface PdfPoint {
   yNorm: number
 }
 
+export interface PdfPlanPoint extends PdfPoint {
+  /** `report` для общей метки отчёта либо id фотографии. */
+  id: string
+  /** Номер в ленте; у общей метки отсутствует. */
+  label?: string
+  /** Редактируемая сейчас точка — крупнее и контрастнее остальных. */
+  active?: boolean
+  /** Обязателен: точка — кнопка, а не декорация. */
+  ariaLabel: string
+}
+
 interface Props {
   /** Бинарник PDF. Обычно приходит из `plans_cache` или `downloadPlanPdf`. */
   blob: Blob | null
   /** 1-based номер страницы. */
   page: number
-  /** Существующая отметка (нормализованные координаты внутри страницы). */
-  value: PdfPoint | null
+  /** Точки текущей страницы. Пустой массив — план без отметок. */
+  points: PdfPlanPoint[]
   /** Если задан — клики по canvas включены и передают новые координаты. */
   onPick?: (p: PdfPoint) => void
+  /**
+   * Клик по существующей точке. Обработчик делает stopPropagation, иначе тот же
+   * клик дошёл бы до canvas и поставил новую точку поверх старой.
+   */
+  onPointClick?: (id: string) => void
   /** Сообщает родителю число страниц, как только PDF открыт. */
   onPageCountReady?: (n: number) => void
   /** Максимальная ширина холста в пикселях (для мобильного адаптива). */
@@ -40,8 +56,9 @@ interface Props {
 export function PdfPlanCanvas({
   blob,
   page,
-  value,
+  points,
   onPick,
+  onPointClick,
   onPageCountReady,
   maxWidth = 900,
 }: Props) {
@@ -172,12 +189,14 @@ export function PdfPlanCanvas({
     }
   }, [bytes, page, maxWidth, onPageCountReady, containerWidth])
 
-  const pointStyle = useMemo(() => {
-    if (!value || !renderedSize) return null
-    const left = value.xNorm * renderedSize.w
-    const top = value.yNorm * renderedSize.h
-    return { left, top }
-  }, [value, renderedSize])
+  const placedPoints = useMemo(() => {
+    if (!renderedSize) return []
+    return points.map((p) => ({
+      ...p,
+      left: p.xNorm * renderedSize.w,
+      top: p.yNorm * renderedSize.h,
+    }))
+  }, [points, renderedSize])
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onPick || !renderedSize) return
@@ -220,24 +239,61 @@ export function PdfPlanCanvas({
           touchAction: 'manipulation',
         }}
       />
-      {pointStyle && (
-        <div
-          aria-hidden
+      {placedPoints.map((p) => (
+        // Кнопка, а не декоративный div: точку нужно уметь открыть кликом и с
+        // клавиатуры. Внешний размер 32 px — комфортная зона нажатия на
+        // мобильном, сам кружок остаётся 18 px.
+        <button
+          key={p.id}
+          type="button"
+          aria-label={p.ariaLabel}
+          title={p.ariaLabel}
+          onClick={(e) => {
+            // Без этого клик дойдёт до canvas и поставит новую точку поверх.
+            e.stopPropagation()
+            onPointClick?.(p.id)
+          }}
+          disabled={!onPointClick}
           style={{
             position: 'absolute',
-            left: pointStyle.left,
-            top: pointStyle.top,
-            width: 18,
-            height: 18,
-            marginLeft: -9,
-            marginTop: -9,
-            borderRadius: '50%',
-            background: '#ff4d4f',
-            boxShadow: '0 0 0 3px rgba(255,77,79,0.25)',
-            pointerEvents: 'none',
+            left: p.left,
+            top: p.top,
+            width: 32,
+            height: 32,
+            marginLeft: -16,
+            marginTop: -16,
+            padding: 0,
+            border: 'none',
+            background: 'transparent',
+            cursor: onPointClick ? 'pointer' : 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-        />
-      )}
+        >
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: p.active ? 22 : 18,
+              height: p.active ? 22 : 18,
+              borderRadius: '50%',
+              background: '#ff4d4f',
+              opacity: p.active ? 1 : 0.75,
+              boxShadow: p.active
+                ? '0 0 0 4px rgba(255,77,79,0.35)'
+                : '0 0 0 2px rgba(255,77,79,0.2)',
+              color: '#fff',
+              fontSize: 11,
+              lineHeight: 1,
+              fontWeight: 600,
+            }}
+          >
+            {p.label}
+          </span>
+        </button>
+      ))}
     </div>
   )
 }

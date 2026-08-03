@@ -7,7 +7,6 @@ import {
 } from '@/lib/db'
 import {
   ConflictError,
-  replaceRemotePlanMark,
   updateRemoteReport,
 } from '@/services/reports'
 import { deleteRemotePhoto } from '@/services/photos'
@@ -33,6 +32,42 @@ interface Args {
  * Чистая функция без React-state: возвращает дискриминированный результат,
  * страница сама решает какие сообщения и redirect'ы показать.
  */
+/**
+ * Ставит правку меток в очередь одной IDB-транзакцией.
+ *
+ * Используется онлайн-веткой: отправлять точку сразу HTTP-запросом нельзя —
+ * она ссылается на фотографию, которая в этот момент лишь поставлена в
+ * очередь. Зависимость в sync.ts не выберет метку, пока для отчёта остаются
+ * photo-операции.
+ */
+async function queueMarkUpdate(
+  id: string,
+  values: EditReportSaveInput,
+  batchId: string | null,
+): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction(['mark_updates', 'sync_queue'], 'readwrite')
+  const rec: MarkUpdateRecord = {
+    reportId: id,
+    planId: values.mark?.planId ?? null,
+    page: values.mark?.page ?? null,
+    xNorm: values.mark?.xNorm ?? null,
+    yNorm: values.mark?.yNorm ?? null,
+    ...(values.photoMarksChanged ? { marks: values.photoMarks ?? [] } : {}),
+    batchId,
+  }
+  await tx.objectStore('mark_updates').put(rec)
+  await tx.objectStore('sync_queue').add({
+    kind: 'mark_update' as const,
+    entityId: id,
+    reportId: id,
+    attempts: 0,
+    nextAttemptAt: Date.now() + 50,
+    lastError: null,
+  })
+  await tx.done
+}
+
 export async function saveReport({ id, data, values, existingPhotos }: Args): Promise<SaveReportResult> {
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
   if (online) {
@@ -76,15 +111,14 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
       }
 
       // 4. Метка на плане
-      if (values.markChanged) {
-        try {
-          const markPayload = values.mark && values.mark.xNorm != null && values.mark.yNorm != null
-            ? { planId: values.mark.planId, page: values.mark.page, xNorm: values.mark.xNorm, yNorm: values.mark.yNorm }
-            : null
-          await replaceRemotePlanMark(id, markPayload)
-        } catch (e) {
-          console.warn('mark update failed (online):', e)
-        }
+      // Метки НЕ отправляются здесь напрямую. Точка ссылается на фотографию,
+      // а новые фото на этом шаге только поставлены в очередь — прямой запрос
+      // ушёл бы раньше них и получил отказ. Кладём в ту же очередь: зависимость
+      // в sync.ts не выберет метку, пока для отчёта есть photo-операции.
+      // Прежний код глушил ошибку в console.warn, и пользователь видел успех.
+      if (values.markChanged || values.photoMarksChanged) {
+        await queueMarkUpdate(id, values, null)
+        triggerSync()
       }
 
       return { kind: 'ok' }
@@ -190,13 +224,17 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
   }
 
   // 4. Метка — также под одним batchId.
-  if (values.markChanged) {
+  if (values.markChanged || values.photoMarksChanged) {
     const markRec: MarkUpdateRecord = {
       reportId: id,
       planId: values.mark?.planId ?? null,
       page: values.mark?.page ?? null,
       xNorm: values.mark?.xNorm ?? null,
       yNorm: values.mark?.yNorm ?? null,
+      // Поле задаём только когда набор действительно правился: его наличие —
+      // сигнал серверу «замени набор целиком». Иначе точки других клиентов
+      // были бы удалены правкой одного лишь описания.
+      ...(values.photoMarksChanged ? { marks: values.photoMarks ?? [] } : {}),
       batchId,
     }
     await tx.objectStore('mark_updates').put(markRec)

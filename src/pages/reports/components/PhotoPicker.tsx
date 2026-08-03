@@ -4,6 +4,7 @@ import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   CameraOutlined,
+  CheckCircleFilled,
   DeleteOutlined,
   PictureOutlined,
 } from '@ant-design/icons'
@@ -11,7 +12,7 @@ import imageCompression from 'browser-image-compression'
 import { v4 as uuid } from 'uuid'
 import { platform } from '@/lib/platform'
 import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
-import { photo360 } from '@/shared/i18n/ru'
+import { photo360, planMarks } from '@/shared/i18n/ru'
 
 export interface DraftPhoto {
   id: string
@@ -23,6 +24,8 @@ export interface DraftPhoto {
 }
 
 interface Props {
+  /** id фотографий, у которых уже есть точка на плане. */
+  markedPhotoIds?: ReadonlySet<string>
   value: DraftPhoto[]
   onChange: (next: DraftPhoto[]) => void
 }
@@ -48,6 +51,8 @@ interface PhotoTileProps {
   total: number
   onMove: (idx: number, delta: number) => void
   onRemove: (id: string) => void
+  /** Точка на плане уже поставлена — показываем галочку рядом с бейджем 360°. */
+  hasMark?: boolean
 }
 
 const PhotoTile = memo(function PhotoTile({
@@ -57,6 +62,7 @@ const PhotoTile = memo(function PhotoTile({
   total,
   onMove,
   onRemove,
+  hasMark,
 }: PhotoTileProps) {
   const isPano = isPanoramaByRatio(photo.width, photo.height)
   return (
@@ -92,6 +98,12 @@ const PhotoTile = memo(function PhotoTile({
           {photo360.badge}
         </Tag>
       )}
+      {isPano && hasMark && (
+        <CheckCircleFilled
+          title={planMarks.markSet}
+          style={{ position: 'absolute', top: 6, right: 6, color: '#52c41a', fontSize: 16 }}
+        />
+      )}
       <Flex gap={4} style={{ position: 'absolute', left: 4, bottom: 4 }}>
         <Button
           size="small"
@@ -121,7 +133,7 @@ const PhotoTile = memo(function PhotoTile({
 
 const COMPRESS_CONCURRENCY = 2
 
-export function PhotoPicker({ value, onChange }: Props) {
+export function PhotoPicker({ value, onChange, markedPhotoIds }: Props) {
   const { message } = App.useApp()
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
@@ -262,6 +274,7 @@ export function PhotoPicker({ value, onChange }: Props) {
               total={value.length}
               onMove={move}
               onRemove={removeAt}
+              hasMark={markedPhotoIds?.has(p.id)}
             />
           ))}
         </div>

@@ -2,6 +2,7 @@
 // Существующие импорты `from '@/services/reports'` продолжают работать.
 export * from './reports/types'
 export * from './reports/performers'
+export * from './reports/marks'
 export * from './reports/cache'
 export * from './reports/list'
 export * from './reports/details'

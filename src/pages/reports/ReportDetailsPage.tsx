@@ -43,8 +43,12 @@ export function ReportDetailsPage() {
   const { data, loading, error, offlineUnavailable, refresh } = useReportData(id, user, profile)
   const { projects, workTypes, performers, workAssignments, plans, setWorkTypes, setWorkAssignments } =
     useReportCatalogs(data?.card.projectId)
+  // Точки отчёта могут стоять на разных планах и страницах, поэтому какой план
+  // открыт — состояние страницы, а не производная от метки.
+  const [viewPlanId, setViewPlanId] = useState<string | null>(null)
+  const [viewPage, setViewPage] = useState(1)
   const { planBlob, planError, planCachedOffline } = usePlanBlob(
-    data?.mark?.planId ?? data?.card.planId ?? null,
+    viewPlanId ?? data?.mark?.planId ?? data?.card.planId ?? null,
     plans,
   )
   const { localDisplayPhotos, remotePhotoUrls, remotePhotosLoading } = useReportPhotos(data)
@@ -110,6 +114,8 @@ export function ReportDetailsPage() {
           thumbUrl: p.thumbUrl,
           objectKey: local?.objectKey ?? '',
           thumbObjectKey: local?.thumbObjectKey ?? '',
+          width: local?.width ?? p.width,
+          height: local?.height ?? p.height,
         }
       })
     }
@@ -121,6 +127,8 @@ export function ReportDetailsPage() {
           thumbUrl: p.thumbUrl,
           objectKey: remote?.object_key ?? '',
           thumbObjectKey: remote?.thumb_object_key ?? '',
+          width: remote?.width ?? p.width,
+          height: remote?.height ?? p.height,
         }
       })
     }
@@ -405,6 +413,18 @@ export function ReportDetailsPage() {
 
         <ReportPlanCard
           data={data}
+          plans={plans}
+          viewPlanId={viewPlanId ?? data.mark?.planId ?? data.card.planId ?? null}
+          viewPage={viewPage}
+          onViewPlanChange={(pid) => {
+            setViewPlanId(pid)
+            setViewPage(1)
+          }}
+          onViewPageChange={setViewPage}
+          onPointClick={(photoId) => {
+            const photo = photos.find((ph) => ph.id === photoId)
+            if (photo) setPano360Src(photo.fullUrl)
+          }}
           plan={plan}
           planBlob={planBlob}
           planError={planError}
@@ -421,6 +441,7 @@ export function ReportDetailsPage() {
         plans={plans}
         existingPhotos={existingPhotosForModal}
         existingMark={existingMarkForModal}
+        existingPhotoMarks={data.photoMarks}
         loading={editLoading}
         onSave={handleSave}
         onCancel={() => setEditOpen(false)}

@@ -34,7 +34,9 @@ import { PhotoPicker, type DraftPhoto } from './components/PhotoPicker'
 import { WorkTypeSelect } from './components/WorkTypeSelect'
 import { WorkAssignmentSelect } from './components/WorkAssignmentSelect'
 import { PerformerSelect } from './components/PerformerSelect'
-import { PlanMarkPicker, type PlanMarkValue } from './components/PlanMarkPicker'
+import { PlanMarkPicker, type PlanMarksValue } from './components/PlanMarkPicker'
+import { panoramaOnly, useBlobUrls } from './lib/markablePhotos'
+import { planMarks } from '@/shared/i18n/ru'
 
 interface FormValues {
   projectId: string
@@ -57,7 +59,11 @@ export function NewReportPage() {
   const [performers, setPerformers] = useState<Performer[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [photos, setPhotos] = useState<DraftPhoto[]>([])
-  const [mark, setMark] = useState<PlanMarkValue | null>(null)
+  const [marks, setMarks] = useState<PlanMarksValue>({
+    reportPlanId: null,
+    legacyMark: null,
+    photoMarks: [],
+  })
   const [loadingCats, setLoadingCats] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   // Мгновенный latch против двойного submit. setSubmitting(true) асинхронен —
@@ -95,9 +101,12 @@ export function NewReportPage() {
   useEffect(() => {
     if (!projectId) {
       setPlans([])
-      setMark(null)
+      setMarks({ reportPlanId: null, legacyMark: null, photoMarks: [] })
       return
     }
+    // Планы принадлежат проекту: при его смене все точки становятся
+    // бессмысленными, а не просто «относятся к другому плану».
+    setMarks({ reportPlanId: null, legacyMark: null, photoMarks: [] })
     let cancelled = false
     void (async () => {
       try {
@@ -111,6 +120,23 @@ export function NewReportPage() {
       cancelled = true
     }
   }, [projectId])
+
+  // Миниатюры для ленты выбора. Хук сам отзывает object URL при смене состава.
+  const thumbUrls = useBlobUrls(
+    useMemo(() => photos.map((p) => ({ id: p.id, blob: p.thumbBlob })), [photos]),
+  )
+  const panoramaPhotos = useMemo(
+    () =>
+      panoramaOnly(
+        photos.map((p) => ({
+          id: p.id,
+          thumbUrl: thumbUrls.get(p.id) ?? '',
+          width: p.width,
+          height: p.height,
+        })),
+      ),
+    [photos, thumbUrls],
+  )
 
   const projectOptions = useMemo(
     () => projects.map((p) => ({ value: p.id, label: p.name })),
@@ -149,8 +175,9 @@ export function NewReportPage() {
         workTypeId: values.workTypeId,
         performerId: values.performerIds[0],
         performerIds: values.performerIds,
+        photoMarks: marks.photoMarks,
         workAssignmentId: values.workAssignmentId,
-        planId: mark?.planId ?? null,
+        planId: marks.reportPlanId,
         description: values.description?.trim() || null,
         takenAt: values.takenAt.toISOString(),
         authorId: profile.id,
@@ -164,12 +191,12 @@ export function NewReportPage() {
           order: idx,
         })),
         mark:
-          mark && mark.xNorm != null && mark.yNorm != null
+          marks.legacyMark && marks.legacyMark.xNorm != null && marks.legacyMark.yNorm != null
             ? {
-                planId: mark.planId,
-                page: mark.page,
-                xNorm: mark.xNorm,
-                yNorm: mark.yNorm,
+                planId: marks.legacyMark.planId,
+                page: marks.legacyMark.page,
+                xNorm: marks.legacyMark.xNorm,
+                yNorm: marks.legacyMark.yNorm,
               }
             : null,
       })
@@ -286,11 +313,20 @@ export function NewReportPage() {
           </Form.Item>
 
           <Form.Item label="Фотографии" required>
-            <PhotoPicker value={photos} onChange={setPhotos} />
+            <PhotoPicker
+              value={photos}
+              onChange={setPhotos}
+              markedPhotoIds={new Set(marks.photoMarks.map((m) => m.photoId))}
+            />
           </Form.Item>
 
-          <Form.Item label="План и точка (необязательно)">
-            <PlanMarkPicker plans={plans} value={mark} onChange={setMark} />
+          <Form.Item label={planMarks.sectionLabel}>
+            <PlanMarkPicker
+              plans={plans}
+              photos={panoramaPhotos}
+              value={marks}
+              onChange={setMarks}
+            />
           </Form.Item>
 
           <Flex gap={12} wrap="wrap">

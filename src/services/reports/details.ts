@@ -1,6 +1,7 @@
 import { apiFetch, ApiError } from '@/lib/apiClient'
 import { cacheRemoteSnapshot } from './cache'
 import { fromRemote } from './mappers'
+import { splitRemoteMarks } from './marks'
 import type { RemoteReportFull, RemoteReportRowWithNested } from './types'
 
 interface ServerReportFull extends RemoteReportRowWithNested {
@@ -30,7 +31,9 @@ export async function loadRemoteReportById(
   const row = data
   const authorName = row.author_name ?? null
   const photos = row.report_photos ?? []
-  const mark = row.report_plan_marks?.[0] ?? null
+  // Сервер отдаёт легаси-метку и точки фотографий одним массивом; разбираем
+  // явно, а не по индексу [0], как это делал прежний код.
+  const { legacy: mark, photoMarks } = splitRemoteMarks(row.report_plan_marks)
 
   await cacheRemoteSnapshot({
     id: row.id,
@@ -60,12 +63,23 @@ export async function loadRemoteReportById(
     mark: mark
       ? { planId: mark.plan_id, page: mark.page, xNorm: mark.x_norm, yNorm: mark.y_norm }
       : null,
+    // Без этого офлайн-история показывала бы только легаси-метку: одной
+    // сменой updated_at точки в снапшоте не обновляются.
+    marks: photoMarks.map((m) => ({
+      photoId: m.photo_id!,
+      planId: m.plan_id,
+      page: m.page,
+      xNorm: m.x_norm,
+      yNorm: m.y_norm,
+    })),
+    photoMarksVersion: row.photo_marks_version ?? undefined,
   })
 
   return {
     card: fromRemote(row, authorName),
     photos,
     mark,
+    photoMarks,
     authorName,
   }
 }

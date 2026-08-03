@@ -63,6 +63,56 @@ export async function deleteRemoteReport(id: string): Promise<void> {
 }
 
 /**
+ * Полная замена набора точек фотографий.
+ *
+ * Отдельный роут, а не расширение /plan-mark: старый сервер такого пути не
+ * знает, а старый клиент продолжает управлять только легаси-меткой. Пустой
+ * массив — законное «удалить все точки».
+ *
+ * `expectedMarksVersion` идёт по отдельной серверной версии, а не по
+ * updated_at отчёта: иначе mark_update в офлайн-батче конфликтовал бы с
+ * собственным же предшествующим report_update.
+ */
+export async function replaceRemotePhotoPlanMarks(
+  reportId: string,
+  marks: Array<{
+    photoId: string
+    planId: string
+    page: number
+    xNorm: number
+    yNorm: number
+  }>,
+  expectedMarksVersion: string | null,
+): Promise<string> {
+  try {
+    const resp = await apiFetch<{ photo_marks_version?: string }>(
+      `/api/reports/${reportId}/photo-plan-marks`,
+      {
+        method: 'PUT',
+        body: {
+          marks: marks.map((m) => ({
+            photo_id: m.photoId,
+            plan_id: m.planId,
+            page: m.page,
+            x_norm: m.xNorm,
+            y_norm: m.yNorm,
+          })),
+          expectedMarksVersion,
+        },
+      },
+    )
+    return resp?.photo_marks_version ?? '0'
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'CONFLICT') {
+      throw new ConflictError(
+        'Точки на плане были изменены другим пользователем. Обновите страницу и попробуйте снова.',
+      )
+    }
+    throw e
+  }
+}
+
+/**
  * Очищает локальные данные отчёта из IndexedDB после удаления на сервере.
  */
 export async function purgeLocalReportData(id: string): Promise<void> {

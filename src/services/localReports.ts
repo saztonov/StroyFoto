@@ -1,4 +1,4 @@
-import { getDB, type LocalPhoto, type LocalPlanMark, type LocalReport, type SyncOp } from '@/lib/db'
+import { getDB, type LocalPhoto, type LocalPhotoMark, type LocalPlanMark, type LocalReport, type SyncOp } from '@/lib/db'
 
 /**
  * Сигнализирует, что IDB не смогла записать данные из-за исчерпанной квоты.
@@ -57,7 +57,10 @@ export interface DraftReportInput {
   takenAt: string | null
   authorId: string
   photos: DraftPhotoInput[]
+  /** Легаси-метка «одна общая на отчёт». */
   mark: { planId: string; page: number; xNorm: number; yNorm: number } | null
+  /** Точки фотографий: по одной на 360-снимок. */
+  photoMarks: LocalPhotoMark[]
 }
 
 /**
@@ -132,13 +135,20 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     }
   }
 
-  if (input.mark) {
+  if (input.mark || input.photoMarks.length > 0) {
     const mark: LocalPlanMark = {
       reportId: input.id,
-      planId: input.mark.planId,
-      page: input.mark.page,
-      xNorm: input.mark.xNorm,
-      yNorm: input.mark.yNorm,
+      ...(input.mark
+        ? {
+            planId: input.mark.planId,
+            page: input.mark.page,
+            xNorm: input.mark.xNorm,
+            yNorm: input.mark.yNorm,
+          }
+        : {}),
+      // Всегда задаём поле, даже пустым массивом: его наличие — сигнал sync'у,
+      // что клиент умеет множественные точки и набор можно заменять целиком.
+      marks: input.photoMarks,
       syncStatus: 'pending',
     }
     try {
@@ -171,7 +181,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
       throw new Error(`IDB add sync_queue(report) failed: ${e instanceof Error ? e.message : e}`)
     }
   }
-  if (input.mark && !hasOp('mark', input.id)) {
+  if ((input.mark || input.photoMarks.length > 0) && !hasOp('mark', input.id)) {
     const markOp: SyncOp = {
       kind: 'mark',
       entityId: input.id,

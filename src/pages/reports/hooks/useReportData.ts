@@ -6,6 +6,7 @@ import { getLocalReport, getPhotosForReport } from '@/services/localReports'
 import {
   loadCachedRemoteReport,
   loadRemoteReportById,
+  localPhotoMarks,
   purgeLocalReportData,
   type RemoteReportFull,
 } from '@/services/reports'
@@ -69,9 +70,14 @@ export function useReportData(id: string | undefined, user: AuthSessionUser | nu
             },
             localPhotos: photos.filter((p) => p.origin !== 'remote'),
             remotePhotos: null,
-            mark: mark
-              ? { planId: mark.planId, page: mark.page, xNorm: mark.xNorm, yNorm: mark.yNorm }
-              : null,
+            // Легаси-поля записи опциональны: у черновиков, созданных уже с
+            // точками фотографий, общей метки может не быть вовсе.
+            mark:
+              mark && mark.planId != null && mark.page != null &&
+              mark.xNorm != null && mark.yNorm != null
+                ? { planId: mark.planId, page: mark.page, xNorm: mark.xNorm, yNorm: mark.yNorm }
+                : null,
+            photoMarks: localPhotoMarks(mark),
             authorName: local.authorId === user?.id ? profile?.full_name ?? null : null,
           })
           setLoading(false)
@@ -111,6 +117,13 @@ export function useReportData(id: string | undefined, user: AuthSessionUser | nu
           card: remote.card,
           localPhotos: null,
           remotePhotos: remote.photos,
+          photoMarks: remote.photoMarks.map((m) => ({
+            photoId: m.photo_id!,
+            planId: m.plan_id,
+            page: m.page,
+            xNorm: m.x_norm,
+            yNorm: m.y_norm,
+          })),
           mark: remote.mark
             ? {
                 planId: remote.mark.plan_id,
