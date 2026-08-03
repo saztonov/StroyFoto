@@ -13,6 +13,11 @@ import {
   loadReportForAccess,
 } from '../access/reportAccess.js';
 
+export interface PerformerNestedDTO {
+  id: string;
+  name: string;
+}
+
 export interface ReportListItemDTO {
   id: string;
   project_id: string;
@@ -30,6 +35,12 @@ export interface ReportListItemDTO {
   // «—». История не должна зависеть от того, активна ли позиция сейчас.
   work_type_name: string | null;
   work_assignment_name: string | null;
+  // Подрядчики отчёта: основной (performer_id) первым, остальные по uuid.
+  // Одним связанным массивом, а не двумя параллельными (ids + names) — так
+  // рассинхрон соответствия id → имя невозможен по конструкции. По той же
+  // причине, что и имена справочников выше, имена приходят с сервера:
+  // архивный подрядчик не вернётся в публичном справочнике.
+  performers: PerformerNestedDTO[];
 }
 
 interface ReportListRow {
@@ -43,6 +54,7 @@ interface ReportListRow {
   description: string | null;
   work_type_name: string | null;
   work_assignment_name: string | null;
+  performers: PerformerNestedDTO[] | null;
   // taken_at, created_at, updated_at кастятся к ::text в SELECT'ах,
   // чтобы сохранить микросекунды Postgres для точного OCC-сравнения.
   taken_at: string | null;
@@ -65,8 +77,22 @@ function toListItem(row: ReportListRow): ReportListItemDTO {
     updated_at: row.updated_at,
     work_type_name: row.work_type_name,
     work_assignment_name: row.work_assignment_name,
+    performers: row.performers ?? [],
   };
 }
+
+// Подрядчики отчёта одним упорядоченным подзапросом: основной первым, остальные
+// по uuid. created_at для порядка непригоден — now() внутри транзакции одинаков
+// для всех строк, вставленных одним запросом.
+// Требует, чтобы во внешнем запросе таблица reports была под алиасом `r`.
+const PERFORMERS_SELECT = `
+         (SELECT coalesce(json_agg(json_build_object(
+                   'id', pf.id,
+                   'name', pf.name::text
+                 ) ORDER BY (pf.id <> r.performer_id), pf.id), '[]'::json)
+            FROM report_performers rp
+            JOIN performers pf ON pf.id = rp.performer_id
+           WHERE rp.report_id = r.id) AS performers`;
 
 export interface PhotoNestedDTO {
   id: string;
@@ -203,6 +229,7 @@ export async function listReports(input: {
   limit: number;
   projectId?: string | null;
   workTypeIds?: string[] | null;
+  performerIds?: string[] | null;
   months?: string[] | null;
   dateFrom?: string | null;
   dateTo?: string | null;
@@ -238,6 +265,9 @@ export async function listReports(input: {
     input.months && input.months.length > 0 ? input.months : null,
     input.dateFrom ?? null,
     input.dateTo ?? null,
+    input.performerIds && input.performerIds.length > 0
+      ? input.performerIds
+      : null,
   ];
 
   const photosSelect = input.includePhotos
@@ -260,7 +290,7 @@ export async function listReports(input: {
            r.created_at::text AS created_at,
            r.updated_at::text AS updated_at,
            wt.name::text AS work_type_name,
-           wa.name::text AS work_assignment_name${photosSelect}
+           wa.name::text AS work_assignment_name,${PERFORMERS_SELECT}${photosSelect}
       FROM reports r
       LEFT JOIN work_types wt ON wt.id = r.work_type_id
       LEFT JOIN work_assignments wa ON wa.id = r.work_assignment_id
@@ -275,6 +305,10 @@ export async function listReports(input: {
        AND ($7::text[] IS NULL OR to_char(r.created_at, 'YYYY-MM') = ANY($7::text[]))
        AND ($8::timestamptz IS NULL OR r.created_at >= $8::timestamptz)
        AND ($9::timestamptz IS NULL OR r.created_at <= $9::timestamptz)
+       AND ($10::uuid[] IS NULL OR EXISTS (
+             SELECT 1 FROM report_performers rpf
+              WHERE rpf.report_id = r.id
+                AND rpf.performer_id = ANY($10::uuid[])))
      ORDER BY r.created_at DESC, r.id DESC
      LIMIT $4
   `;
@@ -327,7 +361,7 @@ const FULL_SQL = `
             FROM report_plan_marks m WHERE m.report_id = r.id) AS report_plan_marks,
          prof.full_name AS author_name,
          wt.name::text AS work_type_name,
-         wa.name::text AS work_assignment_name
+         wa.name::text AS work_assignment_name,${PERFORMERS_SELECT}
     FROM reports r
     LEFT JOIN profiles prof ON prof.id = r.author_id
     LEFT JOIN work_types wt ON wt.id = r.work_type_id
@@ -361,12 +395,23 @@ export async function getReportById(input: {
   return toFullDTO(result.rows[0]);
 }
 
+/**
+ * Дедупликация набора подрядчиков с сохранением порядка: первое вхождение
+ * выигрывает. Дубль нарушил бы PK report_performers и дал 23505, который
+ * createReport трактует как идемпотентный повтор, — ошибка была бы проглочена.
+ * Отвергать дубли нельзя: sync-операция падала бы вечно и блокировала черновик.
+ */
+function dedupePerformerIds(ids: string[]): string[] {
+  return [...new Set(ids)];
+}
+
 export async function createReport(input: {
   user: AuthenticatedUser;
   id: string;
   project_id: string;
   work_type_id: string;
   performer_id: string;
+  performer_ids: string[];
   work_assignment_id: string | null;
   plan_id: string | null;
   description: string | null;
@@ -417,15 +462,27 @@ export async function createReport(input: {
           input.taken_at,
         ],
       );
+      // Триггер sync_report_primary_performer уже вставил основную связь —
+      // ON CONFLICT DO NOTHING делает повтор безобидным.
+      await client.query(
+        `INSERT INTO report_performers (report_id, performer_id)
+         SELECT $1::uuid, unnest($2::uuid[])
+         ON CONFLICT DO NOTHING`,
+        [input.id, dedupePerformerIds(input.performer_ids)],
+      );
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
       if (err instanceof AppError) throw err;
-      // Idempotency: same id → return existing.
+      // Idempotency: повторная отправка того же отчёта → вернуть существующий.
+      // Проверка сужена до конкретного констрейнта: раньше сюда попал бы любой
+      // 23505, в том числе нарушение PK report_performers, и реальная ошибка
+      // молча превратилась бы в «успешный» ответ.
       if (
         typeof err === 'object' &&
         err !== null &&
-        (err as { code?: string }).code === '23505'
+        (err as { code?: string }).code === '23505' &&
+        (err as { constraint?: string }).constraint === 'reports_pkey'
       ) {
         return getReportById({ user: input.user, id: input.id });
       }
@@ -448,6 +505,10 @@ export interface ReportPatchInput {
   expectedUpdatedAt: string | null;
   work_type_id?: string;
   performer_id?: string;
+  // Полный набор подрядчиков. undefined означает «клиент не умеет множественность»
+  // (старая версия PWA) — набор в этом случае не заменяется целиком, см. решение
+  // ниже. Пустым массивом набор не обнуляется: min(1) на уровне схемы роута.
+  performer_ids?: string[];
   work_assignment_id?: string | null;
   description?: string | null;
   taken_at?: string | null;
@@ -463,8 +524,18 @@ export async function updateReportWithOcc(
   }
   assertReportEditable(input.user, access);
 
+  const performerIds =
+    input.performer_ids !== undefined
+      ? dedupePerformerIds(input.performer_ids)
+      : undefined;
+  // Инвариант «основной = первый в наборе» держится здесь, а не только в роуте:
+  // сервис не должен зависеть от того, довёл ли его вызывающий.
+  const performerId =
+    input.performer_id !== undefined ? input.performer_id : performerIds?.[0];
+
   const setWorkType = input.work_type_id !== undefined;
-  const setPerformer = input.performer_id !== undefined;
+  const setPerformer = performerId !== undefined;
+  const setPerformerIds = performerIds !== undefined;
   const setWorkAssignment = input.work_assignment_id !== undefined;
   const setDescription = input.description !== undefined;
   const setTakenAt = input.taken_at !== undefined;
@@ -473,6 +544,7 @@ export async function updateReportWithOcc(
   if (
     !setWorkType &&
     !setPerformer &&
+    !setPerformerIds &&
     !setWorkAssignment &&
     !setDescription &&
     !setTakenAt &&
@@ -493,17 +565,31 @@ export async function updateReportWithOcc(
       // позицию» (запрещено) от «поле прислали без изменений» (разрешено).
       // Старые клиенты шлют в PATCH все поля, поэтому отвергать любой
       // неактивный id нельзя — сломается редактирование истории.
+      // FOR UPDATE сериализует конкурентные правки этого отчёта: снятое ниже
+      // состояние связки должно относиться к тому же моменту, что и эта строка.
       const cur = await client.query<{
         work_type_id: string;
         work_assignment_id: string | null;
+        performer_id: string;
       }>(
-        `SELECT work_type_id, work_assignment_id FROM reports WHERE id = $1`,
+        `SELECT work_type_id, work_assignment_id, performer_id
+           FROM reports WHERE id = $1 FOR UPDATE`,
         [input.id],
       );
       if (cur.rowCount === 0) {
         throw new AppError(404, 'NOT_FOUND', 'Отчёт не найден.');
       }
       const current = cur.rows[0];
+
+      // Число связей ДО UPDATE. Считать после нельзя: триггер
+      // sync_report_primary_performer срабатывает AFTER UPDATE OF performer_id и
+      // немедленно добавляет новую связь, из-за чего одиночный отчёт выглядел бы
+      // как многоисполнительский и уходил в аддитивную ветку вместо замены.
+      const cntBefore = await client.query<{ cnt: string }>(
+        `SELECT count(*)::text AS cnt FROM report_performers WHERE report_id = $1`,
+        [input.id],
+      );
+      const performerCountBefore = Number(cntBefore.rows[0]?.cnt ?? '0');
 
       if (setWorkType && input.work_type_id !== current.work_type_id) {
         await assertDictActiveForWrite(client, 'work_types', input.work_type_id!);
@@ -539,7 +625,7 @@ export async function updateReportWithOcc(
           setWorkType,
           setWorkType ? input.work_type_id : null,
           setPerformer,
-          setPerformer ? input.performer_id : null,
+          setPerformer ? performerId : null,
           setWorkAssignment,
           setWorkAssignment ? input.work_assignment_id : null,
           setDescription,
@@ -558,6 +644,41 @@ export async function updateReportWithOcc(
           'Отчёт был изменён другим пользователем. Обновите данные и повторите.',
         );
       }
+
+      // Решение по связке принимается по состоянию ДО UPDATE.
+      //
+      // Наивное правило «нет performer_ids → набор из одного элемента» превратило
+      // бы отчёт [A, B] в [A] при правке одного лишь описания: старый клиент шлёт
+      // performer_id в КАЖДОМ PATCH (src/services/sync.ts, report_update).
+      if (setPerformerIds) {
+        // Клиент умеет множественность — заменяем набор целиком.
+        await client.query(
+          `DELETE FROM report_performers
+            WHERE report_id = $1 AND performer_id <> ALL($2::uuid[])`,
+          [input.id, performerIds],
+        );
+        await client.query(
+          `INSERT INTO report_performers (report_id, performer_id)
+           SELECT $1::uuid, unnest($2::uuid[])
+           ON CONFLICT DO NOTHING`,
+          [input.id, performerIds],
+        );
+      } else if (setPerformer && performerId !== current.performer_id) {
+        // Старый клиент сменил основного исполнителя. Триггер уже добавил новую
+        // связь; остаётся решить судьбу прежних.
+        if (performerCountBefore <= 1) {
+          // Отчёт был одиночным — прежняя семантика «замена» сохраняется.
+          await client.query(
+            `DELETE FROM report_performers
+              WHERE report_id = $1 AND performer_id <> $2::uuid`,
+            [input.id, performerId],
+          );
+        }
+        // Иначе — аддитивно: старый клиент не умеет выражать множественность,
+        // и только добавление ничего не теряет. Триггер уже всё сделал.
+      }
+      // Ни performer_ids, ни смены performer_id — связку не трогаем.
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

@@ -15,6 +15,13 @@ export interface LocalReport {
   projectId: string
   workTypeId: string
   performerId: string
+  /**
+   * Полный набор подрядчиков, первый элемент — основной (`performerId`).
+   * Опционально: черновики, записанные до введения поля, остаются валидными,
+   * потребители используют фолбэк `performerIds ?? [performerId]`. Именно
+   * поэтому DB_VERSION поднимать не нужно — новых stores и индексов нет.
+   */
+  performerIds?: string[]
   workAssignmentId: string | null
   planId: string | null
   description: string | null
@@ -111,6 +118,10 @@ export interface ReportMutation {
   payload: {
     workTypeId: string
     performerId: string
+    // Опционально: очередь, накопленная до релиза, доедет без него — сервер в
+    // этом случае трактует PATCH как «клиент не умеет множественность» и не
+    // заменяет набор целиком, а лишь дополняет его.
+    performerIds?: string[]
     workAssignmentId: string | null
     description: string | null
     takenAt: string | null
@@ -142,6 +153,10 @@ export interface RemoteReportSnapshot {
   // введения полей, остаются валидными — версию IDB поднимать не нужно.
   workTypeName?: string | null
   workAssignmentName?: string | null
+  // Подрядчики с именами — по той же причине, что и имена справочников:
+  // архивный исполнитель не вернётся в публичном справочнике, и офлайн-история
+  // показала бы «—». Первый элемент соответствует performerId.
+  performers?: Array<{ id: string; name: string }>
   createdAt: string
   updatedAt: string | null
   cachedAt: number

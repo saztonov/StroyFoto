@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
-import type { ReportCard } from '@/services/reports'
+import { type ReportCard, reportPerformerIds } from '@/services/reports'
 import type { PlanRow } from '@/services/catalogs'
 import type { DraftPhoto } from './PhotoPicker'
 import type { PlanMarkValue } from './PlanMarkPicker'
@@ -28,7 +28,9 @@ export interface ExistingPhoto {
 /** Результат редактирования — полный набор изменений */
 export interface EditReportSaveInput {
   workTypeId: string
+  /** Основной подрядчик — первый элемент performerIds. */
   performerId: string
+  performerIds: string[]
   workAssignmentId: string
   description: string | null
   takenAt: string | null
@@ -110,7 +112,7 @@ export function EditReportModal({
   }, [workAssignments, report.workAssignmentId, report.workAssignmentName])
   const [form] = Form.useForm<{
     workTypeId: string
-    performerId: string
+    performerIds: string[]
     workAssignmentId: string
     description: string
     takenAt: dayjs.Dayjs | null
@@ -129,7 +131,7 @@ export function EditReportModal({
     if (open) {
       form.setFieldsValue({
         workTypeId: report.workTypeId,
-        performerId: report.performerId,
+        performerIds: reportPerformerIds(report),
         workAssignmentId: report.workAssignmentId ?? '',
         description: report.description ?? '',
         takenAt: report.takenAt ? dayjs(report.takenAt) : null,
@@ -183,7 +185,8 @@ export function EditReportModal({
 
       await onSave({
         workTypeId: values.workTypeId,
-        performerId: values.performerId,
+        performerId: values.performerIds[0],
+        performerIds: values.performerIds,
         workAssignmentId: values.workAssignmentId,
         description: values.description?.trim() || null,
         takenAt: values.takenAt?.toISOString() ?? null,
@@ -245,9 +248,16 @@ export function EditReportModal({
           />
         </Form.Item>
         <Form.Item
-          name="performerId"
+          name="performerIds"
           label={reportDetails.performer}
-          rules={[{ required: true, message: 'Выберите исполнителя' }]}
+          rules={[
+            {
+              required: true,
+              type: 'array',
+              min: 1,
+              message: 'Выберите хотя бы одного исполнителя',
+            },
+          ]}
         >
           <PerformerSelect options={performers} />
         </Form.Item>

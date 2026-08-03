@@ -48,7 +48,9 @@ export interface DraftReportInput {
   id: string
   projectId: string
   workTypeId: string
+  /** Основной подрядчик; обязан совпадать с performerIds[0]. */
   performerId: string
+  performerIds: string[]
   workAssignmentId: string
   planId: string | null
   description: string | null
@@ -74,6 +76,7 @@ export async function saveDraftReport(input: DraftReportInput): Promise<LocalRep
     projectId: input.projectId,
     workTypeId: input.workTypeId,
     performerId: input.performerId,
+    performerIds: input.performerIds,
     workAssignmentId: input.workAssignmentId,
     planId: input.planId,
     description: input.description,

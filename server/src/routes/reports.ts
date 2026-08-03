@@ -81,33 +81,79 @@ const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
   project_id: uuidSchema.optional(),
   work_type_ids: csvUuidListSchema.optional(),
+  performer_ids: csvUuidListSchema.optional(),
   months: csvMonthListSchema.optional(),
   date_from: isoDateSchema.optional(),
   date_to: isoDateSchema.optional(),
   include_photos: truthyBoolSchema.optional(),
 });
 
-const createSchema = z.object({
-  id: uuidSchema,
-  project_id: uuidSchema,
-  work_type_id: uuidSchema,
-  performer_id: uuidSchema,
-  work_assignment_id: uuidSchema.nullable().optional(),
-  plan_id: uuidSchema.nullable().optional(),
-  description: z.string().max(5000).nullable().optional(),
-  taken_at: isoDateSchema.nullable().optional(),
-  author_id: uuidSchema.optional(),
-});
+// Набор подрядчиков отчёта. Верхняя граница та же, что у csvUuidListSchema.
+// Дубли не отвергаются, а схлопываются в сервисе: отказ превратил бы
+// sync-операцию в вечно падающую и заблокировал бы черновик на устройстве.
+const performerIdsSchema = z.array(uuidSchema).min(1).max(200);
 
-const updateSchema = z.object({
-  expectedUpdatedAt: isoDateSchema.nullable().optional(),
-  work_type_id: uuidSchema.optional(),
-  performer_id: uuidSchema.optional(),
-  work_assignment_id: uuidSchema.nullable().optional(),
-  description: z.string().max(5000).nullable().optional(),
-  taken_at: isoDateSchema.nullable().optional(),
-  plan_id: uuidSchema.nullable().optional(),
-});
+/**
+ * Основной исполнитель обязан быть первым элементом набора — иначе на сервере
+ * появились бы два несогласованных источника истины. Если прислан только набор,
+ * основной выводится из performer_ids[0].
+ */
+function assertPerformersConsistent(
+  v: { performer_id?: string; performer_ids?: string[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    v.performer_id !== undefined &&
+    v.performer_ids !== undefined &&
+    v.performer_ids[0] !== v.performer_id
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['performer_ids'],
+      message:
+        'performer_id должен совпадать с первым элементом performer_ids.',
+    });
+  }
+}
+
+const createSchema = z
+  .object({
+    id: uuidSchema,
+    project_id: uuidSchema,
+    work_type_id: uuidSchema,
+    // Необязателен, если прислан performer_ids: старые клиенты шлют только его,
+    // новые могут прислать только набор.
+    performer_id: uuidSchema.optional(),
+    performer_ids: performerIdsSchema.optional(),
+    work_assignment_id: uuidSchema.nullable().optional(),
+    plan_id: uuidSchema.nullable().optional(),
+    description: z.string().max(5000).nullable().optional(),
+    taken_at: isoDateSchema.nullable().optional(),
+    author_id: uuidSchema.optional(),
+  })
+  .superRefine((v, ctx) => {
+    assertPerformersConsistent(v, ctx);
+    if (v.performer_id === undefined && v.performer_ids === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['performer_id'],
+        message: 'Нужно указать performer_id или performer_ids.',
+      });
+    }
+  });
+
+const updateSchema = z
+  .object({
+    expectedUpdatedAt: isoDateSchema.nullable().optional(),
+    work_type_id: uuidSchema.optional(),
+    performer_id: uuidSchema.optional(),
+    performer_ids: performerIdsSchema.optional(),
+    work_assignment_id: uuidSchema.nullable().optional(),
+    description: z.string().max(5000).nullable().optional(),
+    taken_at: isoDateSchema.nullable().optional(),
+    plan_id: uuidSchema.nullable().optional(),
+  })
+  .superRefine(assertPerformersConsistent);
 
 const planMarkSchema = z.object({
   plan_id: uuidSchema,
@@ -129,6 +175,7 @@ export default async function reportsRoutes(
       limit: q.limit ?? 50,
       projectId: q.project_id ?? null,
       workTypeIds: q.work_type_ids ?? null,
+      performerIds: q.performer_ids ?? null,
       months: q.months ?? null,
       dateFrom: q.date_from ?? null,
       dateTo: q.date_to ?? null,
@@ -143,12 +190,15 @@ export default async function reportsRoutes(
 
   app.post('/', guard, async (request) => {
     const body = parseBody(createSchema, request.body);
+    // Схема гарантирует, что хотя бы одно из полей задано и что они согласованы.
+    const performerIds = body.performer_ids ?? [body.performer_id!];
     const report = await createReport({
       user: request.user!,
       id: body.id,
       project_id: body.project_id,
       work_type_id: body.work_type_id,
-      performer_id: body.performer_id,
+      performer_id: performerIds[0],
+      performer_ids: performerIds,
       work_assignment_id: body.work_assignment_id ?? null,
       plan_id: body.plan_id ?? null,
       description: body.description ?? null,
@@ -167,6 +217,7 @@ export default async function reportsRoutes(
       expectedUpdatedAt: body.expectedUpdatedAt ?? null,
       work_type_id: body.work_type_id,
       performer_id: body.performer_id,
+      performer_ids: body.performer_ids,
       work_assignment_id: body.work_assignment_id,
       description: body.description,
       taken_at: body.taken_at,

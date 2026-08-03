@@ -19,7 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { reportDetails, reportsList, photo360 } from '@/shared/i18n/ru'
 import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
-import { resolveCatalogName } from '../lib/catalogNames'
+import { resolveCatalogName, resolvePerformerLabels } from '../lib/catalogNames'
 import { getDB, type LocalPhoto } from '@/lib/db'
 import {
   cacheRemotePhotoBlob,
@@ -351,9 +351,16 @@ export function PhotoFeedView({
   const projectName = activeReport
     ? projectsById.get(activeReport.projectId)?.name ?? '—'
     : '—'
-  const performer = activeReport
-    ? performersById.get(activeReport.performerId)
-    : undefined
+  const performerLabels = activeReport
+    ? resolvePerformerLabels(
+        activeReport,
+        (id) => performersById.get(id),
+        {
+          contractor: reportDetails.performerContractor,
+          own: reportDetails.performerOwn,
+        },
+      )
+    : []
   const workTypeName = activeReport
     ? resolveCatalogName(activeReport.workTypeName, activeReport.workTypeId, (id) =>
         workTypesById.get(id)?.name,
@@ -478,14 +485,14 @@ export function PhotoFeedView({
             <Descriptions.Item label={reportDetails.workAssignment}>
               {workAssignmentName}
             </Descriptions.Item>
-            <Descriptions.Item label={reportDetails.performer}>
-              {performer
-                ? `${performer.name} · ${
-                    performer.kind === 'contractor'
-                      ? reportDetails.performerContractor
-                      : reportDetails.performerOwn
-                  }`
-                : '—'}
+            <Descriptions.Item
+              label={
+                performerLabels.length > 1
+                  ? reportDetails.performers
+                  : reportDetails.performer
+              }
+            >
+              {performerLabels.length > 0 ? performerLabels.join(', ') : '—'}
             </Descriptions.Item>
             <Descriptions.Item label={reportDetails.takenAt}>
               {activeReport.takenAt

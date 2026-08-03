@@ -171,6 +171,7 @@ export async function loadMergedReports(
             authorName: authorNames.get(row.author_id) ?? null,
             workTypeName: row.work_type_name ?? null,
             workAssignmentName: row.work_assignment_name ?? null,
+            performers: row.performers ?? undefined,
             createdAt: row.created_at,
             updatedAt: row.updated_at ?? null,
             cachedAt: Date.now(),

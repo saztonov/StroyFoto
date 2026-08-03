@@ -82,6 +82,7 @@ export const reportDetails = {
   workType: 'Вид работ',
   workAssignment: 'Назначение работ',
   performer: 'Исполнитель',
+  performers: 'Исполнители',
   description: 'Описание',
   takenAt: 'Дата съёмки',
   createdAt: 'Создан',

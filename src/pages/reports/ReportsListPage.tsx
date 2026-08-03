@@ -22,6 +22,8 @@ import { actions, nav, reportsList } from '@/shared/i18n/ru'
 import { onReportsChanged } from '@/services/invalidation'
 import {
   loadMergedReports,
+  reportPerformerIds,
+  reportPerformerNames,
   type ReportCard,
   type RemoteReportPhoto,
 } from '@/services/reports'
@@ -40,7 +42,8 @@ interface ReportCardItemProps {
   projectName: string
   workTypeName: string | null
   workAssignmentName: string | null
-  performerName: string | null
+  /** Уже собранный список имён подрядчиков через запятую. */
+  performerNames: string | null
   hasIssue: boolean
   onOpen: (id: string) => void
 }
@@ -50,7 +53,7 @@ const ReportCardItem = memo(function ReportCardItem({
   projectName,
   workTypeName,
   workAssignmentName,
-  performerName,
+  performerNames,
   hasIssue,
   onOpen,
 }: ReportCardItemProps) {
@@ -83,9 +86,9 @@ const ReportCardItem = memo(function ReportCardItem({
           <Tag color={s.color}>{s.text}</Tag>
           {hasIssue && <Tag color="volcano">Конфликт</Tag>}
           {report.remoteOnly && <Tag color="default">{reportsList.remoteTag}</Tag>}
-          {performerName && (
+          {performerNames && (
             <Typography.Text type="secondary" style={{ overflowWrap: 'anywhere' }}>
-              {performerName}
+              {performerNames}
             </Typography.Text>
           )}
           {workTypeName && (
@@ -340,19 +343,33 @@ export function ReportsListPage() {
     workTypeIds.length > 0
 
   const groupedByPerformer = useMemo(() => {
-    const map = new Map<string, { performer: Performer | null; reports: ReportCard[] }>()
+    const map = new Map<
+      string,
+      { id: string; name: string | null; performer: Performer | null; reports: ReportCard[] }
+    >()
     for (const r of filtered) {
-      const key = r.performerId
-      if (!map.has(key)) {
-        map.set(key, { performer: performersById.get(key) ?? null, reports: [] })
+      // Отчёт с несколькими подрядчиками попадает в группу КАЖДОГО из них:
+      // его ищут по любому из участников, поэтому дублирование намеренное.
+      for (const id of reportPerformerIds(r)) {
+        if (!map.has(id)) {
+          map.set(id, {
+            id,
+            // Имя с сервера важнее локального справочника: архивного
+            // исполнителя в нём нет, и группа осталась бы без названия.
+            name:
+              r.performers?.find((p) => p.id === id)?.name ??
+              performersById.get(id)?.name ??
+              null,
+            performer: performersById.get(id) ?? null,
+            reports: [],
+          })
+        }
+        map.get(id)!.reports.push(r)
       }
-      map.get(key)!.reports.push(r)
     }
-    return Array.from(map.values()).sort((a, b) => {
-      const nameA = a.performer?.name ?? ''
-      const nameB = b.performer?.name ?? ''
-      return nameA.localeCompare(nameB, 'ru')
-    })
+    return Array.from(map.values()).sort((a, b) =>
+      (a.name ?? '').localeCompare(b.name ?? '', 'ru'),
+    )
   }, [filtered, performersById])
 
   return (
@@ -483,7 +500,11 @@ export function ReportsListPage() {
                   r.workAssignmentId,
                   (id) => workAssignmentsById.get(id)?.name,
                 )}
-                performerName={performersById.get(r.performerId)?.name ?? null}
+                performerNames={
+                  reportPerformerNames(r, (id) => performersById.get(id)?.name, '')
+                    .filter(Boolean)
+                    .join(', ') || null
+                }
                 hasIssue={issueReportIds.has(r.id)}
                 onOpen={openReport}
               />
@@ -494,11 +515,15 @@ export function ReportsListPage() {
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {groupedByPerformer.map((group) => {
             const perf = group.performer
-            const title = perf
-              ? `${perf.name} · ${perf.kind === 'contractor' ? 'Подрядчик' : 'Собственные силы'}`
+            // Вид известен только из локального справочника; у архивного
+            // исполнителя его не будет, но имя придёт с сервера.
+            const title = group.name
+              ? perf
+                ? `${group.name} · ${perf.kind === 'contractor' ? 'Подрядчик' : 'Собственные силы'}`
+                : group.name
               : reportsList.performerUnknown
             return (
-              <div key={perf?.id ?? '__unknown'}>
+              <div key={group.id}>
                 <Typography.Title level={5} style={{ marginBottom: 8 }}>
                   {title}
                 </Typography.Title>
@@ -516,7 +541,7 @@ export function ReportsListPage() {
                           r.workAssignmentId,
                           (id) => workAssignmentsById.get(id)?.name,
                         )}
-                        performerName={null}
+                        performerNames={null}
                         hasIssue={issueReportIds.has(r.id)}
                         onOpen={openReport}
                       />

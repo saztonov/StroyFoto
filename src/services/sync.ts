@@ -216,6 +216,7 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
       project_id: report.projectId,
       work_type_id: report.workTypeId,
       performer_id: report.performerId,
+      performer_ids: report.performerIds ?? [report.performerId],
       work_assignment_id: report.workAssignmentId,
       plan_id: report.planId,
       description: report.description,
@@ -269,6 +270,12 @@ async function processOp(op: SyncOp): Promise<ProcessResult> {
     const updatePayload: Record<string, unknown> = {
       work_type_id: mutation.payload.workTypeId,
       performer_id: mutation.payload.performerId,
+      // Мутации, накопленные до этого релиза, поля не содержат. Отправлять
+      // фолбэк [performerId] здесь НЕЛЬЗЯ: сервер воспримет это как явную
+      // замену набора и потеряет остальных подрядчиков отчёта.
+      ...(mutation.payload.performerIds
+        ? { performer_ids: mutation.payload.performerIds }
+        : {}),
       work_assignment_id: mutation.payload.workAssignmentId,
       description: mutation.payload.description,
       taken_at: mutation.payload.takenAt,

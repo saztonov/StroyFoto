@@ -40,7 +40,7 @@ interface FormValues {
   projectId: string
   workTypeId: string
   workAssignmentId: string
-  performerId: string
+  performerIds: string[]
   description?: string
   takenAt: Dayjs
 }
@@ -147,7 +147,8 @@ export function NewReportPage() {
         id: reportId,
         projectId: values.projectId,
         workTypeId: values.workTypeId,
-        performerId: values.performerId,
+        performerId: values.performerIds[0],
+        performerIds: values.performerIds,
         workAssignmentId: values.workAssignmentId,
         planId: mark?.planId ?? null,
         description: values.description?.trim() || null,
@@ -258,9 +259,16 @@ export function NewReportPage() {
           </Form.Item>
 
           <Form.Item
-            name="performerId"
-            label="Исполнитель"
-            rules={[{ required: true, message: 'Выберите исполнителя' }]}
+            name="performerIds"
+            label="Исполнители"
+            rules={[
+              {
+                required: true,
+                type: 'array',
+                min: 1,
+                message: 'Выберите хотя бы одного исполнителя',
+              },
+            ]}
           >
             <PerformerSelect options={performers} />
           </Form.Item>

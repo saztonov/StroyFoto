@@ -41,6 +41,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
       await updateRemoteReport(id, {
         workTypeId: values.workTypeId,
         performerId: values.performerId,
+        performerIds: values.performerIds,
         workAssignmentId: values.workAssignmentId,
         description: values.description,
         takenAt: values.takenAt,
@@ -119,6 +120,7 @@ export async function saveReport({ id, data, values, existingPhotos }: Args): Pr
     payload: {
       workTypeId: values.workTypeId,
       performerId: values.performerId,
+      performerIds: values.performerIds,
       workAssignmentId: values.workAssignmentId,
       description: values.description,
       takenAt: values.takenAt,

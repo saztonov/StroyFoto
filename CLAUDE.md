@@ -133,7 +133,8 @@ scripts/db/           # apply-migrations.sh, export-schema.ts
 | `work_assignments` | Назначения работ (создание — только админ; штатный вывод из оборота — `is_active = false`; удаление — только для позиций без отчётов, причём FK `reports.work_assignment_id` объявлен `ON DELETE SET NULL` и **не** защищает: проверка использования сделана явно в `deleteDictAdmin`) |
 | `performers` | Исполнители: kind = `contractor` / `own_forces` |
 | `plans` | PDF-планы по проектам (object_key, page_count) |
-| `reports` | Отчёты (project, work_type, performer, plan, author) |
+| `reports` | Отчёты (project, work_type, performer, plan, author). `performer_id` — **основной** подрядчик; полный набор — в `report_performers` |
+| `report_performers` | Подрядчики отчёта (M:N). Expand-фаза: `reports.performer_id` сохранён для старых офлайн-клиентов, триггер `sync_report_primary_performer` держит основную связь в актуальном состоянии |
 | `report_plan_marks` | Точки на плане (normalized xNorm/yNorm) |
 | `report_photos` | Фотографии (object_key, thumb_object_key) |
 

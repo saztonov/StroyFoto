@@ -1,6 +1,18 @@
 import type { SyncStatus } from '@/lib/db'
 
 /**
+ * Подрядчик отчёта в том виде, в каком его отдаёт сервер: id вместе с именем.
+ * Одним связанным объектом, а не двумя параллельными массивами (ids + names) —
+ * так соответствие id → имя не может разъехаться. Имя приходит с сервера по той
+ * же причине, что и имена справочников: клиент грузит исполнителей с
+ * ?active=true, и архивный подрядчик отображался бы как «—».
+ */
+export interface ReportPerformer {
+  id: string
+  name: string
+}
+
+/**
  * Унифицированная карточка отчёта для списка/детальной страницы.
  * `remoteOnly = true` означает, что отчёт ещё не сохранён в IndexedDB на этом
  * устройстве как черновик — это либо свежая запись с сервера, либо кэш истории.
@@ -29,6 +41,18 @@ export interface ReportCard {
   workTypeName?: string | null
   workAssignmentName?: string | null
   /**
+   * Идентификаторы подрядчиков, основной первым. Есть и у локальных черновиков.
+   * Отсутствует у записей, созданных до этого релиза — фолбэк `[performerId]`,
+   * для него в `./performers` есть `reportPerformerIds()`.
+   */
+  performerIds?: string[]
+  /**
+   * Подрядчики с именами, отданные сервером. Как и `workTypeName` выше, это
+   * основной источник имён; резолв через локальный справочник остаётся запасным
+   * для черновиков, которых сервер ещё не видел.
+   */
+  performers?: ReportPerformer[]
+  /**
    * Последняя ошибка синхронизации (только для локальных отчётов).
    * Пробрасывается в карточку из LocalReport.lastError, чтобы UI мог
    * показать причину failed-статуса без отдельного fetch'а.
@@ -50,6 +74,8 @@ export interface RemoteReportRow {
   updated_at: string | null
   work_type_name?: string | null
   work_assignment_name?: string | null
+  /** Опционально: ответы серверов до этого релиза поля не содержат. */
+  performers?: ReportPerformer[] | null
   /** Заполняется только когда сервер вызван с include_photos=true. */
   report_photos?: RemoteReportPhoto[] | null
 }
@@ -98,6 +124,8 @@ export interface MergedReportsResult {
 export interface ReportUpdateInput {
   workTypeId: string
   performerId: string
+  /** Полный набор подрядчиков; первый элемент обязан совпадать с performerId. */
+  performerIds: string[]
   workAssignmentId: string | null
   description: string | null
   takenAt: string | null

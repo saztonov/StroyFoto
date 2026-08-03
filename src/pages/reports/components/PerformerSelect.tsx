@@ -3,8 +3,9 @@ import type { Performer } from '@/entities/performer/types'
 
 interface Props {
   options: Performer[]
-  value?: string
-  onChange?: (id: string) => void
+  /** Набор подрядчиков; первый элемент считается основным. */
+  value?: string[]
+  onChange?: (ids: string[]) => void
   disabled?: boolean
 }
 
@@ -14,8 +15,10 @@ export function PerformerSelect({ options, value, onChange, disabled }: Props) {
 
   return (
     <Select
+      mode="multiple"
       showSearch
-      placeholder="Выберите исполнителя"
+      allowClear
+      placeholder="Выберите исполнителей"
       optionFilterProp="label"
       value={value}
       onChange={onChange}

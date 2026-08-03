@@ -28,6 +28,8 @@ interface RemoteReportRow {
   // в «—» при отображении истории (см. resolveCatalogName).
   work_type_name?: string | null
   work_assignment_name?: string | null
+  // Подрядчики с именами — по той же причине, что и имена справочников выше.
+  performers?: Array<{ id: string; name: string }> | null
 }
 
 let reconciling = false
@@ -135,6 +137,7 @@ async function reconcileReports(): Promise<void> {
       authorName: authorNames.get(row.author_id) ?? null,
       workTypeName: row.work_type_name ?? null,
       workAssignmentName: row.work_assignment_name ?? null,
+      performers: row.performers ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at ?? null,
       cachedAt: Date.now(),

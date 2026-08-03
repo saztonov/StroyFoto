@@ -7,6 +7,7 @@ export function fromLocal(r: LocalReport): ReportCard {
     projectId: r.projectId,
     workTypeId: r.workTypeId,
     performerId: r.performerId,
+    performerIds: r.performerIds ?? [r.performerId],
     workAssignmentId: r.workAssignmentId ?? null,
     planId: r.planId,
     description: r.description,
@@ -39,6 +40,10 @@ export function fromRemote(row: RemoteReportRow, authorName: string | null = nul
     remoteOnly: true,
     workTypeName: row.work_type_name ?? null,
     workAssignmentName: row.work_assignment_name ?? null,
+    // Ответ сервера до этого релиза поля не содержит — оставляем undefined,
+    // чтобы сработал фолбэк reportPerformerIds() на одиночный performerId.
+    performerIds: row.performers?.map((p) => p.id),
+    performers: row.performers ?? undefined,
   }
 }
 
@@ -60,5 +65,7 @@ export function fromSnapshot(s: RemoteReportSnapshot): ReportCard {
     remoteOnly: true,
     workTypeName: s.workTypeName ?? null,
     workAssignmentName: s.workAssignmentName ?? null,
+    performerIds: s.performers?.map((p) => p.id),
+    performers: s.performers,
   }
 }

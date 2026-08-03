@@ -39,15 +39,34 @@ YYYYMMDDHHMM_краткое_описание.sql
   `--mark-applied 000000000000_baseline.sql`.
 - На **пустой** БД применяется обычным прогоном, дальше идут остальные файлы.
 
-Снимать baseline нужно `pg_dump` версии **не ниже сервера** (Yandex MDB — PostgreSQL 17):
+Снимать baseline нужно `pg_dump` версии **не ниже сервера** (Yandex MDB — PostgreSQL 17).
+
+> ⚠️ Не подключайте `server/.env` через `. server/.env` или `source`: shell **исполнит**
+> содержимое файла, а не просто прочитает переменные. Достаточно `grep`-выборки нужных
+> ключей. Сам мигратор безопасен — `--env-file` разбирает dotenv, а не сорсит.
+
+Слепок снимается **во временный файл** и переносится в `db/migrations/` только после
+проверки: пустой или оборванный baseline, попавший в каталог, будет применён как есть.
 
 ```bash
-set -a; . server/.env; set +a
-docker run --rm -v "$PGSSLROOTCERT:/ca.crt:ro" -e PGSSLROOTCERT=/ca.crt postgres:17 \
+db_url="$(grep -E '^DATABASE_URL=' server/.env | tail -n1 | cut -d= -f2-)"
+ca="$(grep -E '^PGSSLROOTCERT=' server/.env | tail -n1 | cut -d= -f2-)"
+tmp="$(mktemp)"
+
+docker run --rm -v "$ca:/ca.crt:ro" -e PGSSLROOTCERT=/ca.crt postgres:17 \
   pg_dump --schema-only --no-owner --no-privileges \
-          --exclude-table=public.schema_migrations "$DATABASE_URL" \
-  > db/migrations/000000000000_baseline.sql
+          --exclude-table=public.schema_migrations "$db_url" \
+  > "$tmp"
+
+# Проверка: непустой файл и он восстанавливается в чистую PostgreSQL 17.
+[ -s "$tmp" ] || { echo 'baseline пуст — не переносим'; exit 1; }
+
+mv "$tmp" db/migrations/000000000000_baseline.sql
 ```
+
+Репетиция перед продом — не только восстановление baseline: добавьте в чистую БД несколько
+тестовых `reports`, прогоните остальные миграции **настоящим мигратором** (`apply-migrations.sh`,
+а не вручную через psql) и убедитесь, что отработали и backfill, и триггеры.
 
 ## Разрушающие изменения: expand / contract
 

@@ -9,6 +9,10 @@ export async function updateRemoteReport(
   const body: Record<string, unknown> = {
     work_type_id: input.workTypeId,
     performer_id: input.performerId,
+    // Наличие performer_ids — сигнал серверу «клиент умеет множественность»,
+    // и только тогда набор заменяется целиком. Без этого поля сервер лишь
+    // дополняет набор, чтобы старый клиент не терял чужие связи.
+    performer_ids: input.performerIds,
     work_assignment_id: input.workAssignmentId,
     description: input.description,
     taken_at: input.takenAt,

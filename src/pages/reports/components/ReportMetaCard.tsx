@@ -6,7 +6,7 @@ import type { WorkType } from '@/entities/workType/types'
 import type { Performer } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
 import type { LoadedReport } from '../types'
-import { resolveCatalogName } from '../lib/catalogNames'
+import { resolveCatalogName, resolvePerformerLabels } from '../lib/catalogNames'
 
 interface Props {
   data: LoadedReport
@@ -19,7 +19,14 @@ interface Props {
 
 export function ReportMetaCard({ data, projects, workTypes, performers, workAssignments, status }: Props) {
   const projectName = projects.find((p) => p.id === data.card.projectId)?.name ?? '—'
-  const performer = performers.find((p) => p.id === data.card.performerId)
+  const performerLabels = resolvePerformerLabels(
+    data.card,
+    (id) => performers.find((p) => p.id === id),
+    {
+      contractor: reportDetails.performerContractor,
+      own: reportDetails.performerOwn,
+    },
+  )
   const workTypeName =
     resolveCatalogName(
       data.card.workTypeName,
@@ -41,14 +48,14 @@ export function ReportMetaCard({ data, projects, workTypes, performers, workAssi
         <Descriptions.Item label={reportDetails.workAssignment}>
           {workAssignmentName}
         </Descriptions.Item>
-        <Descriptions.Item label={reportDetails.performer}>
-          {performer
-            ? `${performer.name} · ${
-                performer.kind === 'contractor'
-                  ? reportDetails.performerContractor
-                  : reportDetails.performerOwn
-              }`
-            : '—'}
+        <Descriptions.Item
+          label={
+            performerLabels.length > 1
+              ? reportDetails.performers
+              : reportDetails.performer
+          }
+        >
+          {performerLabels.length > 0 ? performerLabels.join(', ') : '—'}
         </Descriptions.Item>
         <Descriptions.Item label={reportDetails.description}>
           {data.card.description || '—'}
