@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { AppError } from '../http/errors.js';
 import {
@@ -7,8 +8,9 @@ import {
 } from '../http/responses.js';
 import { signAccessToken, type UserRole } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/passwords.js';
+import { validateNewPassword } from '../auth/passwordPolicy.js';
 import {
-  issueRefreshToken,
+  issueRefreshTokenWithClient,
   lookupRefreshToken,
   markExpired,
   revokeFamily,
@@ -37,16 +39,17 @@ interface UserRow {
   email: string;
   password_hash: string | null;
   deleted_at: Date | null;
+  session_version: number;
 }
 
-interface ProfileRow {
+export interface ProfileRow {
   id: string;
   full_name: string | null;
   role: UserRole;
   is_active: boolean;
 }
 
-function profileFromRow(row: ProfileRow): ProfileDTO {
+export function profileFromRow(row: ProfileRow): ProfileDTO {
   return {
     id: row.id,
     full_name: row.full_name,
@@ -55,21 +58,37 @@ function profileFromRow(row: ProfileRow): ProfileDTO {
   };
 }
 
-async function buildEnvelopeWithTokens(
+/**
+ * Собирает сессию ВНУТРИ переданной транзакции, до COMMIT.
+ *
+ * Порядок важен: и подпись JWT, и вставка refresh-токена должны успеть
+ * откатиться вместе с изменением пользователя. Если подписывать после COMMIT,
+ * сбой подписи оставляет пароль уже смененным, а клиенту отдаёт 500 — отличить
+ * это от «ничего не произошло» он не может.
+ */
+export async function buildEnvelopeWithTokens(
+  client: PoolClient,
   user: { id: string; email: string },
   profile: ProfileDTO,
   ctx: IssueContext,
   withRefresh: boolean,
+  sessionVersion: number,
 ): Promise<SessionEnvelope> {
   const access = await signAccessToken({
     sub: user.id,
     email: user.email,
     role: profile.role,
     isActive: profile.is_active,
+    sv: sessionVersion,
   });
   let refreshToken: string | undefined;
   if (withRefresh) {
-    const issued = await issueRefreshToken(user.id, ctx);
+    const issued = await issueRefreshTokenWithClient(
+      client,
+      user.id,
+      ctx,
+      sessionVersion,
+    );
     refreshToken = issued.rawToken;
   }
   return buildSessionResponse({
@@ -87,6 +106,8 @@ export async function register(
 ): Promise<SessionEnvelope> {
   const email = input.email.trim().toLowerCase();
   const fullName = input.fullName?.trim() || null;
+
+  validateNewPassword(input.password);
 
   const client = await pool.connect();
   try {
@@ -107,10 +128,14 @@ export async function register(
 
     const passwordHash = await hashPassword(input.password);
 
-    const userInsert = await client.query<{ id: string; email: string }>(
+    const userInsert = await client.query<{
+      id: string;
+      email: string;
+      session_version: number;
+    }>(
       `INSERT INTO app_users (email, password_hash, last_login_at)
        VALUES ($1, $2, now())
-       RETURNING id, email::text AS email`,
+       RETURNING id, email::text AS email, session_version`,
       [email, passwordHash],
     );
     const user = userInsert.rows[0];
@@ -123,9 +148,20 @@ export async function register(
     );
     const profile = profileFromRow(profileInsert.rows[0]);
 
+    // Сессия выпускается ДО COMMIT: иначе между «пользователь создан» и
+    // «токен выдан» остаётся окно, в котором сбой оставляет аккаунт без сессии.
+    const envelope = await buildEnvelopeWithTokens(
+      client,
+      { id: user.id, email: user.email },
+      profile,
+      ctx,
+      true,
+      user.session_version,
+    );
+
     await client.query('COMMIT');
 
-    return buildEnvelopeWithTokens(user, profile, ctx, true);
+    return envelope;
   } catch (err) {
     try {
       await client.query('ROLLBACK');
@@ -151,7 +187,7 @@ export async function login(
   const email = input.email.trim().toLowerCase();
 
   const userResult = await pool.query<UserRow>(
-    `SELECT id, email::text AS email, password_hash, deleted_at
+    `SELECT id, email::text AS email, password_hash, deleted_at, session_version
      FROM app_users
      WHERE email = $1`,
     [email],
@@ -164,33 +200,85 @@ export async function login(
     throw INVALID_CREDENTIALS;
   }
 
+  // bcrypt намеренно оставлен ВНЕ транзакции: cost 12 это ~250 мс, и держать
+  // на них блокировку строки вместе с коннектом пула нельзя.
   const ok = await verifyPassword(input.password, user.password_hash);
   if (!ok) {
     throw INVALID_CREDENTIALS;
   }
 
-  const profileResult = await pool.query<ProfileRow>(
-    `SELECT id, full_name, role, is_active
-     FROM profiles
-     WHERE id = $1`,
-    [user.id],
-  );
-  if (profileResult.rowCount === 0) {
-    console.warn('[auth/login] PROFILE_MISSING', user.id, user.email);
-    throw new AppError(500, 'PROFILE_MISSING', 'Профиль пользователя отсутствует.');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Перечитываем пользователя под блокировкой. За те ~250 мс, что считался
+    // bcrypt, пароль мог быть сменён или сброшен: без этой проверки вход по
+    // старому паролю выдал бы действующую сессию уже ПОСЛЕ сброса. Блокировка
+    // держится только на время выпуска токена, порядка миллисекунды.
+    const fresh = await client.query<{
+      password_hash: string | null;
+      deleted_at: Date | null;
+      session_version: number;
+    }>(
+      `SELECT password_hash, deleted_at, session_version
+       FROM app_users
+       WHERE id = $1
+       FOR UPDATE`,
+      [user.id],
+    );
+    if (fresh.rowCount === 0) {
+      throw INVALID_CREDENTIALS;
+    }
+    const current = fresh.rows[0];
+    if (
+      current.deleted_at !== null ||
+      current.password_hash !== user.password_hash
+    ) {
+      throw INVALID_CREDENTIALS;
+    }
+
+    const profileResult = await client.query<ProfileRow>(
+      `SELECT id, full_name, role, is_active
+       FROM profiles
+       WHERE id = $1`,
+      [user.id],
+    );
+    if (profileResult.rowCount === 0) {
+      console.warn('[auth/login] PROFILE_MISSING', user.id, user.email);
+      throw new AppError(
+        500,
+        'PROFILE_MISSING',
+        'Профиль пользователя отсутствует.',
+      );
+    }
+    const profile = profileFromRow(profileResult.rows[0]);
+
+    await client.query(
+      'UPDATE app_users SET last_login_at = now() WHERE id = $1',
+      [user.id],
+    );
+
+    const envelope = await buildEnvelopeWithTokens(
+      client,
+      { id: user.id, email: user.email },
+      profile,
+      ctx,
+      true,
+      current.session_version,
+    );
+
+    await client.query('COMMIT');
+    return envelope;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // транзакция уже могла свернуться — исходную ошибку это не меняет
+    }
+    throw err;
+  } finally {
+    client.release();
   }
-  const profile = profileFromRow(profileResult.rows[0]);
-
-  await pool.query('UPDATE app_users SET last_login_at = now() WHERE id = $1', [
-    user.id,
-  ]);
-
-  return buildEnvelopeWithTokens(
-    { id: user.id, email: user.email },
-    profile,
-    ctx,
-    true,
-  );
 }
 
 export async function refresh(
@@ -225,7 +313,7 @@ export async function refresh(
   }
 
   const userResult = await pool.query<UserRow>(
-    `SELECT id, email::text AS email, password_hash, deleted_at
+    `SELECT id, email::text AS email, password_hash, deleted_at, session_version
      FROM app_users
      WHERE id = $1`,
     [lookup.userId],
@@ -251,14 +339,33 @@ export async function refresh(
   }
   const profile = profileFromRow(profileResult.rows[0]);
 
-  const rotation = await rotateRefreshToken(lookup.id, user.id, ctx);
+  // Второй эшелон к revokeAllForUser: при корректной сериализации выпуска
+  // токенов отставшей по поколению строки быть не должно, но если она всё же
+  // возникнет в гонке — живой сессии по ней не выдаём.
+  if (lookup.sessionVersion !== user.session_version) {
+    throw new AppError(
+      401,
+      'INVALID_REFRESH',
+      'Сессия недействительна. Войдите заново.',
+    );
+  }
 
+  // Подписываем ДО ротации: сбой подписи после неё оставил бы клиента без
+  // рабочего refresh-токена, тогда как неиспользованная подпись безвредна.
   const access = await signAccessToken({
     sub: user.id,
     email: user.email,
     role: profile.role,
     isActive: profile.is_active,
+    sv: user.session_version,
   });
+
+  const rotation = await rotateRefreshToken(
+    lookup.id,
+    user.id,
+    ctx,
+    user.session_version,
+  );
 
   return buildSessionResponse({
     user: { id: user.id, email: user.email },

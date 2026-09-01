@@ -21,7 +21,13 @@ import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptySection } from '@/shared/ui/EmptySection'
 import { useAdminResource } from '@/shared/hooks/useAdminResource'
 import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
+import { PasswordResetsSection } from '@/pages/admin/components/PasswordResetsSection'
+import { ResetLinkModal } from '@/pages/admin/components/ResetLinkModal'
+import { passwordReset } from '@/shared/i18n/ru'
+import { mapAuthError } from '@/services/auth'
 import {
+  issuePasswordResetLink,
+  listPasswordResets,
   listProfiles,
   listProjects,
   listProjectMemberships,
@@ -45,6 +51,29 @@ export function UsersPage() {
   const [assignedIds, setAssignedIds] = useState<string[]>([])
   const [assignLoading, setAssignLoading] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const resetsResource = useAdminResource(useCallback(listPasswordResets, []))
+  const [resetLink, setResetLink] = useState<string | null>(null)
+  const [issuingFor, setIssuingFor] = useState<string | null>(null)
+
+  /**
+   * Выдаёт ссылку. Одна и та же операция и для заявки из очереди, и для
+   * кнопки в строке пользователя — второй случай это «админ инициировал сам».
+   */
+  const issueLink = useCallback(
+    async (userId: string) => {
+      setIssuingFor(userId)
+      try {
+        const { url } = await issuePasswordResetLink(userId)
+        setResetLink(url)
+      } catch (e) {
+        message.error(mapAuthError(e))
+      } finally {
+        setIssuingFor(null)
+        void resetsResource.refresh()
+      }
+    },
+    [message, resetsResource],
+  )
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -167,7 +196,7 @@ export function UsersPage() {
     {
       title: 'Действия',
       key: 'actions',
-      width: 220,
+      width: 320,
       render: (_, user) => (
         <Space size="small" wrap>
           <Button
@@ -182,6 +211,13 @@ export function UsersPage() {
           <Button size="small" onClick={() => openAssign(user)}>
             Проекты
           </Button>
+          <Button
+            size="small"
+            loading={issuingFor === user.id}
+            onClick={() => void issueLink(user.id)}
+          >
+            {passwordReset.rowAction}
+          </Button>
         </Space>
       ),
     },
@@ -190,6 +226,14 @@ export function UsersPage() {
   return (
     <>
       <PageHeader title={nav.adminUsers} subtitle="Активация, ФИО, роли, назначение проектов" />
+
+      <PasswordResetsSection
+        requests={resetsResource.data}
+        loading={resetsResource.loading}
+        onIssue={(userId) => void issueLink(userId)}
+        issuingFor={issuingFor}
+        onChanged={() => void resetsResource.refresh()}
+      />
 
       <Flex gap={12} style={{ marginBottom: 16, flexWrap: 'wrap' }}>
         <Input.Search
@@ -259,7 +303,7 @@ export function UsersPage() {
                     ]}
                   />
                 </Flex>
-                <Flex gap={8} style={{ marginTop: 10 }}>
+                <Flex gap={8} style={{ marginTop: 10, flexWrap: 'wrap' }}>
                   <Button
                     size="small"
                     onClick={() => {
@@ -271,6 +315,13 @@ export function UsersPage() {
                   </Button>
                   <Button size="small" onClick={() => openAssign(user)}>
                     Проекты
+                  </Button>
+                  <Button
+                    size="small"
+                    loading={issuingFor === user.id}
+                    onClick={() => void issueLink(user.id)}
+                  >
+                    {passwordReset.rowAction}
                   </Button>
                 </Flex>
               </Card>
@@ -323,6 +374,7 @@ export function UsersPage() {
           options={projectsResource.data.map((p) => ({ value: p.id, label: p.name }))}
         />
       </Modal>
+      <ResetLinkModal url={resetLink} onClose={() => setResetLink(null)} />
     </>
   )
 }

@@ -8,6 +8,7 @@ import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profile.js';
 import adminProfilesRoutes from './routes/adminProfiles.js';
+import adminPasswordResetsRoutes from './routes/adminPasswordResets.js';
 import projectsRoutes from './routes/projects.js';
 import adminProjectsRoutes from './routes/adminProjects.js';
 import workTypesRoutes from './routes/workTypes.js';
@@ -63,6 +64,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(profileRoutes, { prefix: '/api/profile' });
 
   await app.register(adminProfilesRoutes, { prefix: '/api/admin/profiles' });
+  await app.register(adminPasswordResetsRoutes, {
+    prefix: '/api/admin/password-resets',
+  });
   await app.register(projectsRoutes, { prefix: '/api/projects' });
   await app.register(adminProjectsRoutes, { prefix: '/api/admin/projects' });
 

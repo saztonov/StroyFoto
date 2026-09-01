@@ -12,6 +12,8 @@ import { applyRetention } from '@/services/retention'
 import { usePwaInstall } from '@/shared/hooks/usePwaInstall'
 import { fullSync, type FullSyncProgress } from '@/services/fullSync'
 import { updateMyFullName } from '@/services/auth'
+import { ChangePasswordModal } from '@/pages/settings/components/ChangePasswordModal'
+import { passwordReset } from '@/shared/i18n/ru'
 
 export function SettingsPage() {
   const { message, modal } = App.useApp()
@@ -22,6 +24,7 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<FullSyncProgress | null>(null)
+  const [changingPassword, setChangingPassword] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState('')
   const [savingName, setSavingName] = useState(false)
@@ -180,6 +183,22 @@ export function SettingsPage() {
           </Flex>
         </Card>
 
+        <Card title={passwordReset.sectionTitle}>
+          <Flex vertical gap={12}>
+            <Typography.Text type="secondary">
+              Смена пароля завершает сессии на всех остальных устройствах. Это
+              устройство останется в приложении.
+            </Typography.Text>
+            <Button
+              type="primary"
+              onClick={() => setChangingPassword(true)}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {passwordReset.changeAction}
+            </Button>
+          </Flex>
+        </Card>
+
         <Card title="Приложение">
           <Flex vertical gap={12}>
             {isInstalled ? (
@@ -291,6 +310,11 @@ export function SettingsPage() {
           </Flex>
         </Card>
       </Space>
+
+      <ChangePasswordModal
+        open={changingPassword}
+        onClose={() => setChangingPassword(false)}
+      />
     </>
   )
 }

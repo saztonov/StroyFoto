@@ -10,11 +10,14 @@ import {
 import type { ReactNode } from 'react'
 import { App } from 'antd'
 import {
+  applyAuthSession,
   loadProfile,
   mapAuthError,
   restoreSession,
   signOut as doSignOut,
 } from '@/services/auth'
+import type { SessionResponse } from '@/lib/apiClient'
+import { getLastUserId, setLastUserId } from '@/services/deviceSettings'
 import type { Profile } from '@/entities/profile/types'
 import { setOnUnauthorized } from '@/lib/apiClient'
 import { startSyncLoop, stopSyncLoop } from '@/services/sync'
@@ -36,10 +39,25 @@ interface AuthContextValue {
   loading: boolean
   /** Сообщение об ошибке загрузки профиля. null если профиль ок. */
   profileError: string | null
-  signOut: () => Promise<void>
+  /** @returns false, если пользователь отменил выход в диалоге подтверждения. */
+  signOut: () => Promise<boolean>
   refreshProfile: () => Promise<void>
-  /** Вызывается из формы логина после успешного login/register. */
-  setLocalSession: (user: AuthSessionUser, profile: Profile) => void
+  /**
+   * Принимает сессию на этом устройстве: при необходимости дожидается очистки
+   * данных прежнего владельца и только потом запускает синхронизацию.
+   * Используется логином, регистрацией и сбросом пароля.
+   */
+  adoptSession: (
+    data: SessionResponse,
+    options: { persistent: boolean },
+  ) => Promise<AuthResult>
+  /** Кому принадлежат локальные данные на устройстве (переживает разлогин). */
+  resolveLocalDataOwner: () => Promise<string | null>
+}
+
+export interface AuthResult {
+  user: AuthSessionUser
+  profile: Profile
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -108,30 +126,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const setLocalSession = useCallback(
-    (nextUser: AuthSessionUser, nextProfile: Profile) => {
-      // Если на устройстве уже была сессия другого юзера — wipe всех данных
-      // во избежание cross-user data leak. Внутри setLocalSession это
-      // безопасно: pending очередь предыдущего юзера всё равно ему уже не
-      // принадлежит (он явно вышел или был выкинут по 401).
-      if (previousUserId.current && previousUserId.current !== nextUser.id) {
-        void wipeAllUserData().catch((e) =>
-          console.warn('wipeAllUserData on user switch failed:', e),
-        )
+  /**
+   * Кому принадлежат локальные данные устройства.
+   *
+   * Полагаться на `user === null` нельзя: teardown() после 401 обнуляет
+   * состояние, но НЕ previousUserId, а после перезагрузки страницы пуст и он —
+   * при том что отчёты и фото прежнего пользователя лежат в IDB. Поэтому
+   * владелец дублируется в device_settings и переживает и разлогин, и
+   * перезагрузку.
+   */
+  const resolveLocalDataOwner = useCallback(async (): Promise<string | null> => {
+    if (previousUserId.current) return previousUserId.current
+    return getLastUserId()
+  }, [])
+
+  /**
+   * Общий хвост принятия сессии: очистка чужих данных, фиксация владельца,
+   * состояние и только потом — запуск фоновых циклов.
+   */
+  const adoptResolvedSession = useCallback(
+    async (nextUser: AuthSessionUser, nextProfile: Profile): Promise<AuthResult> => {
+      const owner = previousUserId.current ?? (await getLastUserId())
+
+      if (owner && owner !== nextUser.id) {
+        // ДОЖИДАЕМСЯ очистки. Раньше здесь стоял `void wipeAllUserData()`, и
+        // синхронизация нового пользователя стартовала параллельно с удалением
+        // данных прежнего — а wipe сносит в том числе несинхронизированные
+        // отчёты и фото.
+        try {
+          await wipeAllUserData()
+        } catch (e) {
+          console.warn('wipeAllUserData on user switch failed:', e)
+        }
       }
+
+      try {
+        await setLastUserId(nextUser.id)
+      } catch (e) {
+        console.warn('setLastUserId failed:', e)
+      }
+
       previousUserId.current = nextUser.id
       setUser(nextUser)
       setProfile(nextProfile)
       loadedForUserId.current = nextUser.id
       setProfileError(null)
+
       startSyncLoop()
       startInvalidation(nextUser.id)
       void applyRetention()
+
+      return { user: nextUser, profile: nextProfile }
     },
     [],
   )
 
-  const handleSignOut = useCallback(async () => {
+  const adoptSession = useCallback(
+    async (
+      data: SessionResponse,
+      options: { persistent: boolean },
+    ): Promise<AuthResult> => {
+      const applied = await applyAuthSession(data, options)
+      return adoptResolvedSession(applied.user, applied.profile)
+    },
+    [adoptResolvedSession],
+  )
+
+  const handleSignOut = useCallback(async (): Promise<boolean> => {
     // Если в очереди есть pending — не сжигаем их молча. Спросим юзера:
     // выйти и потерять, или остаться и подождать sync. Без этого был
     // путь потери данных (выход → следующий вход чужого юзера → отправка
@@ -154,7 +215,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           onCancel: () => resolve(false),
         })
       })
-      if (!proceed) return
+      // Отмену возвращаем наверх: UI сброса пароля должен отличать «вышел»
+      // от «передумал», иначе покажет неверный экран.
+      if (!proceed) return false
     }
     try {
       await doSignOut()
@@ -164,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       await teardown()
     }
+    return true
   }, [modal, teardown])
 
   // На любой 401 от любого fetch — выкидываем пользователя.
@@ -184,21 +248,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const restored = await restoreSession()
         if (cancelled || !mounted.current) return
         if (restored) {
-          // Cross-user wipe при первом старте: если в IDB остались данные от
-          // прошлого юзера (например, кто-то закрыл вкладку до явного logout),
-          // удаляем их перед стартом sync под новой сессией.
-          if (previousUserId.current && previousUserId.current !== restored.user.id) {
-            try { await wipeAllUserData() } catch (e) {
-              console.warn('wipeAllUserData on restore failed:', e)
-            }
-          }
-          previousUserId.current = restored.user.id
-          setUser(restored.user)
-          setProfile(restored.profile)
-          loadedForUserId.current = restored.user.id
-          startSyncLoop()
-          startInvalidation(restored.user.id)
-          void applyRetention()
+          // Тот же путь, что и у логина: очистка чужих данных дожидается
+          // завершения до старта синхронизации, владелец фиксируется в IDB.
+          await adoptResolvedSession(restored.user, restored.profile)
         }
       } finally {
         if (!cancelled) setSessionLoading(false)
@@ -209,7 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       mounted.current = false
     }
-  }, [])
+  }, [adoptResolvedSession])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
@@ -236,9 +288,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileError,
       signOut: handleSignOut,
       refreshProfile,
-      setLocalSession,
+      adoptSession,
+      resolveLocalDataOwner,
     }),
-    [user, profile, loading, profileError, handleSignOut, refreshProfile, setLocalSession],
+    [
+      user,
+      profile,
+      loading,
+      profileError,
+      handleSignOut,
+      refreshProfile,
+      adoptSession,
+      resolveLocalDataOwner,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -9,10 +9,19 @@ import {
   refresh,
   register,
 } from '../services/authService.js';
+import {
+  checkResetToken,
+  confirmPasswordReset,
+  requestPasswordReset,
+} from '../services/passwordResetService.js';
 
 const registerSchema = z.object({
   email: z.string().email('Введите корректный email').max(320),
-  password: z.string().min(6, 'Пароль должен быть не короче 6 символов').max(200),
+  // Минимум и границу в 72 байта проверяет validateNewPassword в сервисе:
+  // локальный parseBody ниже схлопывает ошибки схемы в VALIDATION_ERROR, и
+  // отдельный код WEAK_PASSWORD до клиента бы не дошёл. Здесь только грубый
+  // потолок, чтобы не гонять bcrypt по мегабайтному телу.
+  password: z.string().min(1).max(200),
   fullName: z.string().trim().min(1).max(200).optional(),
 });
 
@@ -27,6 +36,20 @@ const refreshSchema = z.object({
 
 const logoutSchema = z.object({
   refresh_token: z.string().min(1).max(512),
+});
+
+const resetRequestSchema = z.object({
+  email: z.string().email().max(320),
+});
+
+const resetTokenSchema = z.object({
+  token: z.string().min(1).max(512),
+});
+
+const resetConfirmSchema = z.object({
+  token: z.string().min(1).max(512),
+  // Границы длины проверяет validateNewPassword — см. passwordPolicy.ts.
+  password: z.string().min(1).max(200),
 });
 
 function ctxFromRequest(request: FastifyRequest): {
@@ -80,6 +103,43 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const body = parseBody(loginSchema, request.body);
     return login(
       { email: body.email, password: body.password },
+      ctxFromRequest(request),
+    );
+  });
+
+  // Лимит жёстче, чем на login: именно per-IP ограничение останавливает
+  // перебор адресов через форму «Забыли пароль?».
+  const resetRequestLimit = {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 minute',
+      },
+    },
+  } as const;
+
+  // ВСЕГДА 202 и один и тот же ответ: существует адрес или нет, активен
+  // профиль или ждёт активации. Иначе форма превращается в проверялку
+  // зарегистрированных адресов.
+  app.post('/password-reset/request', resetRequestLimit, async (request, reply) => {
+    const body = parseBody(resetRequestSchema, request.body);
+    await requestPasswordReset(body.email, ctxFromRequest(request));
+    return reply.code(202).send({ ok: true });
+  });
+
+  // POST, а не GET: токен не попадает во вторую строку access-лога nginx, и
+  // ссылку не может «нажать» превью мессенджера или сканер антивируса.
+  // Обработчик ничего не мутирует и токен не расходует.
+  app.post('/password-reset/check', sensitiveAuthLimit, async (request) => {
+    const body = parseBody(resetTokenSchema, request.body);
+    return checkResetToken(body.token);
+  });
+
+  app.post('/password-reset/confirm', sensitiveAuthLimit, async (request) => {
+    const body = parseBody(resetConfirmSchema, request.body);
+    return confirmPasswordReset(
+      body.token,
+      body.password,
       ctxFromRequest(request),
     );
   });

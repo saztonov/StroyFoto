@@ -28,16 +28,21 @@ async function applySession(
   data: SessionResponse,
   options: { persistent: boolean },
 ): Promise<Profile> {
-  setAccessToken(data.session.access_token, data.session.expires_at)
-  if (data.session.refresh_token) {
-    await saveAuthSession({
-      userId: data.session.user.id,
-      email: data.session.user.email,
-      refreshToken: data.session.refresh_token,
-      refreshExpiresAt: Date.now() + REFRESH_TTL_MS,
-      persistent: options.persistent,
-    })
-  }
+  // Запись refresh-токена и установка access-токена — одной операцией под
+  // общим замком сессии: иначе конкурирующий tryRefresh мог бы вклиниться
+  // между ними и оставить токены от разных сессий.
+  await saveAuthSession(
+    data.session.refresh_token
+      ? {
+          userId: data.session.user.id,
+          email: data.session.user.email,
+          refreshToken: data.session.refresh_token,
+          refreshExpiresAt: Date.now() + REFRESH_TTL_MS,
+          persistent: options.persistent,
+        }
+      : null,
+    () => setAccessToken(data.session.access_token, data.session.expires_at),
+  )
   const profile = profileFromResponse(data.profile)
   void setCachedProfile(profile)
   return profile
@@ -48,26 +53,39 @@ export interface AuthResult {
   profile: Profile
 }
 
+/**
+ * Применяет полученную сессию к устройству.
+ *
+ * Вынесено из signIn/signUp намеренно: решение «принимать эту сессию или нет»
+ * зависит от того, чьи данные лежат на устройстве, а это знание живёт в
+ * AuthProvider. Поэтому сервисы возвращают сырой ответ, а применяет его
+ * adoptSession провайдера.
+ */
+export async function applyAuthSession(
+  data: SessionResponse,
+  options: { persistent: boolean },
+): Promise<AuthResult> {
+  const profile = await applySession(data, options)
+  return { user: data.session.user, profile }
+}
+
 export async function signInWithEmail(
   email: string,
   password: string,
-  rememberMe = true,
-): Promise<AuthResult> {
-  const data = await apiFetch<SessionResponse>('/api/auth/login', {
+): Promise<SessionResponse> {
+  return apiFetch<SessionResponse>('/api/auth/login', {
     method: 'POST',
     body: { email: email.trim(), password },
     auth: false,
   })
-  const profile = await applySession(data, { persistent: rememberMe })
-  return { user: data.session.user, profile }
 }
 
 export async function signUpWithEmail(
   email: string,
   password: string,
   fullName?: string,
-): Promise<AuthResult> {
-  const data = await apiFetch<SessionResponse>('/api/auth/register', {
+): Promise<SessionResponse> {
+  return apiFetch<SessionResponse>('/api/auth/register', {
     method: 'POST',
     body: {
       email: email.trim(),
@@ -76,10 +94,6 @@ export async function signUpWithEmail(
     },
     auth: false,
   })
-  // Регистрация → персистентная сессия: после неё ждём активации, перелогин
-  // на каждое открытие был бы лишним.
-  const profile = await applySession(data, { persistent: true })
-  return { user: data.session.user, profile }
 }
 
 export async function signOut(): Promise<void> {
@@ -94,8 +108,7 @@ export async function signOut(): Promise<void> {
   } catch {
     // даже если сервер недоступен — локально гасим сессию
   } finally {
-    await clearAuthSession()
-    setAccessToken(null, null)
+    await clearAuthSession(() => setAccessToken(null, null))
   }
 }
 
@@ -124,8 +137,7 @@ export async function restoreSession(): Promise<AuthResult | null> {
     })
     return { user: data.session.user, profile }
   } catch {
-    await clearAuthSession()
-    setAccessToken(null, null)
+    await clearAuthSession(() => setAccessToken(null, null))
     return null
   }
 }
@@ -155,6 +167,75 @@ export async function updateMyFullName(fullName: string): Promise<Profile> {
 }
 
 /**
+ * Оставляет заявку на сброс пароля.
+ *
+ * Ответ сервера одинаков и для известного адреса, и для неизвестного — так и
+ * задумано, иначе форма превращается в проверялку зарегистрированных адресов.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiFetch('/api/auth/password-reset/request', {
+    method: 'POST',
+    body: { email: email.trim() },
+    auth: false,
+  })
+}
+
+export interface ResetTokenInfo {
+  email_masked: string
+  expires_at: string
+}
+
+/** Проверяет ссылку перед показом формы. Токен при этом не расходуется. */
+export async function checkResetToken(token: string): Promise<ResetTokenInfo> {
+  return apiFetch<ResetTokenInfo>('/api/auth/password-reset/check', {
+    method: 'POST',
+    body: { token },
+    auth: false,
+    skipRefresh: true,
+  })
+}
+
+/**
+ * Задаёт новый пароль по ссылке.
+ *
+ * Сессию НЕ применяет: решение «принимать её на этом устройстве или нет»
+ * зависит от того, чьи локальные данные тут лежат, и принимается на странице.
+ */
+export async function completePasswordReset(
+  token: string,
+  password: string,
+): Promise<SessionResponse> {
+  return apiFetch<SessionResponse>('/api/auth/password-reset/confirm', {
+    method: 'POST',
+    body: { token, password },
+    auth: false,
+    skipRefresh: true,
+  })
+}
+
+/**
+ * Меняет пароль текущего пользователя.
+ *
+ * Сессию не применяет: сервер погасил ВСЕ токены и выдал новый именно этому
+ * устройству, а принимает его adoptSession провайдера. Режим хранения
+ * возвращается наружу, потому что прочитать его нужно ДО запроса — ответ
+ * перезапишет запись сессии, а session-only сессию нельзя молча «повысить»
+ * до персистентной.
+ */
+export async function changeMyPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ data: SessionResponse; persistent: boolean }> {
+  const stored = await loadAuthSession()
+  const persistent = stored?.persistent ?? true
+  const data = await apiFetch<SessionResponse>('/api/profile/password', {
+    method: 'POST',
+    body: { current_password: currentPassword, new_password: newPassword },
+  })
+  return { data, persistent }
+}
+
+/**
  * Маппинг ошибок ApiError и сети на русские сообщения для UI.
  */
 export function mapAuthError(e: unknown): string {
@@ -162,6 +243,17 @@ export function mapAuthError(e: unknown): string {
     if (e.code === 'INVALID_CREDENTIALS') return errors.invalidCredentials
     if (e.code === 'USER_EXISTS') return errors.userExists
     if (e.code === 'INACTIVE_USER') return errors.emailNotConfirmed ?? e.message
+    if (e.code === 'WEAK_PASSWORD') return errors.weakPassword
+    if (e.code === 'PASSWORD_TOO_LONG') return errors.passwordTooLong
+    if (e.code === 'INVALID_CURRENT_PASSWORD') return errors.invalidCurrentPassword
+    if (e.code === 'PASSWORD_SAME') return errors.passwordSame
+    if (e.code === 'PASSWORD_CHANGED_CONCURRENTLY') {
+      return errors.passwordChangedConcurrently
+    }
+    if (e.code === 'RESET_TOKEN_INVALID') return errors.resetTokenInvalid
+    if (e.code === 'RESET_TOKEN_EXPIRED') return errors.resetTokenExpired
+    if (e.code === 'RESET_TOKEN_USED') return errors.resetTokenUsed
+    if (e.code === 'RESET_ALREADY_CLOSED') return errors.resetAlreadyClosed
     if (e.status === 0 || e.status >= 500) return errors.network
     return e.message || errors.generic
   }

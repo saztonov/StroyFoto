@@ -1,7 +1,8 @@
-import { randomBytes, createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { config } from '../config.js';
+import { AppError } from '../http/errors.js';
+import { generateRawToken, hashToken } from './tokenUtils.js';
 
 export interface IssueContext {
   userAgent?: string | null;
@@ -20,14 +21,7 @@ export interface RefreshLookup {
   expiresAt: Date;
   revokedAt: Date | null;
   replacedBy: string | null;
-}
-
-function generateRawToken(): string {
-  return randomBytes(32).toString('base64url');
-}
-
-function hashToken(rawToken: string): string {
-  return createHash('sha256').update(rawToken).digest('hex');
+  sessionVersion: number;
 }
 
 function parseTtlToSeconds(ttl: string): number {
@@ -46,35 +40,85 @@ function computeExpiresAt(): Date {
   return new Date(Date.now() + seconds * 1000);
 }
 
+/**
+ * sessionVersion передаётся ЯВНО и без значения по умолчанию: выпуск токена со
+ * старым поколением делает бессмысленной всю инвалидацию сессий, а компилятор
+ * при обязательном параметре не даст забыть его ни на одном call site.
+ */
 async function insertRefreshToken(
   client: PoolClient,
   userId: string,
   ctx: IssueContext,
+  sessionVersion: number,
 ): Promise<IssuedRefreshToken> {
   const rawToken = generateRawToken();
   const tokenHash = hashToken(rawToken);
   const expiresAt = computeExpiresAt();
 
   const result = await client.query<{ id: string }>(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO refresh_tokens
+       (user_id, token_hash, expires_at, user_agent, ip, session_version)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id`,
-    [userId, tokenHash, expiresAt, ctx.userAgent ?? null, ctx.ip ?? null],
+    [
+      userId,
+      tokenHash,
+      expiresAt,
+      ctx.userAgent ?? null,
+      ctx.ip ?? null,
+      sessionVersion,
+    ],
   );
 
   return { rawToken, id: result.rows[0].id, expiresAt };
 }
 
+/**
+ * Выпуск токена внутри уже открытой транзакции. Нужен там, где сессия обязана
+ * появиться атомарно вместе с изменением пользователя: регистрация, смена и
+ * сброс пароля. Иначе между COMMIT и выпуском токена остаётся окно, в котором
+ * пользователь уже изменён, а сессии ещё нет.
+ */
+export async function issueRefreshTokenWithClient(
+  client: PoolClient,
+  userId: string,
+  ctx: IssueContext,
+  sessionVersion: number,
+): Promise<IssuedRefreshToken> {
+  return insertRefreshToken(client, userId, ctx, sessionVersion);
+}
+
 export async function issueRefreshToken(
   userId: string,
-  ctx: IssueContext = {},
+  ctx: IssueContext,
+  sessionVersion: number,
 ): Promise<IssuedRefreshToken> {
   const client = await pool.connect();
   try {
-    return await insertRefreshToken(client, userId, ctx);
+    return await insertRefreshToken(client, userId, ctx, sessionVersion);
   } finally {
     client.release();
   }
+}
+
+/**
+ * Гасит ВСЕ активные refresh-токены пользователя — все устройства.
+ *
+ * Это не revokeFamily: тот идёт по одной цепочке ротации и предназначен для
+ * reuse-detection. При смене пароля должны умереть и параллельные цепочки.
+ */
+export async function revokeAllForUser(
+  userId: string,
+  client?: PoolClient,
+): Promise<number> {
+  const runner = client ?? pool;
+  const result = await runner.query(
+    `UPDATE refresh_tokens
+     SET revoked_at = now()
+     WHERE user_id = $1 AND revoked_at IS NULL`,
+    [userId],
+  );
+  return result.rowCount ?? 0;
 }
 
 export async function lookupRefreshToken(
@@ -87,8 +131,9 @@ export async function lookupRefreshToken(
     expires_at: Date;
     revoked_at: Date | null;
     replaced_by: string | null;
+    session_version: number;
   }>(
-    `SELECT id, user_id, expires_at, revoked_at, replaced_by
+    `SELECT id, user_id, expires_at, revoked_at, replaced_by, session_version
      FROM refresh_tokens
      WHERE token_hash = $1`,
     [tokenHash],
@@ -104,6 +149,7 @@ export async function lookupRefreshToken(
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     replacedBy: row.replaced_by,
+    sessionVersion: row.session_version,
   };
 }
 
@@ -115,20 +161,38 @@ export interface RotationResult {
 export async function rotateRefreshToken(
   oldId: string,
   userId: string,
-  ctx: IssueContext = {},
+  ctx: IssueContext,
+  sessionVersion: number,
 ): Promise<RotationResult> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const newToken = await insertRefreshToken(client, userId, ctx);
-    await client.query(
+    const newToken = await insertRefreshToken(
+      client,
+      userId,
+      ctx,
+      sessionVersion,
+    );
+    const revoked = await client.query(
       `UPDATE refresh_tokens
        SET revoked_at = now(),
            replaced_by = $1,
            last_used_at = now()
-       WHERE id = $2 AND revoked_at IS NULL`,
+       WHERE id = $2 AND revoked_at IS NULL
+       RETURNING id`,
       [newToken.id, oldId],
     );
+    // Ноль строк — старый токен успели отозвать: параллельная ротация того же
+    // токена либо revokeAllForUser при смене пароля. Молча закоммитить нельзя:
+    // вставленный выше токен пережил бы отзыв «всех сессий» и сделал бы его
+    // бессмысленным. Бросаем — catch откатит вставку вместе с транзакцией.
+    if (revoked.rowCount === 0) {
+      throw new AppError(
+        401,
+        'INVALID_REFRESH',
+        'Сессия недействительна. Войдите заново.',
+      );
+    }
     await client.query('COMMIT');
     return { newToken, userId };
   } catch (err) {

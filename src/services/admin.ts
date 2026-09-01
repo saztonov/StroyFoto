@@ -4,6 +4,7 @@ import type { Project, ProjectInput } from '@/entities/project/types'
 import type { WorkType } from '@/entities/workType/types'
 import type { Performer, PerformerKind } from '@/entities/performer/types'
 import type { WorkAssignment } from '@/entities/workAssignment/types'
+import type { PasswordResetRequest } from '@/entities/passwordReset/types'
 
 // ---------- Profiles ----------
 export async function listProfiles(): Promise<AdminProfile[]> {
@@ -38,6 +39,41 @@ export async function setProfileRole(id: string, role: Role): Promise<void> {
     method: 'PATCH',
     body: { role },
   })
+}
+
+// ---------- Сброс паролей ----------
+export async function listPasswordResets(): Promise<PasswordResetRequest[]> {
+  const data = await apiFetch<{ requests: PasswordResetRequest[] }>(
+    '/api/admin/password-resets',
+  )
+  return data.requests
+}
+
+/**
+ * Выдаёт одноразовую ссылку. Сырой токен приходит РОВНО ОДИН РАЗ — на сервере
+ * хранится только его хэш, показать повторно нечего.
+ *
+ * Ссылку собираем здесь, а не на сервере: у бэкенда нет надёжного публичного
+ * origin (CORS_ORIGINS — список), а отдельная env-переменная стала бы ещё
+ * одним способом ошибиться при деплое. Токен уходит во fragment: браузер не
+ * отправляет его ни на сервер, ни в Referer, поэтому в access-логе nginx
+ * останется только путь.
+ */
+export async function issuePasswordResetLink(
+  userId: string,
+): Promise<{ request: PasswordResetRequest; url: string }> {
+  const data = await apiFetch<{ request: PasswordResetRequest; token: string }>(
+    '/api/admin/password-resets',
+    { method: 'POST', body: { user_id: userId } },
+  )
+  return {
+    request: data.request,
+    url: `${window.location.origin}/reset-password#token=${data.token}`,
+  }
+}
+
+export async function cancelPasswordReset(id: string): Promise<void> {
+  await apiFetch(`/api/admin/password-resets/${id}/cancel`, { method: 'POST' })
 }
 
 // ---------- Projects ----------

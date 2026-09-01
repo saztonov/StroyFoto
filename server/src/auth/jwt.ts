@@ -8,6 +8,12 @@ export interface AccessPayload {
   email: string;
   role: UserRole;
   isActive: boolean;
+  /**
+   * Поколение сессий на момент выпуска (app_users.session_version).
+   * authenticate сравнивает его с текущим и отвергает отставший токен —
+   * так смена пароля гасит чужие вкладки сразу, а не через ACCESS_TOKEN_TTL.
+   */
+  sv: number;
   typ: 'access';
   exp: number;
 }
@@ -26,6 +32,7 @@ export async function signAccessToken(
     email: payload.email,
     role: payload.role,
     isActive: payload.isActive,
+    sv: payload.sv,
     typ: 'access',
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -61,12 +68,19 @@ export async function verifyAccessToken(token: string): Promise<AccessPayload> {
   if (typeof payload.exp !== 'number') {
     throw new Error('Invalid token expiration');
   }
+  // Токены, выпущенные до появления session_version, claim'а не несут.
+  // Трактуем их как поколение 0 — совпадает с DEFAULT колонки, поэтому
+  // выкладка кода не разлогинивает всех разом.
+  if (payload.sv !== undefined && typeof payload.sv !== 'number') {
+    throw new Error('Invalid token session version');
+  }
 
   return {
     sub: payload.sub,
     email: payload.email,
     role: payload.role,
     isActive: payload.isActive,
+    sv: typeof payload.sv === 'number' ? payload.sv : 0,
     typ: 'access',
     exp: payload.exp,
   };

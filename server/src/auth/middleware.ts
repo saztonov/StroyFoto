@@ -23,11 +23,13 @@ interface UserRow {
   email: string;
   role: UserRole;
   is_active: boolean;
+  session_version: number;
 }
 
 async function loadUser(userId: string): Promise<UserRow | null> {
   const result = await pool.query<UserRow>(
-    `SELECT au.id, au.email::text AS email, p.role, p.is_active
+    `SELECT au.id, au.email::text AS email, p.role, p.is_active,
+            au.session_version
      FROM app_users au
      JOIN profiles p ON p.id = au.id
      WHERE au.id = $1 AND au.deleted_at IS NULL`,
@@ -56,6 +58,14 @@ export const authenticate: preHandlerHookHandler = async (request) => {
 
   const row = await loadUser(payload.sub);
   if (!row) {
+    throw new AppError(401, 'UNAUTHORIZED', 'Необходима авторизация.');
+  }
+
+  // Access-токен stateless, поэтому отзыв refresh-токенов сам по себе его не
+  // гасит: без этой проверки чужая вкладка жила бы ещё до ACCESS_TOKEN_TTL
+  // после смены пароля. Запрос за пользователем и так уже сделан — проверка
+  // бесплатна.
+  if (payload.sv !== row.session_version) {
     throw new AppError(401, 'UNAUTHORIZED', 'Необходима авторизация.');
   }
 

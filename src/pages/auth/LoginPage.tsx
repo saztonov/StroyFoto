@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Flex, Form, Input, Typography } from 'antd'
 import { mapAuthError, signInWithEmail } from '@/services/auth'
-import { actions, auth } from '@/shared/i18n/ru'
+import { actions, auth, passwordReset } from '@/shared/i18n/ru'
 import { useAuth } from '@/app/providers/AuthProvider'
 
 interface FormValues {
@@ -12,7 +12,7 @@ interface FormValues {
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { setLocalSession } = useAuth()
+  const { adoptSession } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,8 +20,10 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const result = await signInWithEmail(values.email, values.password)
-      setLocalSession(result.user, result.profile)
+      const data = await signInWithEmail(values.email, values.password)
+      // Сессию принимает провайдер: он же дожидается очистки данных прежнего
+      // владельца устройства, прежде чем запустить синхронизацию.
+      await adoptSession(data, { persistent: true })
       navigate('/reports', { replace: true })
     } catch (e) {
       setError(mapAuthError(e))
@@ -65,7 +67,11 @@ export function LoginPage() {
         </Button>
       </Form>
 
-      <Flex justify="center" gap={6} style={{ marginTop: 16 }}>
+      <Flex justify="center" style={{ marginTop: 16 }}>
+        <Link to="/forgot-password">{passwordReset.forgotLink}</Link>
+      </Flex>
+
+      <Flex justify="center" gap={6} style={{ marginTop: 8 }}>
         <Typography.Text type="secondary">{auth.noAccount}</Typography.Text>
         <Link to="/register">{actions.signUp}</Link>
       </Flex>

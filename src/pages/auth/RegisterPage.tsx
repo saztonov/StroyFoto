@@ -13,7 +13,7 @@ interface FormValues {
 
 export function RegisterPage() {
   const navigate = useNavigate()
-  const { setLocalSession } = useAuth()
+  const { adoptSession } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,8 +21,10 @@ export function RegisterPage() {
     setError(null)
     setLoading(true)
     try {
-      const result = await signUpWithEmail(values.email, values.password, values.fullName)
-      setLocalSession(result.user, result.profile)
+      const data = await signUpWithEmail(values.email, values.password, values.fullName)
+      // Регистрация → персистентная сессия: дальше ждём активации, и перелогин
+      // на каждое открытие был бы лишним.
+      await adoptSession(data, { persistent: true })
       // Backend всегда сразу возвращает session; проверка активации — на guard'ах.
       navigate('/pending-activation', { replace: true })
     } catch (e) {

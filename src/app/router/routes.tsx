@@ -10,6 +10,8 @@ import { ErrorBoundary } from '@/shared/ui/ErrorBoundary'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { RegisterPage } from '@/pages/auth/RegisterPage'
 import { PendingActivationPage } from '@/pages/auth/PendingActivationPage'
+import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage'
 
 import { ReportsListPage } from '@/pages/reports/ReportsListPage'
 
@@ -62,6 +64,19 @@ export const router = createBrowserRouter([
           { path: '/register', element: <RegisterPage /> },
         ],
       },
+    ],
+  },
+
+  // Восстановление пароля — БЕЗ RequireGuest.
+  // Забывший пароль почти всегда всё ещё держит живой refresh-токен на
+  // телефоне (именно поэтому он полгода и не вводил пароль), а RequireGuest
+  // отправляет любого авторизованного на /reports — ссылка выглядела бы
+  // сломанной. Форма в настройках его тоже не спасёт: ей нужен текущий пароль.
+  {
+    element: <AuthLayout />,
+    children: [
+      { path: '/forgot-password', element: <ForgotPasswordPage /> },
+      { path: '/reset-password', element: <ResetPasswordPage /> },
     ],
   },
 

@@ -1,8 +1,9 @@
 import { env } from '@/shared/config/env'
 import {
   clearAuthSession,
+  getSessionEpoch,
   loadAuthSession,
-  saveAuthSession,
+  saveAuthSessionIfCurrent,
 } from '@/lib/authStorage'
 
 export class ApiError extends Error {
@@ -122,6 +123,9 @@ async function tryRefresh(): Promise<boolean> {
     try {
       const session = await loadAuthSession()
       if (!session?.refreshToken) return false
+      // Поколение фиксируем ДО сетевого запроса: пока он идёт, пароль могли
+      // сменить или сбросить, и наш ответ станет устаревшим.
+      const epoch = getSessionEpoch()
       const url = joinUrl('/api/auth/refresh')
       const res = await fetchWithTimeout(
         url,
@@ -137,19 +141,25 @@ async function tryRefresh(): Promise<boolean> {
       const data = (await res.json()) as SessionResponse
       const refreshExpiresAt =
         Date.now() + 30 /*days*/ * 24 * 60 * 60 * 1000
-      if (data.session.refresh_token) {
-        await saveAuthSession({
-          userId: data.session.user.id,
-          email: data.session.user.email,
-          refreshToken: data.session.refresh_token,
-          refreshExpiresAt,
-          // Прозрачный refresh не должен «повышать» session-only токен
-          // до персистентного. Старые записи без поля считаем persistent: true.
-          persistent: session.persistent ?? true,
-        })
-      }
-      setAccessToken(data.session.access_token, data.session.expires_at)
-      return true
+      // Запись refresh-токена и установка access-токена — одной атомарной
+      // операцией под проверкой поколения. Иначе зависший refresh мог бы
+      // затереть сессию, выданную сбросом пароля, либо оставить refresh от
+      // одной сессии, а access — от другой.
+      return await saveAuthSessionIfCurrent(
+        data.session.refresh_token
+          ? {
+              userId: data.session.user.id,
+              email: data.session.user.email,
+              refreshToken: data.session.refresh_token,
+              refreshExpiresAt,
+              // Прозрачный refresh не должен «повышать» session-only токен
+              // до персистентного. Старые записи без поля считаем persistent: true.
+              persistent: session.persistent ?? true,
+            }
+          : null,
+        epoch,
+        () => setAccessToken(data.session.access_token, data.session.expires_at),
+      )
     } catch {
       return false
     } finally {
@@ -205,8 +215,14 @@ export async function apiFetch<T>(
     options.auth !== false &&
     !options.skipRefresh
   ) {
+    const epochBefore = getSessionEpoch()
     const ok = await tryRefresh()
     if (ok) {
+      res = await performFetch(path, options)
+    } else if (getSessionEpoch() !== epochBefore) {
+      // Сессию сменили параллельно (логин, сброс или смена пароля в другой
+      // вкладке) — наш 401 относится к уже неактуальному токену. Сносить
+      // свежую сессию нельзя, просто повторяем запрос с новым токеном.
       res = await performFetch(path, options)
     } else {
       await clearAuthSession()
