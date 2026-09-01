@@ -230,10 +230,18 @@ export const passwordReset = {
   queueTitle: 'Заявки на сброс пароля',
   queueEmpty: 'Заявок нет',
   issueAction: 'Создать ссылку',
+  reissueAction: 'Сгенерировать новую ссылку',
   cancelAction: 'Отклонить',
   rowAction: 'Сбросить пароль',
   cancelConfirm: 'Отклонить заявку? Выданная ссылка перестанет работать.',
   cancelled: 'Заявка отклонена',
+
+  // Подписи вкладок. Короткие — для мобильной ширины: два полных лейбла
+  // в Segmented не помещаются.
+  tabUsers: (n: number) => `Все пользователи (${n})`,
+  tabUsersShort: (n: number) => `Пользователи (${n})`,
+  tabResets: (n: number) => `Заявки на сброс пароля (${n})`,
+  tabResetsShort: (n: number) => `Сброс пароля (${n})`,
 
   statusPending: 'Ожидает',
   statusIssued: 'Ссылка выдана',
@@ -243,6 +251,8 @@ export const passwordReset = {
   requestedAt: 'Запрошено',
   repeatedTimes: (n: number) => `запрошено ${n} раз`,
   validUntil: (date: string) => `до ${date}`,
+  expiresAt: (date: string) => `Истекает: ${date}`,
+  requestedAtValue: (date: string) => `Запрошено: ${date}`,
 
   linkTitle: 'Ссылка для сброса пароля',
   linkClose: 'Закрыть',

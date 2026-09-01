@@ -9,6 +9,7 @@ import {
   Input,
   List,
   Modal,
+  Segmented,
   Select,
   Space,
   Switch,
@@ -24,6 +25,7 @@ import { useIsDesktop } from '@/shared/hooks/useBreakpoint'
 import { PasswordResetsSection } from '@/pages/admin/components/PasswordResetsSection'
 import { ResetLinkModal } from '@/pages/admin/components/ResetLinkModal'
 import { passwordReset } from '@/shared/i18n/ru'
+import { isOpenRequest } from '@/entities/passwordReset/types'
 import { mapAuthError } from '@/services/auth'
 import {
   issuePasswordResetLink,
@@ -52,6 +54,7 @@ export function UsersPage() {
   const [assignLoading, setAssignLoading] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
   const resetsResource = useAdminResource(useCallback(listPasswordResets, []))
+  const [tab, setTab] = useState<'users' | 'resets'>('users')
   const [resetLink, setResetLink] = useState<string | null>(null)
   const [issuingFor, setIssuingFor] = useState<string | null>(null)
 
@@ -73,6 +76,13 @@ export function UsersPage() {
       }
     },
     [message, resetsResource],
+  )
+
+  // В счётчик вкладки идут только заявки, реально ждущие действия: закрытая
+  // история (used/cancelled) и просроченные ссылки его не раздувают.
+  const openResetCount = useMemo(
+    () => resetsResource.data.filter(isOpenRequest).length,
+    [resetsResource.data],
   )
 
   const filtered = useMemo(() => {
@@ -227,107 +237,145 @@ export function UsersPage() {
     <>
       <PageHeader title={nav.adminUsers} subtitle="Активация, ФИО, роли, назначение проектов" />
 
-      <PasswordResetsSection
-        requests={resetsResource.data}
-        loading={resetsResource.loading}
-        onIssue={(userId) => void issueLink(userId)}
-        issuingFor={issuingFor}
-        onChanged={() => void resetsResource.refresh()}
-      />
-
-      <Flex gap={12} style={{ marginBottom: 16, flexWrap: 'wrap' }}>
-        <Input.Search
-          placeholder="Поиск по ФИО или email"
-          allowClear
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: 320 }}
+      <Flex gap={12} align="center" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* Вкладки, а не карточка над таблицей: иначе таблица съезжает вниз,
+            как только появляется хоть одна заявка. */}
+        <Segmented
+          value={tab}
+          onChange={(v) => setTab(v as 'users' | 'resets')}
+          options={[
+            {
+              value: 'users',
+              label: isDesktop
+                ? passwordReset.tabUsers(usersResource.data.length)
+                : passwordReset.tabUsersShort(usersResource.data.length),
+            },
+            {
+              value: 'resets',
+              label: isDesktop
+                ? passwordReset.tabResets(openResetCount)
+                : passwordReset.tabResetsShort(openResetCount),
+            },
+          ]}
         />
-        <Button onClick={() => void usersResource.refresh()}>Обновить</Button>
+
+        {/* Поиск фильтрует именно пользователей — на вкладке заявок он лишний. */}
+        {tab === 'users' ? (
+          <Input.Search
+            placeholder="Поиск по ФИО или email"
+            allowClear
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ maxWidth: 320 }}
+          />
+        ) : null}
+
+        <Button
+          onClick={() => {
+            // Обновляем оба списка: раньше кнопка не трогала очередь заявок,
+            // и новая заявка появлялась только после перезагрузки страницы.
+            void usersResource.refresh()
+            void resetsResource.refresh()
+          }}
+        >
+          Обновить
+        </Button>
       </Flex>
 
-      {usersResource.error ? (
-        <Alert type="error" showIcon message={usersResource.error} style={{ marginBottom: 16 }} />
-      ) : null}
-
-      {!usersResource.loading && filtered.length === 0 ? (
-        <EmptySection title="Пользователи не найдены" />
-      ) : isDesktop ? (
-        <Table
-          rowKey="id"
-          loading={usersResource.loading}
-          columns={columns}
-          dataSource={filtered}
-          pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          scroll={{ x: 720 }}
-          size="middle"
+      {tab === 'resets' ? (
+        <PasswordResetsSection
+          requests={resetsResource.data}
+          loading={resetsResource.loading}
+          onIssue={(userId) => void issueLink(userId)}
+          issuingFor={issuingFor}
+          onChanged={() => void resetsResource.refresh()}
         />
       ) : (
-        <List
-          loading={usersResource.loading}
-          dataSource={filtered}
-          pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          renderItem={(user) => (
-            <List.Item style={{ padding: '6px 0', border: 'none' }}>
-              <Card size="small" style={{ width: '100%' }}>
-                <Flex justify="space-between" align="center" gap={8}>
-                  <Typography.Text strong ellipsis style={{ flex: 1, minWidth: 0 }}>
-                    {user.full_name || <Tag>не указано</Tag>}
+        <>
+        {usersResource.error ? (
+          <Alert type="error" showIcon message={usersResource.error} style={{ marginBottom: 16 }} />
+        ) : null}
+
+        {!usersResource.loading && filtered.length === 0 ? (
+          <EmptySection title="Пользователи не найдены" />
+        ) : isDesktop ? (
+          <Table
+            rowKey="id"
+            loading={usersResource.loading}
+            columns={columns}
+            dataSource={filtered}
+            pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            scroll={{ x: 720 }}
+            size="middle"
+          />
+        ) : (
+          <List
+            loading={usersResource.loading}
+            dataSource={filtered}
+            pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            renderItem={(user) => (
+              <List.Item style={{ padding: '6px 0', border: 'none' }}>
+                <Card size="small" style={{ width: '100%' }}>
+                  <Flex justify="space-between" align="center" gap={8}>
+                    <Typography.Text strong ellipsis style={{ flex: 1, minWidth: 0 }}>
+                      {user.full_name || <Tag>не указано</Tag>}
+                    </Typography.Text>
+                    <Switch
+                      checked={user.is_active}
+                      loading={savingId === user.id}
+                      onChange={(v) => handleActive(user, v)}
+                      checkedChildren="Акт."
+                      unCheckedChildren="Выкл."
+                    />
+                  </Flex>
+                  <Typography.Text
+                    type="secondary"
+                    ellipsis={{ tooltip: user.email }}
+                    style={{ display: 'block', marginTop: 4 }}
+                  >
+                    {user.email}
                   </Typography.Text>
-                  <Switch
-                    checked={user.is_active}
-                    loading={savingId === user.id}
-                    onChange={(v) => handleActive(user, v)}
-                    checkedChildren="Акт."
-                    unCheckedChildren="Выкл."
-                  />
-                </Flex>
-                <Typography.Text
-                  type="secondary"
-                  ellipsis={{ tooltip: user.email }}
-                  style={{ display: 'block', marginTop: 4 }}
-                >
-                  {user.email}
-                </Typography.Text>
-                <Flex align="center" gap={8} style={{ marginTop: 8 }}>
-                  <Typography.Text type="secondary">Роль:</Typography.Text>
-                  <Select<Role>
-                    value={user.role}
-                    size="small"
-                    style={{ width: 140 }}
-                    disabled={savingId === user.id}
-                    onChange={(v) => handleRole(user, v)}
-                    options={[
-                      { value: 'user', label: 'Пользователь' },
-                      { value: 'admin', label: 'Администратор' },
-                    ]}
-                  />
-                </Flex>
-                <Flex gap={8} style={{ marginTop: 10, flexWrap: 'wrap' }}>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setEditing(user)
-                      editForm.setFieldsValue({ full_name: user.full_name ?? '' })
-                    }}
-                  >
-                    ФИО
-                  </Button>
-                  <Button size="small" onClick={() => openAssign(user)}>
-                    Проекты
-                  </Button>
-                  <Button
-                    size="small"
-                    loading={issuingFor === user.id}
-                    onClick={() => void issueLink(user.id)}
-                  >
-                    {passwordReset.rowAction}
-                  </Button>
-                </Flex>
-              </Card>
-            </List.Item>
-          )}
-        />
+                  <Flex align="center" gap={8} style={{ marginTop: 8 }}>
+                    <Typography.Text type="secondary">Роль:</Typography.Text>
+                    <Select<Role>
+                      value={user.role}
+                      size="small"
+                      style={{ width: 140 }}
+                      disabled={savingId === user.id}
+                      onChange={(v) => handleRole(user, v)}
+                      options={[
+                        { value: 'user', label: 'Пользователь' },
+                        { value: 'admin', label: 'Администратор' },
+                      ]}
+                    />
+                  </Flex>
+                  <Flex gap={8} style={{ marginTop: 10, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setEditing(user)
+                        editForm.setFieldsValue({ full_name: user.full_name ?? '' })
+                      }}
+                    >
+                      ФИО
+                    </Button>
+                    <Button size="small" onClick={() => openAssign(user)}>
+                      Проекты
+                    </Button>
+                    <Button
+                      size="small"
+                      loading={issuingFor === user.id}
+                      onClick={() => void issueLink(user.id)}
+                    >
+                      {passwordReset.rowAction}
+                    </Button>
+                  </Flex>
+                </Card>
+              </List.Item>
+            )}
+          />
+        )}
+        </>
       )}
 
       <Modal
