@@ -8,11 +8,11 @@ import {
   DeleteOutlined,
   PictureOutlined,
 } from '@ant-design/icons'
-import imageCompression from 'browser-image-compression'
 import { v4 as uuid } from 'uuid'
 import { platform } from '@/lib/platform'
 import { isPanoramaByRatio } from '@/shared/lib/isPanorama'
 import { photo360, planMarks } from '@/shared/i18n/ru'
+import { compressPhoto } from '../lib/compressPhoto'
 
 export interface DraftPhoto {
   id: string
@@ -28,20 +28,6 @@ interface Props {
   markedPhotoIds?: ReadonlySet<string>
   value: DraftPhoto[]
   onChange: (next: DraftPhoto[]) => void
-}
-
-async function readDimensions(blob: Blob): Promise<{ width: number; height: number }> {
-  const url = URL.createObjectURL(blob)
-  try {
-    return await new Promise((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
-      img.onerror = reject
-      img.src = url
-    })
-  } finally {
-    URL.revokeObjectURL(url)
-  }
 }
 
 interface PhotoTileProps {
@@ -162,31 +148,13 @@ export function PhotoPicker({ value, onChange, markedPhotoIds }: Props) {
 
       const processOne = async (file: File): Promise<DraftPhoto | null> => {
         try {
-          // Предварительно читаем размеры исходника, чтобы определить 360°-панораму
-          // и сохранить её в более высоком разрешении. Thumb всегда делаем 320 px.
-          const srcDims = await readDimensions(file).catch(() => ({ width: 0, height: 0 }))
-          const isPano = isPanoramaByRatio(srcDims.width, srcDims.height)
-          const compressed = await imageCompression(file, {
-            maxSizeMB: isPano ? 5 : 1.5,
-            maxWidthOrHeight: isPano ? 8192 : 2048,
-            useWebWorker: true,
-            initialQuality: 0.85,
-          })
-          // Превью из уже сжатого файла — значительно быстрее, чем из оригинала.
-          const thumbFile = new File([compressed], file.name, { type: compressed.type })
-          const thumb = await imageCompression(thumbFile, {
-            maxSizeMB: 0.1,
-            maxWidthOrHeight: 320,
-            useWebWorker: true,
-            initialQuality: 0.7,
-          })
-          const dims = await readDimensions(compressed)
+          const { blob, thumbBlob, width, height } = await compressPhoto(file)
           return {
             id: uuid(),
-            blob: compressed,
-            thumbBlob: thumb,
-            width: dims.width,
-            height: dims.height,
+            blob,
+            thumbBlob,
+            width,
+            height,
             takenAt: file.lastModified ? new Date(file.lastModified).toISOString() : null,
           }
         } catch (e) {

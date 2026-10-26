@@ -243,7 +243,14 @@ Edit/delete отчётов используют `baseUpdatedAt` — если с�
 ### Фото pipeline
 
 1. Камера/галерея → `platform.camera`
-2. Сжатие: max 1.5MB/2048px (main) + max 0.1MB/320px (thumb) — Web Worker
+2. Сжатие ([compressPhoto.ts](src/pages/reports/lib/compressPhoto.ts)):
+   - main: 3072px, JPEG 90%, цель 3MB — мягкая: крупнее принимается как есть,
+     при превышении снижается качество, а не разрешение (Web Worker);
+   - JPEG в пределах лимитов и без поворота по EXIF не пересжимается — только
+     вырезаются EXIF/XMP/IPTC (GPS, модель телефона), ICC-профиль остаётся;
+   - 360°-панорамы: 8192px, 5MB, JPEG 85%, всегда пересжатие;
+   - thumb: 360px по короткой стороне (плитки квадратные, cover), не больше
+     1080px по длинной, JPEG 80%, ступенчатое уменьшение на canvas
 3. Сохранение в IDB (origin: 'local', syncStatus: 'pending_upload')
 4. Sync: presigned PUT → Cloud.ru S3 (60с timeout) → upsert `report_photos`
 5. Object keys: `photos/{reportId}/{photoId}.jpg`, `...-thumb.jpg`
